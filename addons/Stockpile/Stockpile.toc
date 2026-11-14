@@ -1,0 +1,12 @@
+## Interface: 16001
+## Title: Stockpile
+## Notes: Counts your items in bags, bank and mail across characters, shows them on tooltips, and shares the counts with other addons.
+## Author: Azhariel
+## Version: 0.1.0
+## SavedVariables: StockpileDB
+## IconTexture: Interface\Icons\INV_Misc_Bag_10
+
+Store.lua
+Core.lua
+API.lua
+Tooltip.lua

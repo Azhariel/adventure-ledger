@@ -6,23 +6,48 @@ deaths, with forecasts. Plus a live view from the combat log while you play.
 
 Two parts:
 
+- **`addons/`**: the in-game half, five addons that record what the dashboard shows.
 - **`dashboard/`**: a Lua builder that reads your SavedVariables and writes one HTML page, and an optional
   Python live server. WoW never loads it.
-- **`addons/LedgerLink/`**: the in-game half. Keeps the combat log on, and keeps Neutral auction house prices
-  apart from your faction's.
 
-It reads the SavedVariables of MuddyBoots, Haul, Make or Buy, Stockpile, DropLab, Auctionator and QuestieDB.
+## Install
 
-## Setup
+1. Install [Lua 5.4](https://www.lua.org/download.html) (`%LOCALAPPDATA%\Programs\Lua\bin\lua.exe` is found on
+   its own) and, for the live view, Python 3.
+2. Double-click **`install.bat`**. It finds WoW Forever (or asks), copies the addons into `Interface\AddOns`,
+   writes `ledger.cfg`, and says which of the other addons below you still need. Run it again after updating
+   to replace the old copies; replaced folders are backed up to `data\addon-backups`. Your saved data (the WTF
+   folder) is never touched. Another WoW folder: `install.bat -Wow "D:\Games\World of Warcraft\_forever_"`.
+3. Optional: put a `wowstats.bat` on your PATH containing `@call "<repo>\bin\wowstats.bat" %*`.
 
-1. Install [Lua 5.4](https://www.lua.org/) (`%LOCALAPPDATA%\Programs\Lua\bin\lua.exe` is found on its own) and,
-   for the live view, Python 3.
-2. Copy `ledger.cfg.example` to `ledger.cfg` and set `wow =` to your `_forever_` folder. Git ignores
-   `ledger.cfg`, and `data/`, where the page, your price logs and the zone maps go: they hold your characters'
-   data.
-3. Link the addon into WoW, so the game runs the repo's copy (no admin rights needed):
-   `mklink /J "<wow>\Interface\AddOns\LedgerLink" "<repo>\addons\LedgerLink"`
-4. Optional: put a `wowstats.bat` on your PATH containing `@call "<repo>\bin\wowstats.bat" %*`.
+### Included addons
+
+| Addon | What it records |
+| --- | --- |
+| Ledger Link | Keeps the combat log on for the Live view; keeps Neutral auction house prices apart from your faction's |
+| Make or Buy | Your recipes and what to craft or buy (Best crafts, restock list, mail to alts) |
+| Stockpile | What each character holds in bags, bank and mail |
+| Haul | Your farming session: loot, coin and XP per hour |
+| DropLab | What each kind of mob drops for you |
+
+### Other addons it reads
+
+These aren't ours to share, so the installer only checks for them:
+
+| Addon | Feeds | Get it |
+| --- | --- | --- |
+| Auctionator | All auction house prices: the Market section, net worth, craft profits | [CurseForge](https://www.curseforge.com/wow/addons/auctionator) |
+| MuddyBoots | Leveling, gold, sessions, zones, quests, deaths: most character modules | From its author, Mookz |
+| QuestieDB | Item names | From the Questie project |
+
+The page builds with whatever is there; a module without its addon says what it's waiting for.
+
+## Develop
+
+`install.bat -Dev` links the addons into WoW (directory junctions, no admin rights) instead of copying them,
+so the game runs the repo's files and a `/reload` picks up your edits. `ledger.cfg` holds your paths (see
+`ledger.cfg.example`); git ignores it and `data/`, where the page, your price logs and the zone maps go, since
+they hold your characters' data.
 
 ## Use
 
@@ -194,7 +219,8 @@ Notes:
 | `dashboard/livelog.py` | Pure: turns combat-log lines into the Live module's picture (you, fights, kills, players around you) |
 | `dashboard/zones.py` | uiMapID → Wowhead zone id, and where the map sits in Wowhead's image |
 | `dashboard/build.bat`, `serve.bat` | Build and open the page; start `server.py` without a console window |
-| `addons/LedgerLink/` | The addon (combat log on at login; Neutral AH price book) |
+| `addons/` | Ledger Link, Make or Buy, Stockpile, Haul, DropLab (each with its own README and tests) |
+| `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
 | `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `neutral_days.txt`, `maps/`, `server.log` |
@@ -204,7 +230,7 @@ Notes:
 ```
 lua dashboard/tests/run.lua
 python dashboard/tests/test_live.py
-lua addons/LedgerLink/tests/run.lua
+cd addons/<Addon> && lua tests/run.lua      # each addon has its own suite
 ```
 
 The tests that run Make or Buy's and DropLab's own code find them through `wow =` in `ledger.cfg`.

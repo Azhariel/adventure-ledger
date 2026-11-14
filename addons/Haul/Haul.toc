@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: Haul
+## Notes: Gold and XP per hour for your farming sessions: coin, quest money and looted items valued at AH or vendor price.
+## Author: Azhariel
+## Version: 0.1.0
+## IconTexture: Interface\Icons\INV_Misc_Coin_01
+## OptionalDeps: Auctionator
+## SavedVariablesPerCharacter: HaulCharDB
+## Category: Inventory
+
+Session.lua
+Core.lua
+UI.lua
