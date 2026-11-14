@@ -135,17 +135,20 @@ function Build.data(wow, opts)
                 market = S.auctionator(auction),
                 stock = sv(c.accountDir, "Stockpile.lua", "StockpileDB"),
                 muddy = sv(c.accountDir, "MuddyBoots.lua", "MuddyBootsDB"),
+                logbook = sv(c.accountDir, "Logbook.lua", "LogbookDB"),
                 droplab = sv(c.accountDir, "DropLab.lua", "DropLabDB"),
                 neutral = S.neutral(U.loadSV(c.accountDir .. "/LedgerLink.lua")),
             }
             -- Neutral scans that reached Auctionator's book before Ledger Link kept them apart (neutral_days.txt)
             acct.market, acct.neutral = I.splitNeutralDays(acct.market, acct.neutral, opts.neutralDays)
+            acct.chars = S.mergeAccountChars(acct.logbook, acct.muddy)
             accounts[c.account] = acct
             markets[#markets + 1] = acct.market
-            groups[#groups + 1] = { muddyChars = acct.muddy and acct.muddy.chars, stockChars = acct.stock and acct.stock.chars,
+            groups[#groups + 1] = { muddyChars = acct.chars, stockChars = acct.stock and acct.stock.chars,
                 market = acct.market, droplab = acct.droplab, neutral = acct.neutral }
         end
-        local muddy = sv(c.dir, "MuddyBoots.lua", "MuddyBootsCharDB")
+        -- the journey: Logbook (ours), with MuddyBoots' history from before Logbook started
+        local muddy = S.mergeJournal(sv(c.dir, "Logbook.lua", "LogbookCharDB"), sv(c.dir, "MuddyBoots.lua", "MuddyBootsCharDB"))
         local haul = sv(c.dir, "Haul.lua", "HaulCharDB")
         local mob = sv(c.dir, "MakeOrBuy.lua", "MakeOrBuyCharDB")
         if muddy or haul or mob then
@@ -156,7 +159,7 @@ function Build.data(wow, opts)
                     stockChar = entry
                 end
             end
-            local accountChar = char.guid and acct.muddy and acct.muddy.chars and acct.muddy.chars[char.guid]
+            local accountChar = char.guid and acct.chars and acct.chars[char.guid]
             local model = M.character({
                 muddy = muddy, haul = haul, mob = mob, stock = stockChar, account = accountChar,
                 market = acct.market, names = names, planner = planner,

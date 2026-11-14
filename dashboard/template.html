@@ -290,7 +290,7 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w7"><div class="ph"><h2>XP sources by level</h2></div><p class="hint">Quests, kills and exploring, per level.</p><div class="chart"><canvas id="xpLevelChart"></canvas></div></article>
       <article class="panel w7"><div class="ph"><h2>Professions</h2></div><p class="hint">Skill over played time.</p><div class="chart"><canvas id="profChart"></canvas></div></article>
       <article class="panel w5"><div class="ph"><h2>Made, cooked and gathered</h2></div><div class="scroll"><table id="craftedTable"></table></div></article>
-      <article class="panel w5"><div class="ph"><h2>How you spend your time</h2></div><p class="hint">From MuddyBoots' activity counters.</p><div class="chart"><canvas id="activityChart"></canvas></div></article>
+      <article class="panel w5"><div class="ph"><h2>How you spend your time</h2></div><p class="hint">From Logbook's activity counters (and MuddyBoots' before it).</p><div class="chart"><canvas id="activityChart"></canvas></div></article>
       <article class="panel w7"><div class="ph"><h2>Zones</h2></div><p class="hint">Time per zone; gaps over 10 minutes count as offline.</p><div id="zoneBars" class="bars"></div></article>
     </section>
 
@@ -936,7 +936,7 @@ function modOverview() {
   el("kpis").innerHTML = [
     kpi("Level", p.level ?? "?", levelNow ? `${dur(levelNow.seconds)} in this level` : ""),
     kpi("Played", dur(p.played), `${p.sessions || 0} sessions logged`),
-    kpi("XP per hour", xpPerHour ? short(xpPerHour) : "?", out && out.rate ? `${short(out.rate)} lately` : "since MuddyBoots started"),
+    kpi("XP per hour", xpPerHour ? short(xpPerHour) : "?", out && out.rate ? `${short(out.rate)} lately` : "since the log started"),
     kpi("Next level", out && out.hours != null ? `≈ ${dur(out.hours * 3600)}` : "?", out ? `${short(out.need)} XP to go` : "Haul saves your XP at each /reload", "fc"),
     kpi(`Level ${MAX_LEVEL}`, lf && lf.total ? `≈ ${dur(lf.total * 3600)}` : p.level >= MAX_LEVEL ? "reached" : "?", lf ? `of play, from ${lf.n} finished levels` : "needs 3 finished levels", "fc"),
     kpi("Gold on hand", money(p.money, { short: true }), `net worth ${moneyText(c.netWorth.total)}`),
@@ -986,7 +986,7 @@ function modProgress() {
   const c = curChar(); if (!c) return;
   charHeader(c);
   const P = PALETTE();
-  const XP_KEYS = [["quest", "Quests"], ["kill", "Kills"], ["discover", "Exploring"], ["other", "Other"]];
+  const XP_KEYS = [["quest", "Quests"], ["kill", "Kills"], ["dungeon", "Dungeons"], ["discover", "Exploring"], ["other", "Other"]];
   const xpTotals = XP_KEYS.map(([k]) => c.xp.totals[k] || 0);
   const xpSum = xpTotals.reduce((a, b) => a + b, 0);
   el("xpHint").textContent = xpSum ? `${short(xpSum)} XP in total` + (c.xp.totals.rested ? `, of which ${short(c.xp.totals.rested)} was rested bonus.` : ".") : "No XP recorded yet.";
@@ -1002,7 +1002,7 @@ function modProgress() {
   const VERB = { made: "Made", cooked: "Cooked", picked: "Picked", caught: "Caught", mined: "Mined", skinned: "Skinned" };
   table("craftedTable", [{ t: "What" }, { t: "Profession" }, { t: "Count", n: 1 }],
     (c.crafted || []).map(r => [`${esc(VERB[r.verb] || r.verb)} ${esc(r.item === "?" ? "fish and junk" : r.item)}`, esc(r.profession || ""), r.count]), "Nothing crafted yet.");
-  const ACT = [["combat", "Combat"], ["travel", "Travel"], ["town", "In town"], ["afk", "AFK"], ["dead", "Dead"]];
+  const ACT = [["combat", "Combat"], ["travel", "Travel"], ["dungeon", "Dungeons"], ["town", "In town"], ["idle", "Idle"], ["afk", "AFK"], ["dead", "Dead"]];
   chart("activityChart", { type: "doughnut", data: { labels: ACT.map(a => a[1]), datasets: [{ data: ACT.map(([k]) => c.activity[k] || 0), backgroundColor: P, borderColor: css("--panel"), borderWidth: 2 }] },
     options: { cutout: "64%", plugins: { legend: { position: "right", labels: { boxHeight: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${dur(ctx.raw)}` } } } } });
   bars("zoneBars", (c.zones || []).slice(0, 10).map(z => ({ label: z.name, value: z.seconds })), dur);
@@ -1149,10 +1149,10 @@ function renderAhTrades(ah) {
   const t = (ah && ah.totals) || { sold: 0, soldCount: 0, bought: 0, boughtCount: 0, deposits: 0, postCount: 0, expiredCount: 0, net: 0 };
   const trades = (ah && ah.trades) || [], items = (ah && ah.items) || [];
   el("ahHint").innerHTML = trades.length
-    ? `From MuddyBoots' auction and mailbox logs: sold <span class="pos">+${money(t.sold, { short: true })}</span> (${t.soldCount} items) · bought <span class="neg">−${money(t.bought, { short: true })}</span> (${t.boughtCount} items)`
+    ? `From the auction and mailbox log: sold <span class="pos">+${money(t.sold, { short: true })}</span> (${t.soldCount} items) · bought <span class="neg">−${money(t.bought, { short: true })}</span> (${t.boughtCount} items)`
       + (t.deposits ? ` · deposits −${money(t.deposits, { short: true })} (${t.postCount} posted${t.expiredCount ? `, ${t.expiredCount} expired` : ""})` : "")
       + ` · net <span class="${t.net >= 0 ? "pos" : "neg"}">${t.net >= 0 ? "+" : ""}${money(t.net, { short: true })}</span>.`
-    : "Purchases, sales, deposits and mail invoices logged by MuddyBoots.";
+    : "Purchases, sales, deposits and mail invoices from Logbook (or MuddyBoots).";
   const modes = [
     ["trades", `All activity (${trades.length})`],
     ["items", `By item (${items.length})`],
@@ -1225,7 +1225,7 @@ function renderRecaps(recaps) {
       ["Deaths", listOf(r.deaths, d => esc(d))],
     ].map(([h, v]) => `<div><h3>${h}</h3><p>${v}</p></div>`).join("");
     return `<details class="session"${i === 0 ? " open" : ""}><summary><span class="when">${day(r.start)}, ${clock(r.start)}–${clock(r.finish)}</span>${stats}</summary><div class="body">${body}</div></details>`;
-  }).join("") || empty("Play with MuddyBoots enabled and log out; sessions show up here.");
+  }).join("") || empty("Play with Logbook enabled and log out; sessions show up here.");
 }
 
 const cap = s => s ? s[0] + s.slice(1).toLowerCase() : "";
@@ -1243,7 +1243,7 @@ function modRoster() {
     kpi("Items", money(t.items, { short: true }), "bags, bank and mail at faction AH prices"),
     kpi("Net worth", money(t.netWorth, { short: true }), "gold plus items"),
   ].join("");
-  el("charsHint").textContent = "From MuddyBoots (level, gold, played) and Stockpile (items). Click a name to open that character."
+  el("charsHint").textContent = "From Logbook or MuddyBoots (level, gold, played) and Stockpile (items). Click a name to open that character."
     + (rows.some(r => !r.detailed) ? " \"No log\": no detailed history yet; log in with that character once." : "");
   table("charsTable", [{ t: "Character" }, { t: "Level", n: 1 }, { t: "Class" }, { t: "Ruleset" }, { t: "Played", n: 1 }, { t: "Gold", n: 1 }, { t: "Items", n: 1 }, { t: "Net worth", n: 1 }, { t: "Last played", n: 1 }],
     rows.map(r => [
@@ -1575,7 +1575,7 @@ function modNeutral() {
 
 function modTrades() {
   const c = curChar(); if (!c) return;
-  el("who").textContent = `${c.profile.fullName || c.profile.name}'s auction house ledger, rebuilt from MuddyBoots' auction, mail and money lines.`;
+  el("who").textContent = `${c.profile.fullName || c.profile.name}'s auction house ledger, rebuilt from the log's auction, mail and money lines.`;
   const t = c.money && c.money.ahTrades && c.money.ahTrades.totals;
   if (t) el("kpis").innerHTML = [
     kpi("Sold", money(t.sold, { short: true }), `${t.soldCount} items`),
@@ -1798,7 +1798,7 @@ function playerLink(name) {
 }
 
 // XP between saves: XP at your last /reload or logout (Haul) plus, for each kill the combat log saw since, the XP that
-// creature gave you last time (MuddyBoots). Quest and exploration XP only show after the next save.
+// creature gave you last time (Logbook or MuddyBoots). Quest and exploration XP only show after the next save.
 function xpEstimate(L, me) {
   const ch = liveCharacter(me), x = ch && ch.xpLive;
   if (!x || x.cur == null || !x.max) return null;
@@ -1947,7 +1947,7 @@ function drawLiveMap(L) {
   const here = me && me.x != null ? [me.x, me.y] : null;
   el("mapHint").textContent = !me ? "Waiting for your position." : !here
     ? "This map's edges aren't in the log yet (they come with each zone change)."
-    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (MuddyBoots). Line: this session. Hover a dot for who it is.";
+    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (Logbook, MuddyBoots). Line: this session. Hover a dot for who it is.";
   el("mapZoom").hidden = !here;
   el("mapZoom").textContent = mapZoom ? "Whole zone" : "Zoom to you";
   // View: the whole zone (it has the canvas' 3:2 shape), or a window centred on you

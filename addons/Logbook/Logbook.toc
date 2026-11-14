@@ -1,0 +1,12 @@
+## Interface: 16001
+## Title: Logbook
+## Notes: Records your journey for the Adventure Ledger: XP and levels, gold by source, kills, quests, deaths, zones, dungeons, professions, sessions and where you've walked.
+## Author: Azhariel
+## Version: 0.1.0
+## IconTexture: Interface\Icons\INV_Misc_Book_11
+## SavedVariables: LogbookDB
+## SavedVariablesPerCharacter: LogbookCharDB
+## OptionalDeps: MuddyBoots
+
+Journal.lua
+Core.lua

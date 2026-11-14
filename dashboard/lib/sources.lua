@@ -131,6 +131,88 @@ function S.parseLog(log)
     return events
 end
 
+-- One character's journey from Logbook (ours) and MuddyBoots, in the shape the model reads (MuddyBoots' shape:
+-- { char, counts, log, sessions, snap, trail }). Logbook takes over at lb.since: MuddyBoots' lines, sessions and
+-- trail from before then are kept, the rest comes from Logbook. Counters are Logbook's plus the MuddyBoots
+-- baseline it copied at its first login (records such as the longest fight take the larger). Either may be nil.
+S.MAX_COUNTERS = { longest = true, hardest = true }
+
+local function lineTime(line)
+    return type(line) == "string" and tonumber(line:match("^(%d+)")) or nil
+end
+
+function S.mergeJournal(lb, mb)
+    if type(lb) ~= "table" then return mb end
+    local since = tonumber(lb.since) or math.huge
+    mb = type(mb) == "table" and mb or {}
+    local out = { char = {}, counts = {}, log = {}, sessions = {}, snap = {}, trail = { v = 1, chunks = {} },
+        since = lb.since, source = mb.log and "Logbook + MuddyBoots" or "Logbook" }
+    for k, v in pairs(mb.char or {}) do out.char[k] = v end
+    for k, v in pairs(lb.char or {}) do out.char[k] = v end
+    out.char.first = (mb.char and mb.char.first) or (lb.baseline and lb.baseline.first) or (lb.char and lb.char.first)
+    for _, line in ipairs(mb.log or {}) do
+        local t = lineTime(line)
+        if t and t < since then out.log[#out.log + 1] = line end
+    end
+    for _, line in ipairs(lb.log or {}) do out.log[#out.log + 1] = line end
+    for _, s in ipairs(mb.sessions or {}) do
+        if type(s) == "table" and (s.start or 0) < since then out.sessions[#out.sessions + 1] = s end
+    end
+    for _, s in ipairs(lb.sessions or {}) do out.sessions[#out.sessions + 1] = s end
+    for lvl, s in pairs(mb.snap or {}) do out.snap[lvl] = s end
+    for lvl, s in pairs(lb.snap or {}) do out.snap[lvl] = s end
+    for _, c in ipairs(mb.trail and mb.trail.chunks or {}) do
+        if type(c) == "table" and (tonumber(c.t) or 0) < since then out.trail.chunks[#out.trail.chunks + 1] = c end
+    end
+    for _, c in ipairs(lb.trail and lb.trail.chunks or {}) do out.trail.chunks[#out.trail.chunks + 1] = c end
+    local function add(src)
+        for group, list in pairs(src or {}) do
+            if type(list) == "table" then
+                local dst = out.counts[group] or {}
+                out.counts[group] = dst
+                for k, v in pairs(list) do
+                    if type(v) == "number" then
+                        if S.MAX_COUNTERS[k] then
+                            dst[k] = math.max(dst[k] or v, v)
+                        else
+                            dst[k] = (dst[k] or 0) + v
+                        end
+                    end
+                end
+            end
+        end
+    end
+    add(lb.baseline and lb.baseline.counts)
+    add(lb.counts)
+    return out
+end
+
+-- Every character's account row ({ [guid] = { name, realm, level, money, played, lastSeen, ... } }): Logbook's
+-- where it has one (field by field, the newer row wins), MuddyBoots' otherwise
+function S.mergeAccountChars(lbDB, mbDB)
+    local out = {}
+    for guid, c in pairs(mbDB and mbDB.chars or {}) do
+        if type(c) == "table" then out[guid] = c end
+    end
+    for guid, c in pairs(lbDB and lbDB.chars or {}) do
+        if type(c) == "table" then
+            local old = out[guid]
+            if old and (old.lastSeen or 0) > (c.lastSeen or 0) then
+                local row = {}
+                for k, v in pairs(c) do row[k] = v end
+                for k, v in pairs(old) do row[k] = v end
+                out[guid] = row
+            else
+                local row = {}
+                for k, v in pairs(old or {}) do row[k] = v end
+                for k, v in pairs(c) do row[k] = v end
+                out[guid] = row
+            end
+        end
+    end
+    return next(out) and out or nil
+end
+
 -- Lists the sub-directories of a folder (Windows `dir`, POSIX `ls` fallback). Overridable in tests.
 function S.listDirs(path)
     local out = {}

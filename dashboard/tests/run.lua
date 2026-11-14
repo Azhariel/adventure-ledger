@@ -727,6 +727,40 @@ test("parseNeutralDays: dates to scan days, comments ignored", function()
     eq(d[k], true); eq(d[k + 1], true); eq(d[S.timeToDay(os.time({ year = 2026, month = 1, day = 1, hour = 12 }))], nil)
 end)
 
+----------------------------------------------------------------------------------------------------
+-- Logbook with MuddyBoots' history
+
+test("mergeJournal: MuddyBoots before Logbook's start, Logbook after; counters add on the baseline", function()
+    local mb = { char = { name = "Azhariel", first = { t = 50, level = 11 } },
+        log = { "100|10|1|2|3|xp|5|kill|Boar", "300|30|1|2|3|xp|7|kill|Boar" },
+        sessions = { { start = 90, last = 120 }, { start = 290, last = 320 } },
+        snap = { [11] = { played = 1, money = 5 }, [12] = { played = 2, money = 9 } },
+        trail = { chunks = { { m = 1, t = 95, d = "0,1,1" }, { m = 1, t = 295, d = "0,2,2" } } },
+        counts = { xp = { all = 999 } } }
+    local lb = { since = 200, char = { name = "Azhariel", level = 12, zone = "Mulgore" },
+        log = { "250|25|1|2|3|xp|9|quest|Q" }, sessions = { { start = 240, last = 260 } },
+        snap = { [12] = { played = 3, money = 11 } }, trail = { chunks = { { m = 1, t = 245, d = "0,3,3" } } },
+        baseline = { counts = { xp = { all = 12, kill = 12 }, fights = { longest = 40 } } },
+        counts = { xp = { all = 9, quest = 9 }, fights = { longest = 30, n = 2 } } }
+    local j = S.mergeJournal(lb, mb)
+    eq(#j.log, 2); eq(j.log[1]:sub(1, 3), "100"); eq(j.log[2]:sub(1, 3), "250")
+    eq(#j.sessions, 2); eq(#j.trail.chunks, 2); eq(j.snap[11].money, 5); eq(j.snap[12].money, 11)
+    eq(j.char.first.level, 11); eq(j.char.zone, "Mulgore"); eq(j.char.level, 12)
+    eq(j.counts.xp.all, 21, "baseline + Logbook, not MuddyBoots' own total"); eq(j.counts.xp.quest, 9)
+    eq(j.counts.fights.longest, 40); eq(j.counts.fights.n, 2)
+    eq(S.mergeJournal(nil, mb), mb)
+    local alone = S.mergeJournal(lb, nil)
+    eq(#alone.log, 1); eq(alone.source, "Logbook")
+end)
+
+test("mergeAccountChars: the newer row wins, field by field", function()
+    local rows = S.mergeAccountChars(
+        { chars = { g1 = { name = "A", money = 50, lastSeen = 200 }, g3 = { name = "C", lastSeen = 1 } } },
+        { chars = { g1 = { name = "A", money = 10, lastSeen = 100, hardcore = false }, g2 = { name = "B" } } })
+    eq(rows.g1.money, 50); eq(rows.g1.hardcore, false); eq(rows.g2.name, "B"); eq(rows.g3.name, "C")
+    eq(S.mergeAccountChars(nil, nil), nil)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

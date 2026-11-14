@@ -109,7 +109,7 @@ if (-not (Test-Path $Cfg)) {
 Say "`nOther addons the dashboard reads (install them yourself; they aren't ours to share):" Cyan
 $others = @(
     @{ Name = "Auctionator"; Why = "auction house prices (the whole Market section)"; Where = "https://www.curseforge.com/wow/addons/auctionator" },
-    @{ Name = "MuddyBoots"; Why = "leveling, gold, sessions, zones, quests, deaths (most character modules)"; Where = "from its author, Mookz" },
+    @{ Name = "MuddyBoots"; Why = "optional: only your history from before Logbook (Logbook records the rest)"; Where = "from its author, Mookz" },
     @{ Name = "QuestieDB"; Why = "item names"; Where = "from the Questie project" }
 )
 foreach ($o in $others) {

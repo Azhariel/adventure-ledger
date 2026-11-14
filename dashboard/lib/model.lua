@@ -721,7 +721,8 @@ function M.character(data)
         profile = {
             name = char.name or acc.name, realm = char.realm, class = char.class or acc.class, race = char.race,
             faction = char.faction or acc.faction, level = level, played = playedNow, money = money,
-            zone = (mb.snap and level and mb.snap[level] and mb.snap[level].zone) or (haul and haul.zone),
+            zone = char.zone or (mb.snap and level and mb.snap[level] and mb.snap[level].zone) or (haul and haul.zone),
+            journal = mb.source or (data.muddy and "MuddyBoots") or nil,
             firstSeen = char.first and char.first.t, lastSeen = acc.lastSeen or (lastSession and lastSession.last),
             sessions = #(mb.sessions or {}),
         },

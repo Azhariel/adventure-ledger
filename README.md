@@ -6,7 +6,7 @@ deaths, with forecasts. Plus a live view from the combat log while you play.
 
 Two parts:
 
-- **`addons/`**: the in-game half, five addons that record what the dashboard shows.
+- **`addons/`**: the in-game half, six addons that record what the dashboard shows.
 - **`dashboard/`**: a Lua builder that reads your SavedVariables and writes one HTML page, and an optional
   Python live server. WoW never loads it.
 
@@ -24,6 +24,7 @@ Two parts:
 
 | Addon | What it records |
 | --- | --- |
+| Logbook | Your journey: XP, levels, gold by source, kills, quests, deaths, zones, dungeons, professions, sessions, trail |
 | Ledger Link | Keeps the combat log on for the Live view; keeps Neutral auction house prices apart from your faction's |
 | Make or Buy | Your recipes and what to craft or buy (Best crafts, restock list, mail to alts) |
 | Stockpile | What each character holds in bags, bank and mail |
@@ -37,10 +38,15 @@ These aren't ours to share, so the installer only checks for them:
 | Addon | Feeds | Get it |
 | --- | --- | --- |
 | Auctionator | All auction house prices: the Market section, net worth, craft profits | [CurseForge](https://www.curseforge.com/wow/addons/auctionator) |
-| MuddyBoots | Leveling, gold, sessions, zones, quests, deaths: most character modules | From its author, Mookz |
+| MuddyBoots | Optional: your history from before Logbook (see below) | From its author, Mookz |
 | QuestieDB | Item names | From the Questie project |
 
 The page builds with whatever is there; a module without its addon says what it's waiting for.
+
+**Moving from MuddyBoots to Logbook.** Keep MuddyBoots enabled for one more login with Logbook installed. That
+login copies MuddyBoots' lifetime counters into Logbook, once. Then you can disable it. The page keeps MuddyBoots'
+log from before Logbook's first login and uses Logbook from then on, so nothing is counted twice. Leave
+MuddyBoots' saved file in `WTF` if you want the older history to stay on the page.
 
 ## Develop
 
@@ -191,8 +197,8 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 
 | Section | Source |
 | --- | --- |
-| Leveling, XP sources, time per level, gold earned/spent, zones, professions, fights, quests, deaths | MuddyBoots' event log and counters (per character) |
-| Gold on hand | MuddyBoots (account file) |
+| Leveling, XP sources, time per level, gold earned/spent, zones, professions, fights, quests, deaths | Logbook's event log and counters (per character), with MuddyBoots' from before Logbook started |
+| Gold on hand | Logbook or MuddyBoots (account file) |
 | Inventory | Stockpile (bags, bank, mail) |
 | Prices, price trends, net worth | Auctionator's price database (today's AH minimum; trend = lowest price per scan day) |
 | Neutral AH prices | Ledger Link (account file), plus any days listed in `neutral_days.txt` |
@@ -203,9 +209,9 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 
 Notes:
 
-- Time before MuddyBoots was installed isn't known: the first level is marked `*` (partial).
+- Time before Logbook (or MuddyBoots) was installed isn't known: the first level is marked `*` (partial).
 - Zone time counts the time between logged events; gaps over 10 minutes and logouts count as offline.
-- Money comes from MuddyBoots' money lines (every change to your gold, by source), so quest gold is counted once.
+- Money comes from the log's money lines (every change to your gold, by source), so quest gold is counted once.
   MuddyBoots sometimes labels an AH sale's gold "mail" (it arrives by mail); when an AH invoice of the same amount
   was logged within 5 seconds of it, it counts under Auction house. "Mail" is then gold from letters, e.g. from other players.
 - Crafts use the AH price after the 5% cut. Vendor sell prices aren't saved outside the game, so the in-game tab can
@@ -219,7 +225,7 @@ Notes:
 | `dashboard/build.lua` | Finds characters under `WTF/Account`, loads each addon's file, writes the page |
 | `dashboard/lib/util.lua` | Binary-safe SavedVariables loader, base64, JSON |
 | `dashboard/lib/cbor.lua` | CBOR decoder (Auctionator's prices and QuestieDB's data are CBOR) |
-| `dashboard/lib/sources.lua` | Readers for QuestieDB names, Auctionator and Ledger Link prices, MuddyBoots log lines |
+| `dashboard/lib/sources.lua` | Readers for QuestieDB names, Auctionator and Ledger Link prices, log lines; joins Logbook with MuddyBoots' history |
 | `dashboard/lib/model.lua` | Pure functions computing every figure on the page |
 | `dashboard/lib/insights.lua` | Pure: market deals, session recaps, items to mail between characters, Faction vs Neutral |
 | `dashboard/template.html` | The page; `build.lua` puts the data where `/*DATA*/null` is |
@@ -227,7 +233,7 @@ Notes:
 | `dashboard/livelog.py` | Pure: turns combat-log lines into the Live module's picture (you, fights, kills, players around you) |
 | `dashboard/zones.py` | uiMapID → Wowhead zone id, and where the map sits in Wowhead's image |
 | `dashboard/build.bat`, `serve.bat` | Build and open the page; start `server.py` without a console window |
-| `addons/` | Ledger Link, Make or Buy, Stockpile, Haul, DropLab (each with its own README and tests) |
+| `addons/` | Logbook, Ledger Link, Make or Buy, Stockpile, Haul, DropLab (each with its own README and tests) |
 | `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
