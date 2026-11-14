@@ -137,11 +137,11 @@ and the build moves them to the Neutral side. A Neutral-only day stands out by i
   timer**, so the Live tab is up to 5 minutes behind; it shows a countdown to the next write. Nothing an addon can do
   writes it sooner (`LoggingCombat(false/true)`, `/combatlog` and `/reload` were all tested, 8 Nov 2026). It shows:
   - **XP to level**, estimated between saves: Haul's XP at your last save plus, for each kill since, the XP that
-    creature gave you last time (MuddyBoots). Quest XP shows after the next /reload. **Kills to level** divides
+    creature gave you last time (Logbook). Quest XP shows after the next /reload. **Kills to level** divides
     what's left by the XP of what you farmed in the last 30 minutes.
   - your zone and position on the **real zone map** (Wowhead's classic map art, downloaded once per zone into
     `data/maps/` by the server; `zones.py` maps uiMapIDs to Wowhead zones and holds the alignment). The line is this
-    session, the faint dots are your earlier visits (MuddyBoots' trail). Hover a dot for who it is; "Zoom to you"
+    session, the faint dots are your earlier visits (Logbook's trail, and MuddyBoots' before it). Hover a dot for who it is; "Zoom to you"
     zooms in.
   - creature names link to Wowhead (npc id from the combat log), and player names link to the WoW Forever armory
     (`PLAYER_URL` in `template.html`).
@@ -161,18 +161,18 @@ Stop it with `wowstats stop`. Its messages go to `data\server.log`. Notes:
 Run it again whenever you want fresh numbers. With several characters, the picker above the menu switches between
 them; **Characters** (under `~/account`) shows every alt side by side (level, class, played, gold, items, net worth, last played),
 net worth and played time per character, and everything you own across all of them with who holds it. Alts that
-only appear in MuddyBoots' account file or in Stockpile are listed too (marked "no log" until they have a detailed
+only appear in Logbook's or MuddyBoots' account file or in Stockpile are listed too (marked "no log" until they have a detailed
 history). The page remembers which view you had open.
 
 Also on the page:
 
 - **Play sessions** (each character): a diary of every session, newest first: time, XP and levels, gold earned and
-  spent, kills, quests, deaths, zones, profession gains, loot, what you made, and Auction House buys & sales. MuddyBoots starts a new piece at
+  spent, kills, quests, deaths, zones, profession gains, loot, what you made, and Auction House buys & sales. The log starts a new piece at
   every reload; pieces less than 30 minutes apart are one session.
 - **Best crafts at saved prices** (each character): click any craft row to inspect its full reagent tree (with unit
   prices, line totals, and sub-craft savings), gross vs net AH sale (after the 5% cut), profit margin, and `1×` / `5×`
   / `10×` batch scaling.
-- **Auction house trades** (each character): reconstructs your AH ledger from MuddyBoots' `ah`, `ma` (mail invoices)
+- **Auction house trades** (each character): reconstructs your AH ledger from the log's `ah`, `ma` (mail invoices)
   and `mn` (money) events — showing total earned, spent on buyouts/bids, posting deposits, net AH balance, chronological
   trades (with buyer/seller names and unit prices), and a **By item** summary (bought, avg buy, sold, avg sell, deposits
   and net per item).
@@ -205,15 +205,16 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 | Best crafts | Make or Buy's saved recipes, priced by Make or Buy's own `Planner.lua` on Auctionator's prices |
 | Restock list, Haul session | Make or Buy, Haul |
 | Drop rates | DropLab (account file), with DropLab's `Stats.lua` |
-| Item names | QuestieDB's item data, Haul's loot links, MuddyBoots' loot log, recipe names |
+| Item names | QuestieDB's item data, Haul's loot links, the log's loot lines, recipe names |
 
 Notes:
 
 - Time before Logbook (or MuddyBoots) was installed isn't known: the first level is marked `*` (partial).
 - Zone time counts the time between logged events; gaps over 10 minutes and logouts count as offline.
 - Money comes from the log's money lines (every change to your gold, by source), so quest gold is counted once.
-  MuddyBoots sometimes labels an AH sale's gold "mail" (it arrives by mail); when an AH invoice of the same amount
-  was logged within 5 seconds of it, it counts under Auction house. "Mail" is then gold from letters, e.g. from other players.
+  Logbook files an AH sale's gold under Auction house. MuddyBoots' older log sometimes labels it "mail" (it arrives
+  by mail); when an AH invoice of the same amount was logged within 5 seconds of it, it counts under Auction house.
+  "Mail" is then gold from letters, e.g. from other players.
 - Crafts use the AH price after the 5% cut. Vendor sell prices aren't saved outside the game, so the in-game tab can
   differ when the vendor price is higher.
 - Items the AH has never seen are listed but not valued.
