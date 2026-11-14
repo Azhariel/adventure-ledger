@@ -203,7 +203,49 @@ footer { color: var(--dim); font: 12px var(--mono); margin-top: 22px; }
   .main { padding: 16px 16px 32px; }
   input.search { min-width: 0; width: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+/* ------------------------------------------------------------- motion: each effect answers an action or shows data arriving */
+:root { --ease-out: cubic-bezier(.22, 1, .36, 1); }
+nav.menu { position: relative; }
+.navind { position: absolute; left: 0; top: 0; width: 2px; height: 0; border-radius: 2px; background: var(--pink);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--pink) 70%, transparent); pointer-events: none;
+  transition: top .38s var(--ease-out), height .38s var(--ease-out); }
+.grp button { transition: color .15s, background-color .15s; }
+.grp button[aria-current="page"] { border-left-color: transparent; }
+.seg { position: relative; }
+.seg .thumb { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--raise); z-index: 0;
+  transition: left .32s var(--ease-out), width .32s var(--ease-out); }
+.seg button { position: relative; z-index: 1; transition: color .15s; }
+.seg button[aria-pressed="true"] { background: none; }
+.chip, input.search, select, button.link, a.wh { transition: color .15s, border-color .15s, background-color .15s, text-decoration-color .15s; }
+tr.pick td { transition: background-color .12s; }
+/* the module opening: panels settle in, one after another */
+.rise { animation: rise .55s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+/* sparklines draw themselves when a table first appears (not on every keystroke in its search box) */
+table.anim svg.spark polyline { stroke-dasharray: 1; animation: draw 1s var(--ease-out) both; animation-delay: .25s; }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+/* the row you clicked */
+tr.flash td { animation: flash .8s ease-out; }
+@keyframes flash { from { background: color-mix(in srgb, var(--pink) 28%, var(--panel)); } }
+/* the combat log is fresh */
+.dot.on { animation: pulse 2s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(80, 250, 123, .55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(80, 250, 123, 0); } }
+/* a light that follows the pointer across a panel, and lifts its edge */
+.panel { position: relative; isolation: isolate; }
+@media (hover: hover) {
+  .panel::before, .panel::after { content: ""; position: absolute; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity .35s; }
+  .panel::before { inset: 0; z-index: -1;
+    background: radial-gradient(560px circle at var(--mx, 50%) var(--my, 50%), rgba(189, 147, 249, .07), transparent 45%); }
+  .panel::after { inset: -1px; padding: 1px;
+    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 121, 198, .5), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+  .panel:hover::before, .panel:hover::after { opacity: 1; }
+}
+@media (max-width: 860px) { .navind { display: none; } .grp button[aria-current="page"] { border-bottom-color: var(--pink); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
 </style>
 </head>
 <body>
@@ -224,6 +266,7 @@ footer { color: var(--dim); font: 12px var(--mono); margin-top: 22px; }
     <header class="top">
       <div><div class="crumb" id="crumb"></div><h1 id="title">Adventure Ledger</h1></div>
       <div class="seg" id="houseSeg" role="group" aria-label="Auction house" hidden>
+        <span class="thumb" aria-hidden="true"></span>
         <button type="button" data-house="faction" aria-pressed="true"><i style="background:var(--faction)"></i>Faction AH</button>
         <button type="button" data-house="neutral" aria-pressed="false"><i style="background:var(--neutral)"></i>Neutral AH</button>
       </div>
@@ -418,6 +461,33 @@ const empty = msg => `<div class="empty">${esc(msg)}</div>`;
 
 
 const charts = [];
+const MOTION = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isForecast = ds => /forecast|projected|band|trend|next level/i.test((ds && ds.label) || "");
+// Lines trace left to right, point by point; forecasts start once the history has finished drawing.
+// Bars grow from the axis in a quick cascade; rings sweep round.
+function chartMotion(config) {
+  if (!MOTION) return false;
+  const T = 700;
+  if (config.type === "line" || config.type === "scatter") {
+    const step = ctx => T / Math.max(1, (ctx.dataset.data || []).length);
+    const start = ctx => (isForecast(ctx.dataset) ? T + 150 : 0) + ctx.index * step(ctx);
+    const fromY = ctx => {
+      const meta = ctx.chart.getDatasetMeta(ctx.datasetIndex);
+      if (ctx.index === 0) return isForecast(ctx.dataset) && meta.data[0] ? meta.data[0].getProps(["y"], true).y : ctx.chart.chartArea.bottom;
+      const prev = meta.data[ctx.index - 1];
+      return prev ? prev.getProps(["y"], true).y : ctx.chart.chartArea.bottom;
+    };
+    return {
+      x: { type: "number", easing: "linear", duration: ctx => step(ctx), from: NaN,
+        delay: ctx => { if (ctx.type !== "data" || ctx.xStarted) return 0; ctx.xStarted = true; return start(ctx); } },
+      y: { type: "number", easing: "linear", duration: ctx => step(ctx), from: fromY,
+        delay: ctx => { if (ctx.type !== "data" || ctx.yStarted) return 0; ctx.yStarted = true; return start(ctx); } },
+    };
+  }
+  if (config.type === "doughnut") return { duration: 800, easing: "easeOutQuart" };
+  return { duration: 650, easing: "easeOutQuart",
+    delay: ctx => ctx.type === "data" && ctx.mode === "default" ? Math.min(600, ctx.dataIndex * 16 + ctx.datasetIndex * 70) : 0 };
+}
 function chart(id, config, list = charts) {
   const ctx = el(id);
   if (!ctx || typeof Chart === "undefined") return null;
@@ -425,7 +495,7 @@ function chart(id, config, list = charts) {
   Chart.defaults.font.family = css("--mono") || "Consolas, monospace";
   Chart.defaults.font.size = 11;
   const opts = config.options || {};
-  opts.responsive = true; opts.maintainAspectRatio = false; opts.animation = false;
+  opts.responsive = true; opts.maintainAspectRatio = false; opts.animation = chartMotion(config);
   opts.plugins = opts.plugins || {};
   opts.plugins.legend = Object.assign({ labels: {} }, opts.plugins.legend || {});
   opts.plugins.legend.labels = Object.assign({ color: css("--fg"), boxWidth: 12, boxHeight: 3, font: { family: css("--sans"), size: 12 } }, opts.plugins.legend.labels || {});
@@ -443,6 +513,29 @@ function chart(id, config, list = charts) {
 }
 const alpha = (hex, a) => { const h = hex.replace("#", ""); const n = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
   return `rgba(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}, ${a})`; };
+
+// Counts every number inside the KPI values up from zero, keeping their format (9g 38s, 5,262, +112%, 2d 5h)
+function countUp(root) {
+  if (!MOTION || !root) return;
+  const items = [];
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (walk.nextNode()) {
+    const n = walk.currentNode;
+    if (/\d/.test(n.nodeValue) && n.parentElement && n.parentElement.closest(".value")) items.push({ n, parts: n.nodeValue.split(/(\d[\d,]*(?:\.\d+)?)/) });
+  }
+  if (!items.length) return;
+  const like = (s, f) => {
+    const dec = (s.split(".")[1] || "").length, v = parseFloat(s.replace(/,/g, "")) * f;
+    return s.includes(",") ? v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec }) : v.toFixed(dec);
+  };
+  const t0 = performance.now(), D = 850, ease = t => 1 - Math.pow(1 - t, 4);
+  const frame = now => {
+    const k = Math.min(1, (now - t0) / D), f = ease(k);
+    for (const it of items) it.n.nodeValue = it.parts.map((p, i) => i % 2 ? (k < 1 ? like(p, f) : p) : p).join("");
+    if (k < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
 
 const kpi = (label, value, note, cls = "") => `<div class="kpi ${cls}"><div class="label">${esc(label)}</div><div class="value">${value}</div><div class="note">${note || "&nbsp;"}</div></div>`;
 
@@ -532,6 +625,8 @@ function table(id, head, rows, emptyMsg, opts = {}) {
     dir: prev.dir || (opts.defaultDir ?? -1),
     query: input ? input.value.trim() : (prev.query || ""),
   };
+  const node = el(id);
+  if (node) node.classList.toggle("anim", MOTION);
   drawTable(id);
 }
 
@@ -542,7 +637,7 @@ function spark(points) {
   const up = vals[vals.length - 1] >= vals[0];
   const chg = vals[0] > 0 ? (vals[vals.length - 1] - vals[0]) / vals[0] : 0;
   const title = points.map(p => `${new Date(p.t * 1000).toLocaleDateString()}: ${moneyText(p.low)}`).join("\n");
-  return `<svg class="spark" data-sort="${chg.toFixed(4)}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(title)}</title><polyline fill="none" stroke="${up ? css("--good") : css("--bad")}" stroke-width="1.6" points="${xy.join(" ")}"/></svg>`;
+  return `<svg class="spark" data-sort="${chg.toFixed(4)}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(title)}</title><polyline pathLength="1" fill="none" stroke="${up ? css("--good") : css("--bad")}" stroke-width="1.6" points="${xy.join(" ")}"/></svg>`;
 }
 
 const lastOf = a => a && a.length ? a[a.length - 1] : null;
@@ -675,6 +770,8 @@ function badge(m) {
 }
 
 function drawNav() {
+  const prev = el("nav").querySelector(".navind");
+  const prevTop = prev ? prev.style.top : null, prevH = prev ? prev.style.height : null;
   const groups = {};
   for (const m of MODULES) if (available(m)) (groups[m.group] = groups[m.group] || []).push(m);
   el("nav").innerHTML = Object.entries(groups).map(([g, list]) => `<div class="grp"><span>${GROUPS[g]}</span>${list.map(m => {
@@ -685,6 +782,32 @@ function drawNav() {
   }).join("")}</div>`).join("");
   const on = el("nav").querySelector("[aria-current]");
   if (on && matchMedia("(max-width: 860px)").matches) el("nav").scrollLeft = on.offsetLeft - 16;
+  // the pink bar slides from the module you left to the one you opened
+  const ind = document.createElement("span");
+  ind.className = "navind"; ind.setAttribute("aria-hidden", "true");
+  el("nav").appendChild(ind);
+  if (!on) { ind.style.height = "0"; return; }
+  const place = () => { ind.style.top = on.offsetTop + 6 + "px"; ind.style.height = on.offsetHeight - 12 + "px"; };
+  if (prevTop && MOTION) {
+    ind.style.transition = "none"; ind.style.top = prevTop; ind.style.height = prevH;
+    void ind.offsetWidth; ind.style.transition = ""; requestAnimationFrame(place);
+  } else place();
+}
+
+function placeThumb() {
+  const seg = el("houseSeg"), b = seg.querySelector('button[aria-pressed="true"]'), t = seg.querySelector(".thumb");
+  if (!b || !t || seg.hidden) return;
+  t.style.left = b.offsetLeft + "px"; t.style.width = b.offsetWidth + "px";
+}
+
+// One orchestrated moment per module: the KPI strip, then each panel in reading order
+function reveal() {
+  if (!MOTION) return;
+  const mod = document.querySelector(`section.mod[data-mod="${route}"]`);
+  const list = [el("kpis")].concat([...mod.querySelectorAll(":scope > .panel, :scope > .slot > .panel, :scope > .w12")]).filter(n => n && !n.hidden && n.offsetParent !== null);
+  list.forEach((n, i) => { n.classList.remove("rise"); n.style.setProperty("--i", Math.min(i, 9)); });
+  void mod.offsetWidth;
+  list.forEach(n => n.classList.add("rise"));
 }
 
 function drawSys() {
@@ -721,9 +844,10 @@ function go(key, opts = {}) {
   const insp = el("inspector");
   if (slot) { slot.appendChild(insp); insp.hidden = false; } else { inspCharts.splice(0).forEach(ch => ch.destroy()); insp.hidden = true; document.body.appendChild(insp); }
   drawNav();
+  placeThumb();
   RENDER[route]();
   if (typeof Chart === "undefined") document.querySelectorAll(".chart").forEach(n => n.innerHTML = empty("Charts need an internet connection to load Chart.js."));
-  if (!opts.keepScroll) window.scrollTo(0, 0);
+  if (!opts.keepScroll) { window.scrollTo(0, 0); reveal(); countUp(el("kpis")); }
 }
 
 function selectChar(id) {
@@ -1529,6 +1653,7 @@ document.addEventListener("click", e => {
       const col = Number(th.dataset.col);
       if (st.col === col) st.dir = -st.dir;
       else { st.col = col; st.dir = st.head[col] && st.head[col].n ? -1 : 1; }
+      tbl.classList.remove("anim");
       drawTable(tbl.id);
     }
     return;
@@ -1552,13 +1677,31 @@ document.addEventListener("click", e => {
   const row = e.target.closest("tr.pick");
   if (row && !e.target.closest("a") && el("inspector").parentElement.classList.contains("slot")) {
     inspect(Number(row.dataset.id));
+    row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
     el("inspector").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }
 });
 document.addEventListener("input", e => {
   const inp = e.target.closest("input[data-table]");
-  if (inp && tableState[inp.dataset.table]) { tableState[inp.dataset.table].query = inp.value.trim(); drawTable(inp.dataset.table); }
+  if (inp && tableState[inp.dataset.table]) {
+    tableState[inp.dataset.table].query = inp.value.trim();
+    el(inp.dataset.table).classList.remove("anim");
+    drawTable(inp.dataset.table);
+  }
 });
+if (matchMedia("(hover: hover)").matches) {
+  let lit = null;
+  document.addEventListener("pointermove", e => {
+    const p = e.target.closest ? e.target.closest(".panel") : null;
+    if (!p) return;
+    lit = lit || requestAnimationFrame(() => {
+      lit = null;
+      const r = p.getBoundingClientRect();
+      p.style.setProperty("--mx", `${e.clientX - r.left}px`); p.style.setProperty("--my", `${e.clientY - r.top}px`);
+    });
+  }, { passive: true });
+}
+window.addEventListener("resize", placeThumb);
 window.addEventListener("hashchange", () => { const k = location.hash.replace(/^#\/?/, ""); if (k && k !== route) go(k); });
 
 // ------------------------------------------------------------------ Live (server.py only)

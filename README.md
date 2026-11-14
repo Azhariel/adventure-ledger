@@ -37,6 +37,14 @@ character picked above the menu), `~/account` (Characters, Inventory, Mail to al
 remembers the module (`dashboard.html#/stockpile`). Colours are Dracula, with fixed roles: **cyan = Faction AH,
 orange = Neutral AH, pink dashes and band = a forecast**.
 
+### Motion
+
+Each effect answers something you did or shows data arriving: charts trace in from the left, with the pink
+forecast extending once the history has drawn; a pink bar slides between modules and a thumb slides in the
+Faction / Neutral switch; panels settle in when a module opens; KPI numbers count up; a soft light follows the
+pointer across panels; sparklines draw in when a table first appears; the clicked row flashes; the Live dot pulses
+while the combat log is fresh. All of it switches off with the system's reduce-motion setting.
+
 ### Forecasts
 
 - **Prices and stockpile value**: damped Holt (level plus a trend that fades, phi 0.85) on log daily lows, its
