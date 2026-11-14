@@ -370,7 +370,7 @@ tr.flash td { animation: flash .8s ease-out; }
         </ol>
         <p class="hint" style="margin-top:10px"><code>/ledger neutral both</code> also lets the scans reach Auctionator; <code>/ledger neutral off</code> stops keeping them apart. Faction prices from before this update may still include a Neutral scan on days you visited one.</p></article>
       <div class="w12 slot"></div>
-      <article class="panel w12" id="gapPanel"><div class="ph"><h2>Price gap by item</h2></div><p class="hint">Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view keeps items with 5 or more listed at both houses.</p>
+      <article class="panel w12" id="gapPanel"><div class="ph"><h2>Price gap by item</h2><span class="meta" id="gapMeta"></span></div><p class="hint">Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view keeps items with 5 or more listed at both houses.</p>
         <div class="toolbar"><div class="chips" id="gapChips"></div><input type="search" class="search" data-table="gapTable" placeholder="Filter items"></div>
         <div class="scroll tall"><table id="gapTable"></table></div></article>
       <article class="panel w6" id="gapDistPanel"><div class="ph"><h2>How far apart the houses are</h2></div><p class="hint">Items by price gap. Orange: Neutral dearer; cyan: Neutral cheaper.</p><div class="chart tall"><canvas id="gapChart"></canvas></div></article>
@@ -419,6 +419,10 @@ tr.flash td { animation: flash .8s ease-out; }
 
 <script>
 const DATA = /*DATA*/null;
+const NUM = new Intl.NumberFormat();
+const DATETIME = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const DAYFMT = new Intl.DateTimeFormat();
+const MONTHDAY = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const PALETTE = () => ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"].map(css);
@@ -440,7 +444,7 @@ function money(copper, opts = {}) {
   const neg = copper < 0; let c = Math.abs(Math.round(copper));
   const g = Math.floor(c / 10000), s = Math.floor(c / 100) % 100; c = c % 100;
   const parts = [];
-  if (g) parts.push(`${g.toLocaleString()}<span class="g">g</span>`);
+  if (g) parts.push(`${NUM.format(g)}<span class="g">g</span>`);
   if (g || s) parts.push(`${s}<span class="s">s</span>`);
   if (!opts.short || !g) parts.push(`${c}<span class="c">c</span>`);
   return `<span class="coin${neg ? " neg" : ""}" data-sort="${Math.round(copper)}">${neg ? "-" : ""}${parts.join(" ")}</span>`;
@@ -455,34 +459,74 @@ function dur(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor(sec / 3600) % 24, m = Math.floor(sec / 60) % 60;
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
-const date = t => t ? new Date(t * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-const short = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? (n / 1e3).toFixed(1) + "k" : Math.round(n || 0).toLocaleString();
+const date = t => t ? DATETIME.format(new Date(t * 1000)) : "";
+const short = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? (n / 1e3).toFixed(1) + "k" : NUM.format(Math.round(n || 0));
 const empty = msg => `<div class="empty">${esc(msg)}</div>`;
 
 
 const charts = [];
 const MOTION = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 const isForecast = ds => /forecast|projected|band|trend|next level/i.test((ds && ds.label) || "");
-// Lines trace left to right, point by point; forecasts start once the history has finished drawing.
+// Lines and their fills are drawn whole and uncovered from the left by one clip that sweeps across the plot: a
+// single eased value per frame, so it stays smooth however many points there are. History sits left of "now" and
+// forecasts right of it, so the sweep crosses the history, rests a beat at now, then carries on into the
+// forecast. One clip for every dataset keeps area fills (drawn in Chart.js's own pass) moving with their lines.
 // Bars grow from the axis in a quick cascade; rings sweep round.
+const REVEAL = { history: 950, rest: 120, forecast: 650 };
+const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const revealPlugin = {
+  id: "reveal",
+  beforeInit(chart) {
+    // the clock starts at the first painted frame, so a slow module can't use the sweep up before it shows
+    const r = chart.$reveal = { t0: null, done: false };
+    requestAnimationFrame(t => { r.t0 = t; if (chart.canvas) chart.draw(); });
+  },
+  beforeDatasetsDraw(chart) {
+    const r = chart.$reveal;
+    if (!r || r.done) return;
+    const a = chart.chartArea, g = chart.ctx;
+    let x = a.left - 10;
+    if (r.t0 != null) {
+      if (r.split == null) {
+        // where "now" is: the right-most point of anything that isn't a forecast
+        let mx = a.left;
+        chart.data.datasets.forEach((ds, i) => {
+          if (isForecast(ds)) return;
+          for (const p of chart.getDatasetMeta(i).data) if (p && isFinite(p.x)) mx = Math.max(mx, p.x);
+        });
+        r.split = Math.min(a.right, mx);
+        r.fc = chart.data.datasets.some(isForecast) && r.split < a.right - 4;
+      }
+      const t = performance.now() - r.t0, H = REVEAL.history, R = REVEAL.rest, F = REVEAL.forecast;
+      const ease = (from, to, k) => from + (to - from) * easeInOut(Math.max(0, Math.min(1, k)));
+      x = t < H ? ease(a.left - 10, r.split + 8, t / H)
+        : !r.fc ? a.right + 20
+        : t < H + R ? r.split + 8
+        : ease(r.split + 8, a.right + 20, (t - H - R) / F);
+    }
+    g.save();
+    g.beginPath();
+    g.rect(a.left - 10, a.top - 10, Math.max(0, x - (a.left - 10)), a.bottom - a.top + 20);
+    g.clip();
+    r.clipped = true;
+  },
+  afterDatasetsDraw(chart) {
+    const r = chart.$reveal;
+    if (r && r.clipped) { chart.ctx.restore(); r.clipped = false; }
+  },
+  afterDraw(chart) {
+    const r = chart.$reveal;
+    if (!r || r.done || r.t0 == null) return;
+    const end = r.t0 + REVEAL.history + (r.fc ? REVEAL.rest + REVEAL.forecast : 0);
+    if (performance.now() >= end) { r.done = true; chart.draw(); return; }
+    if (!r.frame) r.frame = requestAnimationFrame(() => { r.frame = 0; if (chart.canvas) chart.draw(); });
+  },
+};
 function chartMotion(config) {
   if (!MOTION) return false;
-  const T = 700;
   if (config.type === "line" || config.type === "scatter") {
-    const step = ctx => T / Math.max(1, (ctx.dataset.data || []).length);
-    const start = ctx => (isForecast(ctx.dataset) ? T + 150 : 0) + ctx.index * step(ctx);
-    const fromY = ctx => {
-      const meta = ctx.chart.getDatasetMeta(ctx.datasetIndex);
-      if (ctx.index === 0) return isForecast(ctx.dataset) && meta.data[0] ? meta.data[0].getProps(["y"], true).y : ctx.chart.chartArea.bottom;
-      const prev = meta.data[ctx.index - 1];
-      return prev ? prev.getProps(["y"], true).y : ctx.chart.chartArea.bottom;
-    };
-    return {
-      x: { type: "number", easing: "linear", duration: ctx => step(ctx), from: NaN,
-        delay: ctx => { if (ctx.type !== "data" || ctx.xStarted) return 0; ctx.xStarted = true; return start(ctx); } },
-      y: { type: "number", easing: "linear", duration: ctx => step(ctx), from: fromY,
-        delay: ctx => { if (ctx.type !== "data" || ctx.yStarted) return 0; ctx.yStarted = true; return start(ctx); } },
-    };
+    config.plugins = (config.plugins || []).concat(revealPlugin);
+    return false;
   }
   if (config.type === "doughnut") return { duration: 800, easing: "easeOutQuart" };
   return { duration: 650, easing: "easeOutQuart",
@@ -550,6 +594,7 @@ const tableState = {};
 
 function cellKey(v, isNum) {
   if (typeof v === "number") return v;
+  if (v && typeof v === "object" && "sort" in v) return v.sort;
   const s = String(v ?? "");
   const dm = s.match(/data-sort="([^"]+)"/);
   if (dm) { const n = Number(dm[1]); return isNaN(n) ? dm[1] : n; }
@@ -573,6 +618,7 @@ function cellKey(v, isNum) {
 
 function rowText(r) {
   return r.map(c => {
+    if (c && typeof c === "object" && "sort" in c) return ""; // lazy cells (sparklines) hold nothing to search
     const s = String(c ?? "");
     const titles = [...s.matchAll(/title="([^"]+)"/g)].map(m => m[1]).join(" ");
     return s.replace(/<[^>]*>/g, " ") + " " + titles;
@@ -636,7 +682,7 @@ function spark(points) {
   const xy = vals.map((v, i) => `${(i * w / (vals.length - 1)).toFixed(1)},${(h - 2 - (v - lo) * (h - 4) / span).toFixed(1)}`);
   const up = vals[vals.length - 1] >= vals[0];
   const chg = vals[0] > 0 ? (vals[vals.length - 1] - vals[0]) / vals[0] : 0;
-  const title = points.map(p => `${new Date(p.t * 1000).toLocaleDateString()}: ${moneyText(p.low)}`).join("\n");
+  const title = points.map(p => `${DAYFMT.format(new Date(p.t * 1000))}: ${moneyText(p.low)}`).join("\n");
   return `<svg class="spark" data-sort="${chg.toFixed(4)}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(title)}</title><polyline pathLength="1" fill="none" stroke="${up ? css("--good") : css("--bad")}" stroke-width="1.6" points="${xy.join(" ")}"/></svg>`;
 }
 
@@ -1318,10 +1364,15 @@ function signal(it) {
   if (it.change <= 0.15) return '<span class="pill" data-sort="1" title="Within 15% of its launch low">still cheap</span>';
   return "";
 }
+// Lazy: a big table only builds the sparklines of the rows it draws; sorting by trend reads .sort
 function itemSpark(it) {
-  const pts = (it.days || []).map(d => ({ t: d[0], low: d[1] })).concat((it.seen || []).map(s => ({ t: s[0], low: s[1] })));
-  pts.sort((a, b) => a.t - b.t);
-  return spark(pts);
+  let pts = null, svg = null;
+  const points = () => pts || (pts = (it.days || []).map(d => ({ t: d[0], low: d[1] }))
+    .concat((it.seen || []).map(s => ({ t: s[0], low: s[1] }))).sort((a, b) => a.t - b.t));
+  return {
+    get sort() { const p = points(); return p.length < 2 || !(p[0].low > 0) ? null : (p[p.length - 1].low - p[0].low) / p[0].low; },
+    toString() { return svg || (svg = spark(points())); },
+  };
 }
 
 function marketHeader(M) {
@@ -1500,7 +1551,10 @@ function modNeutral() {
     table("gapTable", [{ t: "Item" }, { t: "Faction", n: 1 }, { t: "Neutral", n: 1 }, { t: "Gap", n: 1 }, { t: "Flip to Neutral", n: 1 }, { t: "Flip to Faction", n: 1 }, { t: "Listed (F / N)", n: 1 }, { t: "Have", n: 1 }],
       list.map(r => rowId(r.id, [whItem(r.id, r.name), money(r.faction), money(r.neutral), gapPct(r.spread), flip(r.toNeutral), flip(r.toFaction),
         listed(r.fListed, r.nListed), r.have ? `<span data-sort="${r.have}">${short(r.have)}</span>` : ""])),
-      "No item is priced at both houses yet.", { onRender: () => pickRows(mktItem) });
+      "No item is priced at both houses yet.", { limit: 300, onRender: (shown, match) => {
+        pickRows(mktItem);
+        el("gapMeta").textContent = shown < match ? `top ${shown} of ${match.toLocaleString()}; search or sort for the rest` : `${match.toLocaleString()} items`;
+      } });
     // Gap distribution
     const BINS = [[-Infinity, -0.25, "< −25%"], [-0.25, -0.1, "−25 to −10%"], [-0.1, 0, "−10 to 0%"], [0, 0.1, "0 to 10%"], [0.1, 0.25, "10 to 25%"],
       [0.25, 0.5, "25 to 50%"], [0.5, 1, "50 to 100%"], [1, Infinity, "> 100%"]];
@@ -1569,7 +1623,7 @@ function timeOpts(yTick, o = {}) {
   return {
     parsing: false, interaction: { mode: "nearest", intersect: false },
     scales: {
-      x: { type: "linear", ticks: { stepSize: 86400000, callback: v => new Date(v).toLocaleDateString(undefined, { month: "short", day: "numeric" }), maxTicksLimit: 10 } },
+      x: { type: "linear", ticks: { stepSize: 86400000, callback: v => MONTHDAY.format(new Date(v)), maxTicksLimit: 10 } },
       y: { beginAtZero: !o.zoom, ticks: { callback: yTick } },
     },
     plugins: {

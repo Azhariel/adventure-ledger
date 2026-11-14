@@ -15,6 +15,9 @@
   Link the addons instead of copying them (directory junctions), so WoW runs the repo's files. For working on
   the addons themselves.
 
+.PARAMETER Copy
+  Replace addons that are linked to this repo (a -Dev setup) with plain copies. Without it, links are left alone.
+
 .EXAMPLE
   .\install.bat
   .\install.bat -Wow "D:\Games\World of Warcraft\_forever_"
@@ -22,7 +25,8 @@
 #>
 param(
     [string]$Wow,
-    [switch]$Dev
+    [switch]$Dev,
+    [switch]$Copy
 )
 $ErrorActionPreference = "Stop"
 $Repo = $PSScriptRoot
@@ -73,6 +77,8 @@ foreach ($a in $names) {
     $item = Get-Item $dest -ErrorAction SilentlyContinue
     $linkedHere = $item -and $item.LinkType -and ((@($item.Target) -join "") -eq $a.FullName)
     if ($Dev -and $linkedHere) { Say ("  {0,-12} linked already" -f $a.Name); continue }
+    # A dev setup (linked to this repo) stays linked: copying over it would quietly cut WoW off from your edits
+    if ($linkedHere -and -not $Copy) { Say ("  {0,-12} linked to this repo (dev setup): left as is; -Copy replaces it with a copy" -f $a.Name); continue }
     if ($item) {
         if ($item.LinkType) {
             $item.Delete()   # a link: drop it, never what it points to

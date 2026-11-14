@@ -45,7 +45,15 @@ The page builds with whatever is there; a module without its addon says what it'
 ## Develop
 
 `install.bat -Dev` links the addons into WoW (directory junctions, no admin rights) instead of copying them,
-so the game runs the repo's files and a `/reload` picks up your edits. `ledger.cfg` holds your paths (see
+so the game runs the repo's files: edit them here, never in `Interface\AddOns`. When WoW sees a change:
+
+| You change | WoW picks it up |
+| --- | --- |
+| An existing `.lua` or `.xml` file | `/reload` |
+| A new or renamed file, or a `.toc` | Restart the game (it reads `.toc` files only at startup) |
+| A new addon folder in `addons/` | `install.bat -Dev` once, then restart the game |
+
+A plain `install.bat` leaves those links alone (`-Copy` replaces them with copies). `ledger.cfg` holds your paths (see
 `ledger.cfg.example`); git ignores it and `data/`, where the page, your price logs and the zone maps go, since
 they hold your characters' data.
 
