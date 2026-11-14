@@ -15,19 +15,19 @@ It reads the SavedVariables of MuddyBoots, Haul, Make or Buy, Stockpile, DropLab
 
 ## Setup
 
-1. Install [Lua 5.4](https://www.lua.org/) (`%LOCALAPPDATA%\Programs\Luain\lua.exe` is found on its own) and,
+1. Install [Lua 5.4](https://www.lua.org/) (`%LOCALAPPDATA%\Programs\Lua\bin\lua.exe` is found on its own) and,
    for the live view, Python 3.
 2. Copy `ledger.cfg.example` to `ledger.cfg` and set `wow =` to your `_forever_` folder. Git ignores
    `ledger.cfg`, and `data/`, where the page, your price logs and the zone maps go: they hold your characters'
    data.
 3. Link the addon into WoW, so the game runs the repo's copy (no admin rights needed):
-   `mklink /J "<wow>\Interface\AddOns\LedgerLink" "<repo>ddons\LedgerLink"`
-4. Optional: put a `wowstats.bat` on your PATH containing `@call "<repo>in\wowstats.bat" %*`.
+   `mklink /J "<wow>\Interface\AddOns\LedgerLink" "<repo>\addons\LedgerLink"`
+4. Optional: put a `wowstats.bat` on your PATH containing `@call "<repo>\bin\wowstats.bat" %*`.
 
 ## Use
 
 1. Log out of WoW (or `/reload`). WoW only writes SavedVariables then; no addon can save in between.
-2. Run `wowstats` (or double-click `dashboarduild.bat`). It writes `data\dashboard.html` and opens it.
+2. Run `wowstats` (or double-click `dashboard\build.bat`). It writes `data\dashboard.html` and opens it.
 
 ### Layout
 
