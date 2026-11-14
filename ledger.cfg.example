@@ -1,0 +1,5 @@
+# Copy to ledger.cfg (git ignores it) and set your paths.
+# wow: the WoW Forever folder that holds WTF, Interface, Logs and Screenshots.
+wow = C:\Program Files (x86)\World of Warcraft\_forever_
+# data: where the built page, price logs, neutral_days.txt, zone maps and server.log go (default: <repo>\data).
+# data = D:\ledger-data

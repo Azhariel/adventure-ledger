@@ -1,0 +1,1897 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Adventure Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* Dracula. Series roles are fixed across the page: faction = cyan, neutral = orange, forecast = pink. */
+:root {
+  --void: #191a21; --bg: #21222c; --panel: #282a36; --raise: #303242; --line: #44475a; --line2: #363948;
+  --fg: #f8f8f2; --muted: #a3abcf; --dim: #6272a4;
+  --purple: #bd93f9; --pink: #ff79c6; --cyan: #8be9fd; --green: #50fa7b; --orange: #ffb86c; --red: #ff5555; --yellow: #f1fa8c;
+  --faction: var(--cyan); --neutral: var(--orange); --forecast: var(--pink);
+  --good: var(--green); --bad: var(--red); --gold: #f1fa8c; --silver: #c8cbd9; --copper: #e0a37a;
+  --accent: var(--purple);
+  /* categorical order, validated for adjacent CVD separation on the panel: cyan, orange, purple, green; then gray.
+     Pink is kept for forecasts and yellow for gold, so neither is a category. */
+  --c1: var(--cyan); --c2: var(--orange); --c3: var(--purple); --c4: var(--green); --c5: var(--dim); --c6: var(--line);
+  --ink: var(--fg); --line-soft: var(--line2);
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, "Cascadia Mono", ui-monospace, monospace;
+  --side: 232px;
+}
+* { box-sizing: border-box; }
+html { background: var(--void); }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; border-radius: 3px; }
+[hidden] { display: none !important; }
+
+/* ------------------------------------------------------------- shell */
+.app { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); min-height: 100vh; }
+.side { background: var(--void); border-right: 1px solid var(--line2); position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column; padding: 18px 12px 14px; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.brand svg { flex: none; }
+.brand b { display: block; font: 600 15px/1.2 var(--sans); letter-spacing: .1px; }
+.brand span { display: block; font: 12px/1.3 var(--mono); color: var(--dim); }
+.picker label { display: block; font: 12px var(--mono); color: var(--dim); padding: 0 6px 4px; }
+select { width: 100%; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; font: 13px var(--sans); }
+nav.menu { display: flex; flex-direction: column; gap: 14px; }
+.grp > span { display: block; font: 12px var(--mono); color: var(--dim); padding: 0 8px 4px; }
+.grp button { width: 100%; display: flex; align-items: center; gap: 8px; background: none; border: 0; border-left: 2px solid transparent;
+  color: var(--muted); font: 13.5px/1 var(--sans); text-align: left; padding: 8px 8px 8px 10px; border-radius: 0 6px 6px 0; cursor: pointer; }
+.grp button:hover { color: var(--fg); background: var(--bg); }
+.grp button[aria-current="page"] { color: var(--fg); background: var(--panel); border-left-color: var(--pink); font-weight: 500; }
+.grp button .badge { margin-left: auto; font: 11px var(--mono); color: var(--dim); }
+.grp button[aria-current="page"] .badge { color: var(--pink); }
+.grp button .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.on { background: var(--green) !important; } .dot.slow { background: var(--yellow) !important; } .dot.off { background: var(--dim) !important; }
+.sys { margin-top: auto; border-top: 1px solid var(--line2); padding: 12px 8px 0; font: 11.5px/1.75 var(--mono); color: var(--dim); }
+.sys div { display: grid; grid-template-columns: 58px 1fr; gap: 6px; }
+.sys b { font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.main { min-width: 0; padding: 20px 24px 40px; }
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; margin-bottom: 6px; }
+.crumb { font: 12.5px var(--mono); color: var(--dim); }
+.crumb b { color: var(--purple); font-weight: 400; }
+h1 { font: 600 26px/1.15 var(--sans); margin: 2px 0 0; letter-spacing: -.2px; }
+.lede { color: var(--muted); margin: 4px 0 16px; max-width: 90ch; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
+.seg button { background: none; border: 0; color: var(--muted); font: 500 13px var(--sans); padding: 6px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.seg button[aria-pressed="true"] { background: var(--raise); color: var(--fg); }
+.seg button:disabled { opacity: .45; cursor: not-allowed; }
+.top-meta { font: 12px var(--mono); color: var(--dim); }
+
+/* ------------------------------------------------------------- KPI strip: one instrument row, hairline cells */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line2);
+  border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+.kpis:empty { display: none; }
+.kpi { background: var(--panel); padding: 11px 14px 12px; min-width: 0; }
+.kpi .label { color: var(--muted); font-size: 12.5px; }
+.kpi .value { font: 500 21px/1.3 var(--mono); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.3px; }
+.kpi .note { color: var(--dim); font-size: 12px; margin-top: 1px; }
+.kpi .note .pos, .kpi .note .neg { font-family: var(--mono); }
+.kpi.fc .value { color: var(--pink); }
+
+/* ------------------------------------------------------------- modules and panels */
+.mod { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.w12 { grid-column: span 12; } .w8 { grid-column: span 8; } .w7 { grid-column: span 7; } .w6 { grid-column: span 6; }
+.w5 { grid-column: span 5; } .w4 { grid-column: span 4; }
+@media (max-width: 1100px) { .w8, .w7, .w6, .w5, .w4 { grid-column: span 12; } }
+.ph { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 2px; }
+h2 { font: 600 15px/1.35 var(--sans); margin: 0; }
+h3, .sub2 { font: 600 13.5px/1.35 var(--sans); margin: 14px 0 4px; color: var(--fg); }
+.meta { font: 12px var(--mono); color: var(--dim); }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; max-width: 95ch; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; }
+.toolbar .chips, .toolbar .hint { margin: 0; }
+.chart { position: relative; height: 250px; }
+.chart.tall { height: 310px; } .chart.short { height: 130px; }
+.scroll { max-height: 380px; overflow: auto; }
+.scroll.tall { max-height: 520px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; }
+.legend i.dash { background: repeating-linear-gradient(90deg, var(--pink) 0 4px, transparent 4px 7px) !important; }
+.legend i.band { height: 10px; vertical-align: -1px; opacity: .45; }
+.legend i.sq { width: 10px; height: 10px; vertical-align: -1px; }
+.method { font: 11.5px var(--mono); color: var(--dim); margin-top: 6px; }
+
+/* ------------------------------------------------------------- tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--panel); z-index: 1; white-space: nowrap; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--fg); }
+th .arr { font-size: 9px; margin-left: 4px; color: var(--pink); }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.n { font-family: var(--mono); font-size: 12.5px; }
+#gapTable td:first-child, #stockTable td:first-child, #famTable td:first-child { min-width: 170px; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--raise); }
+tr.pick.sel td { background: color-mix(in srgb, var(--pink) 10%, var(--panel)); }
+tr.pick.sel td:first-child { box-shadow: inset 2px 0 0 var(--pink); }
+input.search { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: 13px var(--sans); min-width: 210px; }
+input.search::placeholder { color: var(--dim); }
+input.search:focus { outline: 1px solid var(--purple); border-color: var(--purple); }
+
+/* ------------------------------------------------------------- small parts */
+.coin { white-space: nowrap; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+.g { color: var(--gold); } .s { color: var(--silver); } .c { color: var(--copper); }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.muted { color: var(--muted); }
+.pill { display: inline-block; padding: 0 7px; border-radius: 4px; font: 11px/18px var(--mono); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.kill { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.pill.death, .pill.hostile { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.pill.zone, .pill.info, .pill.faction { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 45%, transparent); }
+.pill.fight, .pill.neutral { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 45%, transparent); }
+.pill.fc { color: var(--pink); border-color: color-mix(in srgb, var(--pink) 45%, transparent); }
+button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--purple); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+a.wh { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+a.wh:hover { text-decoration-color: var(--purple); color: var(--purple); }
+.empty { color: var(--muted); padding: 10px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; font: 12.5px var(--sans); cursor: pointer; }
+.chip:hover { color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--raise); border-color: var(--purple); color: var(--fg); }
+.bars { display: flex; flex-direction: column; gap: 7px; }
+.bar { display: grid; grid-template-columns: minmax(90px, 150px) 1fr 76px; gap: 10px; align-items: center; font-size: 13px; }
+.bar .track { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.bar .fill { display: block; height: 100%; background: var(--purple); border-radius: 0 4px 4px 0; }
+.bar .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .n { text-align: right; font: 12.5px var(--mono); white-space: nowrap; }
+svg.spark { display: block; margin-left: auto; }
+details.session { border-top: 1px solid var(--line2); padding: 9px 0; }
+details.session:first-of-type { border-top: 0; }
+details.session summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; list-style: none; }
+details.session summary::-webkit-details-marker { display: none; }
+details.session summary::before { content: "\25B8"; color: var(--dim); width: 10px; }
+details.session[open] summary::before { content: "\25BE"; color: var(--pink); }
+details.session summary .when { font-weight: 500; min-width: 170px; }
+details.session summary .stat { color: var(--muted); font: 12.5px var(--mono); }
+details.session .body { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 24px; padding: 10px 0 4px 24px; font-size: 13px; }
+details.session .body h3 { font-size: 12px; font-weight: 500; color: var(--dim); margin: 2px 0; }
+details.session .body p { margin: 0; }
+.planbox { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 8px; background: var(--bg); font-size: 13px; }
+.planbox .planhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.planbox .planfoot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line2); display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--muted); }
+.steps { margin: 6px 0 0; padding-left: 20px; color: var(--muted); }
+.steps li { margin: 3px 0; }
+code { font: 12.5px var(--mono); color: var(--pink); background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+footer { color: var(--dim); font: 12px var(--mono); margin-top: 22px; }
+
+/* ------------------------------------------------------------- live */
+.status { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; color: var(--muted); font: 12px var(--mono); margin: 0 0 12px; }
+.status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.meter { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.meter span { display: block; height: 100%; border-radius: 3px; }
+.mapwrap { position: relative; aspect-ratio: 3 / 2; width: 100%; }
+.mapwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; }
+.tip { position: absolute; z-index: 2; pointer-events: none; background: var(--void); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45; max-width: 240px; }
+.mapbtn { position: absolute; right: 8px; top: 8px; z-index: 1; background: var(--void); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; font: 12px var(--sans); cursor: pointer; }
+.big { font: 500 32px/1.1 var(--mono); }
+.statgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 10px 0 4px; font: 13px var(--mono); }
+.statgrid div span { display: block; color: var(--muted); font: 12px var(--sans); }
+.feed { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.feed li { display: grid; grid-template-columns: 56px 68px 1fr; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line2); align-items: baseline; }
+.feed li:last-child { border-bottom: 0; }
+.feed .t { color: var(--dim); font: 12px var(--mono); }
+.shot img { display: block; width: 100%; border-radius: 6px; border: 1px solid var(--line2); }
+
+/* ------------------------------------------------------------- narrow screens: the menu becomes a top bar */
+@media (max-width: 860px) {
+  .app { display: block; }
+  .side { position: static; height: auto; padding: 12px 16px; gap: 10px; border-right: 0; border-bottom: 1px solid var(--line2); }
+  nav.menu { flex-direction: row; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+  .grp { display: contents; }
+  .grp > span { display: none; }
+  .grp button { width: auto; white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; padding: 8px 10px; }
+  .grp button[aria-current="page"] { border-bottom-color: var(--pink); }
+  .grp button .badge { display: none; }
+  .sys { display: none; }
+  .main { padding: 16px 16px 32px; }
+  input.search { min-width: 0; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#282a36" stroke="#44475a"/>
+        <polyline points="6,19 11,14 15,16 22,8" fill="none" stroke="#8be9fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="22,8 25,6" fill="none" stroke="#ff79c6" stroke-width="2" stroke-dasharray="2 2" stroke-linecap="round"/></svg>
+      <div><b>Adventure Ledger</b><span>wow forever</span></div>
+    </div>
+    <div class="picker" id="pickerBox" hidden><label for="charSel">character</label><select id="charSel"></select></div>
+    <nav class="menu" id="nav" aria-label="Modules"></nav>
+    <div class="sys" id="sys"></div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div><div class="crumb" id="crumb"></div><h1 id="title">Adventure Ledger</h1></div>
+      <div class="seg" id="houseSeg" role="group" aria-label="Auction house" hidden>
+        <button type="button" data-house="faction" aria-pressed="true"><i style="background:var(--faction)"></i>Faction AH</button>
+        <button type="button" data-house="neutral" aria-pressed="false"><i style="background:var(--neutral)"></i>Neutral AH</button>
+      </div>
+    </header>
+    <p class="lede" id="who"></p>
+    <section class="kpis" id="kpis"></section>
+
+    <!-- character -->
+    <section class="mod" data-mod="overview" hidden>
+      <article class="panel w8"><div class="ph"><h2>Leveling</h2><span class="meta" id="xpMeta"></span></div>
+        <p class="hint">Total XP over played time; rings mark each new level. The pink dashes carry your XP rate from the last few played hours to your next level.</p>
+        <div class="chart tall"><canvas id="xpChart"></canvas></div></article>
+      <article class="panel w4"><div class="ph"><h2>Time per level</h2><span class="meta" id="levelMeta"></span></div>
+        <p class="hint">Hours played in each level (* = only since tracking began). Pink: a curve fitted to your finished levels, carried to 60.</p>
+        <div class="chart tall"><canvas id="levelChart"></canvas></div></article>
+      <article class="panel w12"><div class="ph"><h2>Play sessions</h2></div><p class="hint" id="recapHint"></p><div id="recapBox"></div></article>
+    </section>
+
+    <section class="mod" data-mod="progress" hidden>
+      <article class="panel w5"><div class="ph"><h2>Where your XP comes from</h2></div><p class="hint" id="xpHint"></p><div class="chart"><canvas id="xpSourceChart"></canvas></div></article>
+      <article class="panel w7"><div class="ph"><h2>XP sources by level</h2></div><p class="hint">Quests, kills and exploring, per level.</p><div class="chart"><canvas id="xpLevelChart"></canvas></div></article>
+      <article class="panel w7"><div class="ph"><h2>Professions</h2></div><p class="hint">Skill over played time.</p><div class="chart"><canvas id="profChart"></canvas></div></article>
+      <article class="panel w5"><div class="ph"><h2>Made, cooked and gathered</h2></div><div class="scroll"><table id="craftedTable"></table></div></article>
+      <article class="panel w5"><div class="ph"><h2>How you spend your time</h2></div><p class="hint">From MuddyBoots' activity counters.</p><div class="chart"><canvas id="activityChart"></canvas></div></article>
+      <article class="panel w7"><div class="ph"><h2>Zones</h2></div><p class="hint">Time per zone; gaps over 10 minutes count as offline.</p><div id="zoneBars" class="bars"></div></article>
+    </section>
+
+    <section class="mod" data-mod="gold" hidden>
+      <article class="panel w8"><div class="ph"><h2>Gold over played time</h2><span class="meta" id="moneyMeta"></span></div>
+        <p class="hint">Running totals of money earned and spent, and gold on hand. Pink: where gold on hand is heading if you keep your recent pace.</p>
+        <div class="chart tall"><canvas id="moneyChart"></canvas></div><div class="method" id="moneyMethod"></div></article>
+      <article class="panel w4"><div class="ph"><h2>Where gold comes from</h2></div><p class="hint" id="flowHint"></p><div id="incomeBars" class="bars"></div>
+        <h3>Spent on</h3><div id="spendBars" class="bars"></div></article>
+      <article class="panel w6"><div class="ph"><h2>Net worth</h2></div><p class="hint" id="worthHint"></p><div class="chart"><canvas id="worthChart"></canvas></div></article>
+      <article class="panel w6"><div class="ph"><h2>Last Haul session</h2></div><div id="haulBox"></div></article>
+    </section>
+
+    <section class="mod" data-mod="combat" hidden>
+      <article class="panel w5"><div class="ph"><h2>Most fought</h2></div><p class="hint" id="fightHint"></p><div class="scroll"><table id="mobTable"></table></div></article>
+      <article class="panel w7"><div class="toolbar"><div><h2>Quests</h2><p class="hint" id="questHint"></p></div><input type="search" class="search" data-table="questTable" placeholder="Filter quest or zone"></div><div class="scroll"><table id="questTable"></table></div></article>
+      <article class="panel w12"><div class="ph"><h2>Deaths and close calls</h2></div><p class="hint" id="deathHint"></p><div class="scroll"><table id="deathTable"></table></div></article>
+    </section>
+
+    <!-- account -->
+    <section class="mod" data-mod="roster" hidden>
+      <article class="panel w12"><div class="ph"><h2>Characters</h2></div><p class="hint" id="charsHint"></p><div class="scroll"><table id="charsTable"></table></div></article>
+      <article class="panel w7"><div class="ph"><h2>Net worth by character</h2></div><p class="hint">Gold plus items at the faction AH's last minimum price.</p><div class="chart"><canvas id="acctWorthChart"></canvas></div></article>
+      <article class="panel w5"><div class="ph"><h2>Played time</h2></div><p class="hint">Total /played per character.</p><div id="playedBars" class="bars"></div></article>
+    </section>
+
+    <section class="mod" data-mod="inventory" hidden>
+      <article class="panel w12"><div class="toolbar"><div><h2>Everything you own</h2><p class="hint" id="acctInvHint"></p></div><input type="search" class="search" data-table="acctInvTable" placeholder="Filter items or holder"></div><div class="scroll tall"><table id="acctInvTable"></table></div></article>
+      <article class="panel w12" id="charInvPanel"><div class="toolbar"><div><h2 id="invTitle">On this character</h2><p class="hint" id="invHint"></p></div><input type="search" class="search" data-table="invTable" placeholder="Filter items"></div><div class="scroll tall"><table id="invTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="alts" hidden>
+      <article class="panel w12"><div class="ph"><h2>Mail to your alts</h2></div><p class="hint" id="mailHint"></p><div class="scroll tall"><table id="mailTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="drops" hidden>
+      <article class="panel w12"><div class="toolbar"><div><h2>Drop rates from your kills</h2><p class="hint" id="dropsHint"></p></div><input type="search" class="search" data-table="dropsTable" placeholder="Filter mob or drop"></div><div class="scroll tall"><table id="dropsTable"></table></div></article>
+    </section>
+
+    <!-- market -->
+    <section class="mod" data-mod="signals" hidden>
+      <article class="panel w8"><div class="ph"><h2>Your stockpile's value</h2><span class="meta" id="valueMeta"></span></div>
+        <p class="hint">What everything you hold now was worth on each scan day, at that day's lowest price. Pink: the next 7 days if the recent trend holds, with an 80% band.</p>
+        <div class="chart tall"><canvas id="valueChart"></canvas></div><div class="method" id="valueMethod"></div></article>
+      <article class="panel w4"><div class="ph"><h2>Your best sellers</h2></div><p class="hint">Your holdings furthest above their launch low. Click one for its chart.</p><div class="scroll"><table id="windowTable"></table></div></article>
+      <article class="panel w12"><div class="ph"><h2>Buy low, sell high</h2><span class="pill faction">faction AH</span></div><p class="hint" id="marketHint"></p><div id="marketBox"></div></article>
+      <div class="w12 slot"></div>
+    </section>
+
+    <section class="mod" data-mod="stockpile" hidden>
+      <div class="w12 slot"></div>
+      <article class="panel w12"><div class="ph"><h2>Your stockpile</h2></div><p class="hint" id="stockHint"></p>
+        <div class="toolbar"><div class="chips" id="stockChips"></div><input type="search" class="search" data-table="stockTable" placeholder="Filter stockpile"></div>
+        <div class="scroll tall"><table id="stockTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="browse" hidden>
+      <div class="w12 slot"></div>
+      <article class="panel w12"><div class="ph"><h2>Every priced item</h2></div><p class="hint" id="famHint"></p>
+        <div class="toolbar"><div class="chips" id="famChips"></div><input type="search" class="search" id="famSearch" data-table="famTable" placeholder="Search market items"></div>
+        <div class="scroll tall"><table id="famTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="movers" hidden>
+      <div class="w12 slot"></div>
+      <article class="panel w6"><div class="ph"><h2>Rising fastest</h2></div><p class="hint">50% or more over their launch low, at least 20 listed, launch low 10c or more.</p><div class="scroll tall"><table id="risingTable"></table></div></article>
+      <article class="panel w6"><div class="ph"><h2>Fallen furthest</h2></div><p class="hint">30% or more under their peak: a chance to buy, or a market flooding.</p><div class="scroll tall"><table id="fallingTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="neutral" hidden>
+      <article class="panel w12" id="neutralSetup" hidden><div class="ph"><h2>Start a Neutral price book</h2></div>
+        <p class="hint">Auctionator keeps one price book for the realm, so a scan at the goblin auction house used to land in your faction's prices. Ledger Link now catches those scans and keeps them apart.</p>
+        <ol class="steps">
+          <li>Ledger Link 0.2 is in your AddOns folder. Log in (or <code>/reload</code>) so it loads.</li>
+          <li>Open the auction house in Gadgetzan, Booty Bay or Everlook and scan as usual. Ledger Link says in chat that it's keeping those prices apart.</li>
+          <li><code>/reload</code> or log out, then rebuild. This page fills in.</li>
+        </ol>
+        <p class="hint" style="margin-top:10px"><code>/ledger neutral both</code> also lets the scans reach Auctionator; <code>/ledger neutral off</code> stops keeping them apart. Faction prices from before this update may still include a Neutral scan on days you visited one.</p></article>
+      <div class="w12 slot"></div>
+      <article class="panel w12" id="gapPanel"><div class="ph"><h2>Price gap by item</h2></div><p class="hint">Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view keeps items with 5 or more listed at both houses.</p>
+        <div class="toolbar"><div class="chips" id="gapChips"></div><input type="search" class="search" data-table="gapTable" placeholder="Filter items"></div>
+        <div class="scroll tall"><table id="gapTable"></table></div></article>
+      <article class="panel w6" id="gapDistPanel"><div class="ph"><h2>How far apart the houses are</h2></div><p class="hint">Items by price gap. Orange: Neutral dearer; cyan: Neutral cheaper.</p><div class="chart tall"><canvas id="gapChart"></canvas></div></article>
+      <article class="panel w6" id="visitPanel"><div class="ph"><h2>Auction house visits</h2><span class="meta" id="visitMeta"></span></div><p class="hint">Each time you opened an auction house, from Ledger Link.</p><div class="scroll"><table id="visitTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="trades" hidden>
+      <article class="panel w12"><div class="toolbar"><div><h2>Auction house trades</h2><p class="hint" id="ahHint"></p></div><div class="toolbar" style="margin:0"><div class="chips" id="ahChips"></div><input type="search" class="search" data-table="ahTable" placeholder="Filter item or player"></div></div><div class="scroll tall"><table id="ahTable"></table></div></article>
+    </section>
+
+    <section class="mod" data-mod="crafting" hidden>
+      <article class="panel w8"><div class="ph"><h2>Best crafts at saved prices</h2><span class="pill faction">faction AH</span></div><p class="hint">Make or Buy's planner on your last Auctionator scan. Profit after the 5% cut; <span class="pill">own reagents</span> = crafting the intermediates yourself. Click a recipe for its reagents.</p><div class="scroll"><table id="craftsTable"></table></div><div id="craftPlanBox"></div></article>
+      <article class="panel w4"><div class="ph"><h2>Restock list</h2></div><p class="hint">From Make or Buy.</p><div id="restockBox"></div></article>
+    </section>
+
+    <!-- live -->
+    <section class="mod" data-mod="live" hidden>
+      <div class="w12"><div class="status" id="liveStatus"></div><section class="kpis" id="liveKpis" style="margin:0"></section></div>
+      <article class="panel w8"><div class="ph"><h2 id="mapTitle">Where you are</h2></div><p class="hint" id="mapHint"></p>
+        <div class="mapwrap"><canvas id="liveMap" role="img" aria-label="Map of where you are"></canvas><div class="tip" id="mapTip" hidden></div>
+          <button class="mapbtn" id="mapZoom" type="button" hidden>Zoom to you</button></div>
+        <div class="legend" id="mapLegend"></div></article>
+      <article class="panel w4"><div class="ph"><h2 id="fightTitle">Last fight</h2></div><div id="fightBox"></div>
+        <h3>Around you</h3><p class="hint">Players the combat log saw in the last 2 minutes (about 50 yards).</p><div class="scroll" style="max-height:220px"><table id="aroundTable"></table></div></article>
+      <article class="panel w7"><div class="ph"><h2>Fights this session</h2></div><p class="hint">A fight ends after 6 seconds with no damage to or from you.</p><div class="scroll"><table id="fightsTable"></table></div></article>
+      <article class="panel w5"><div class="ph"><h2>What just happened</h2></div><div class="scroll"><ul class="feed" id="feedList"></ul></div></article>
+      <article class="panel w4"><div class="ph"><h2>Damage by spell</h2></div><p class="hint" id="spellHint"></p><div id="spellBars" class="bars"></div><h3>Healing by spell</h3><div id="healBars" class="bars"></div></article>
+      <article class="panel w4"><div class="ph"><h2>Kills this session</h2></div><div class="scroll"><table id="killsTable"></table></div></article>
+      <article class="panel w4 shot"><div class="ph"><h2>Latest screenshot</h2></div><p class="hint" id="shotHint"></p><div id="shotBox"></div></article>
+    </section>
+
+    <footer id="foot"></footer>
+  </main>
+</div>
+
+<!-- The item inspector: one panel, moved into the open market module's slot -->
+<article class="panel w12" id="inspector">
+  <div class="ph"><h2 id="itemTitle">Price history</h2><span class="meta" id="itemMeta"></span></div>
+  <p class="hint" id="itemHint"></p>
+  <div class="chart tall"><canvas id="itemChart"></canvas></div>
+  <div class="legend" id="itemLegend"></div>
+  <h3>Listed each scan day</h3>
+  <div class="chart short"><canvas id="listedChart"></canvas></div>
+  <div class="method" id="itemMethod"></div>
+</article>
+
+<script>
+const DATA = /*DATA*/null;
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PALETTE = () => ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"].map(css);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const el = id => document.getElementById(id);
+
+const whItem = (id, name) => id != null
+  ? `<a class="wh" href="https://www.wowhead.com/classic/item=${id}" target="_blank" rel="noopener" title="Open on Wowhead">${esc(name)}</a>`
+  : esc(name);
+const whNpc = (name, npc) => npc
+  ? `<a class="wh" href="https://www.wowhead.com/classic/npc=${npc}" target="_blank" rel="noopener" title="Open on Wowhead">${esc(name)}</a>`
+  : esc(name);
+const whQuest = (id, name) => id
+  ? `<a class="wh" href="https://www.wowhead.com/classic/quest=${id}" target="_blank" rel="noopener" title="Open on Wowhead">${esc(name)}</a>`
+  : esc(name);
+
+function money(copper, opts = {}) {
+  if (copper == null) return '<span class="pill">no price</span>';
+  const neg = copper < 0; let c = Math.abs(Math.round(copper));
+  const g = Math.floor(c / 10000), s = Math.floor(c / 100) % 100; c = c % 100;
+  const parts = [];
+  if (g) parts.push(`${g.toLocaleString()}<span class="g">g</span>`);
+  if (g || s) parts.push(`${s}<span class="s">s</span>`);
+  if (!opts.short || !g) parts.push(`${c}<span class="c">c</span>`);
+  return `<span class="coin${neg ? " neg" : ""}" data-sort="${Math.round(copper)}">${neg ? "-" : ""}${parts.join(" ")}</span>`;
+}
+function moneyText(c) {
+  c = Math.round(c || 0); const neg = c < 0; c = Math.abs(c);
+  const g = Math.floor(c / 10000), s = Math.floor(c / 100) % 100, cc = c % 100;
+  return (neg ? "-" : "") + (g ? `${g}g ${s}s` : s ? `${s}s ${cc}c` : `${cc}c`);
+}
+function dur(sec) {
+  if (sec == null) return "?"; sec = Math.round(sec);
+  const d = Math.floor(sec / 86400), h = Math.floor(sec / 3600) % 24, m = Math.floor(sec / 60) % 60;
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+const date = t => t ? new Date(t * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+const short = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? (n / 1e3).toFixed(1) + "k" : Math.round(n || 0).toLocaleString();
+const empty = msg => `<div class="empty">${esc(msg)}</div>`;
+
+
+const charts = [];
+function chart(id, config, list = charts) {
+  const ctx = el(id);
+  if (!ctx || typeof Chart === "undefined") return null;
+  Chart.defaults.color = css("--muted");
+  Chart.defaults.font.family = css("--mono") || "Consolas, monospace";
+  Chart.defaults.font.size = 11;
+  const opts = config.options || {};
+  opts.responsive = true; opts.maintainAspectRatio = false; opts.animation = false;
+  opts.plugins = opts.plugins || {};
+  opts.plugins.legend = Object.assign({ labels: {} }, opts.plugins.legend || {});
+  opts.plugins.legend.labels = Object.assign({ color: css("--fg"), boxWidth: 12, boxHeight: 3, font: { family: css("--sans"), size: 12 } }, opts.plugins.legend.labels || {});
+  opts.plugins.tooltip = Object.assign({ backgroundColor: css("--void"), borderColor: css("--line"), borderWidth: 1, titleColor: css("--fg"),
+    bodyColor: css("--fg"), padding: 9, cornerRadius: 6, titleFont: { family: css("--sans"), weight: "600" } }, opts.plugins.tooltip || {});
+  for (const axis of Object.values(opts.scales || {})) {
+    axis.grid = Object.assign({ color: css("--line2") }, axis.grid || {});
+    axis.border = { color: css("--line") };
+    if (axis.title && axis.title.display) axis.title.color = axis.title.color || css("--dim");
+  }
+  config.options = opts;
+  const c = new Chart(ctx, config);
+  list.push(c);
+  return c;
+}
+const alpha = (hex, a) => { const h = hex.replace("#", ""); const n = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
+  return `rgba(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}, ${a})`; };
+
+const kpi = (label, value, note, cls = "") => `<div class="kpi ${cls}"><div class="label">${esc(label)}</div><div class="value">${value}</div><div class="note">${note || "&nbsp;"}</div></div>`;
+
+function bars(id, rows, fmt) {
+  const max = Math.max(1, ...rows.map(r => r.value));
+  el(id).innerHTML = rows.length ? rows.map(r => `<div class="bar"><span class="lbl" title="${esc(r.label)}">${esc(r.label)}</span>
+    <span class="track"><span class="fill" style="width:${(100 * r.value / max).toFixed(1)}%;${r.color ? `background:${r.color}` : ""}"></span></span>
+    <span class="n">${fmt(r.value)}</span></div>`).join("") : empty("Nothing recorded yet.");
+}
+
+const tableState = {};
+
+function cellKey(v, isNum) {
+  if (typeof v === "number") return v;
+  const s = String(v ?? "");
+  const dm = s.match(/data-sort="([^"]+)"/);
+  if (dm) { const n = Number(dm[1]); return isNaN(n) ? dm[1] : n; }
+  const txt = s.replace(/<[^>]*>/g, "").trim();
+  if (!txt || txt === "?" || txt === "–" || txt === "no price" || txt === "unknown" || txt === "none" || txt === "1 day") return null;
+  if (!isNum) return txt.toLowerCase();
+  let m;
+  if ((m = txt.match(/^(?:(\d+)d\s*)?(?:(\d+)h)?(?:\s*(\d+)m)?(?:\s*(\d+)s)?(?:\s*ago)?$/)) && (m[1] || m[2] || m[3] || m[4])) {
+    return (Number(m[1] || 0) * 86400) + (Number(m[2] || 0) * 3600) + (Number(m[3] || 0) * 60) + Number(m[4] || 0);
+  }
+  if ((m = txt.match(/^(\d+)\s*min ago$/))) return Number(m[1]) * 60;
+  if ((m = txt.match(/^([+-]?[\d,]+(?:\.\d+)?)([kM])?(?:\*|\s*\/.*|x|%.*)?$/))) {
+    const mult = m[2] === "M" ? 1e6 : m[2] === "k" ? 1e3 : 1;
+    return parseFloat(m[1].replace(/,/g, "")) * mult;
+  }
+  const ms = Date.parse(txt);
+  if (!isNaN(ms)) return ms;
+  const n = parseFloat(txt.replace(/,/g, ""));
+  return isNaN(n) ? txt.toLowerCase() : n;
+}
+
+function rowText(r) {
+  return r.map(c => {
+    const s = String(c ?? "");
+    const titles = [...s.matchAll(/title="([^"]+)"/g)].map(m => m[1]).join(" ");
+    return s.replace(/<[^>]*>/g, " ") + " " + titles;
+  }).join(" ").toLowerCase();
+}
+
+function drawTable(id) {
+  const st = tableState[id], node = el(id);
+  if (!st || !node) return;
+  const { head, rows, emptyMsg, opts, col, dir, query } = st;
+  const words = (query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  let list = words.length ? rows.filter(r => { const t = r._txt ?? (r._txt = rowText(r)); return words.every(w => t.includes(w)); }) : rows.slice();
+  if (col != null && head[col]) {
+    const isNum = !!head[col].n;
+    list.sort((a, b) => {
+      const ka = cellKey(a[col], isNum), kb = cellKey(b[col], isNum);
+      if (ka == null && kb == null) return 0;
+      if (ka == null) return 1;
+      if (kb == null) return -1;
+      if (typeof ka === "number" && typeof kb === "number") return (ka - kb) * dir;
+      return String(ka).localeCompare(String(kb)) * dir;
+    });
+  }
+  const filteredTotal = list.length;
+  if (opts.limit && list.length > opts.limit) list = list.slice(0, opts.limit);
+  if (opts.onRender) opts.onRender(list.length, filteredTotal, rows.length);
+  if (!rows.length) {
+    node.innerHTML = `<tbody><tr><td>${empty(emptyMsg)}</td></tr></tbody>`;
+    return;
+  }
+  const thead = `<thead><tr>${head.map((h, i) => {
+    const canSort = h.t && !h.nosort;
+    const active = col === i;
+    const cls = [h.n ? "n" : "", canSort ? "sortable" : ""].filter(Boolean).join(" ");
+    const arr = active ? `<span class="arr">${dir > 0 ? "▲" : "▼"}</span>` : "";
+    return `<th class="${cls}"${canSort ? ` data-col="${i}" title="Click to sort by ${esc(h.t)}"` : ""}>${esc(h.t)}${arr}</th>`;
+  }).join("")}</tr></thead>`;
+  const tbody = list.length
+    ? `<tbody>${list.map(r => `<tr${r.id != null ? ` class="pick" data-id="${esc(r.id)}"` : ""}>${r.map((c, i) => `<td class="${head[i].n ? "n" : ""}">${c}</td>`).join("")}</tr>`).join("")}</tbody>`
+    : `<tbody><tr><td colspan="${head.length}">${empty("No matching rows.")}</td></tr></tbody>`;
+  node.innerHTML = thead + tbody;
+}
+
+function table(id, head, rows, emptyMsg, opts = {}) {
+  const prev = tableState[id] || {};
+  const input = document.querySelector(`input[data-table="${id}"]`);
+  tableState[id] = {
+    head, rows, emptyMsg, opts,
+    col: prev.col != null && prev.col < head.length ? prev.col : (opts.defaultCol ?? null),
+    dir: prev.dir || (opts.defaultDir ?? -1),
+    query: input ? input.value.trim() : (prev.query || ""),
+  };
+  drawTable(id);
+}
+
+function spark(points) {
+  if (!points || points.length < 2) return '<span class="pill">1 day</span>';
+  const w = 90, h = 22, vals = points.map(p => p.low), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const xy = vals.map((v, i) => `${(i * w / (vals.length - 1)).toFixed(1)},${(h - 2 - (v - lo) * (h - 4) / span).toFixed(1)}`);
+  const up = vals[vals.length - 1] >= vals[0];
+  const chg = vals[0] > 0 ? (vals[vals.length - 1] - vals[0]) / vals[0] : 0;
+  const title = points.map(p => `${new Date(p.t * 1000).toLocaleDateString()}: ${moneyText(p.low)}`).join("\n");
+  return `<svg class="spark" data-sort="${chg.toFixed(4)}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(title)}</title><polyline fill="none" stroke="${up ? css("--good") : css("--bad")}" stroke-width="1.6" points="${xy.join(" ")}"/></svg>`;
+}
+
+const lastOf = a => a && a.length ? a[a.length - 1] : null;
+
+// ------------------------------------------------------------------ Forecasts
+// Prices: damped Holt (level + trend that fades, phi 0.85; trend smoothing kept low so one jump doesn't set the slope) on log prices, smoothing picked by least squares over
+// a small grid. Log space keeps forecasts above zero and treats a 10% move the same at 5c and at 5g; damping keeps
+// a short run of rising days from shooting off. Gold and XP: least squares weighted toward recent play
+// (exponential decay), so the line follows your current pace rather than your whole history. Time per level:
+// a power law (straight line through log hours against log level). An exponential trend compounds and overshoots
+// badly by the 50s; a power law follows the classic curve, where both XP needed and XP per kill grow with level.
+const FC = {
+  holt(values, steps) {
+    const n = values.length;
+    if (n < 3) return null;
+    const y = values.map(v => Math.log(Math.max(1, v)));
+    const phi = 0.85;
+    let best = null;
+    for (let a = 0.1; a < 0.95; a += 0.1) for (let b = 0.02; b < 0.3; b += 0.05) {
+      let l = y[0], tr = y[1] - y[0], sse = 0;
+      for (let t = 1; t < n; t++) {
+        const f = l + phi * tr, e = y[t] - f; sse += e * e;
+        const ln = a * y[t] + (1 - a) * f;
+        tr = b * (ln - l) + (1 - b) * phi * tr; l = ln;
+      }
+      if (!best || sse < best.sse) best = { sse, l, tr, a, b };
+    }
+    const sigma = Math.sqrt(best.sse / Math.max(1, n - 2));
+    const top = Math.max(...values) * 2;
+    const out = []; let damp = 0;
+    for (let k = 1; k <= steps; k++) {
+      damp += Math.pow(phi, k);
+      const m = best.l + damp * best.tr, w = 1.2816 * sigma * Math.sqrt(k);
+      out.push({ k, y: Math.exp(m), lo: Math.exp(m - w), hi: Math.min(top, Math.exp(m + w)) });
+    }
+    return { f: out, alpha: best.a, beta: best.b, sigma, n };
+  },
+  wls(xs, ys, halfLife) {
+    const n = xs.length;
+    if (n < 3) return null;
+    const xmax = Math.max(...xs);
+    const w = xs.map(x => Math.pow(0.5, (xmax - x) / halfLife));
+    const sw = w.reduce((a, b) => a + b, 0);
+    const mx = xs.reduce((a, x, i) => a + w[i] * x, 0) / sw, my = ys.reduce((a, y, i) => a + w[i] * y, 0) / sw;
+    let sxx = 0, sxy = 0;
+    xs.forEach((x, i) => { sxx += w[i] * (x - mx) ** 2; sxy += w[i] * (x - mx) * (ys[i] - my); });
+    if (sxx <= 0) return null;
+    const b = sxy / sxx, a = my - b * mx;
+    const se = Math.sqrt(xs.reduce((s, x, i) => s + w[i] * (ys[i] - (a + b * x)) ** 2, 0) / sw);
+    return { a, b, se, at: x => a + b * x, xmax };
+  },
+  ols(xs, ys) { return FC.wls(xs, ys, 1e9); },
+};
+const MAX_LEVEL = 60;
+
+// Projection of the hours each level will take, from the levels you finished
+function levelForecast(lt) {
+  const done = lt.filter(l => !l.current && !l.partial && l.seconds > 300);
+  if (done.length < 3) return null;
+  const fit = FC.ols(done.map(l => Math.log(l.level)), done.map(l => Math.log(l.seconds / 3600)));
+  if (!fit) return null;
+  const hoursAt = L => Math.exp(fit.at(Math.log(L)));
+  const cur = lt.find(l => l.current);
+  const ahead = [];
+  let total = 0;
+  if (cur && cur.level < MAX_LEVEL) {
+    const left = Math.max(hoursAt(cur.level) * 0.1, hoursAt(cur.level) - cur.seconds / 3600);
+    ahead.push({ level: cur.level, hours: left, current: true }); total += left;
+    for (let L = cur.level + 1; L < MAX_LEVEL; L++) { const h = hoursAt(L); ahead.push({ level: L, hours: h }); total += h; }
+  }
+  return { hoursAt, ahead, total, power: fit.b, n: done.length };
+}
+
+const day = t => new Date(t * 1000).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+const clock = t => new Date(t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+const listOf = (items, fmt) => items.length ? items.map(fmt).join(", ") : '<span class="pill">none</span>';
+let selectedCraft = null, craftBatch = 1, ahMode = "trades";
+
+
+// ------------------------------------------------------------------ Routing and the menu
+const MODULES = [
+  { group: "character", key: "overview", label: "Overview", char: true },
+  { group: "character", key: "progress", label: "Progress", char: true },
+  { group: "character", key: "gold", label: "Gold", char: true },
+  { group: "character", key: "combat", label: "Combat & quests", char: true },
+  { group: "account", key: "roster", label: "Characters" },
+  { group: "account", key: "inventory", label: "Inventory" },
+  { group: "account", key: "alts", label: "Mail to alts" },
+  { group: "account", key: "drops", label: "Drop rates" },
+  { group: "market", key: "signals", label: "Signals", house: true },
+  { group: "market", key: "stockpile", label: "Stockpile", house: true },
+  { group: "market", key: "browse", label: "Browse", house: true },
+  { group: "market", key: "movers", label: "Movers", house: true },
+  { group: "market", key: "neutral", label: "Faction vs Neutral" },
+  { group: "market", key: "trades", label: "Your trades", char: true },
+  { group: "market", key: "crafting", label: "Crafting", char: true },
+  { group: "live", key: "live", label: "Live", served: true },
+];
+const GROUPS = { character: "~/character", account: "~/account", market: "~/market", live: "~/live" };
+const ROUTE_KEY = "adventureLedger.route", CHAR_KEY = "adventureLedger.view", HOUSE_KEY = "adventureLedger.house";
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+
+let route = null, current = null, house = store.get(HOUSE_KEY) === "neutral" ? "neutral" : "faction";
+const chars = () => (DATA && DATA.characters) || [];
+const curChar = () => chars().find(x => x.id === current) || null;
+const hasNeutral = () => !!(DATA && DATA.neutralTab && Object.keys(DATA.neutralTab.items || {}).length);
+const MKT = () => (house === "neutral" && hasNeutral() ? DATA.neutralTab : DATA.marketTab);
+const houseName = () => house === "neutral" && hasNeutral() ? "Neutral AH" : "Faction AH";
+
+function available(m) {
+  if (m.served && !SERVED) return false;
+  if (m.char && !chars().length) return false;
+  return true;
+}
+
+function badge(m) {
+  const M = DATA.marketTab, c = curChar();
+  switch (m.key) {
+    case "stockpile": return MKT() && MKT().owned ? MKT().owned.length : "";
+    case "browse": return MKT() ? short(Object.keys(MKT().items || {}).length) : "";
+    case "movers": return MKT() ? (MKT().rising || []).length + (MKT().falling || []).length : "";
+    case "neutral": return DATA.houses ? DATA.houses.length : "";
+    case "trades": { const t = c && c.money && c.money.ahTrades; return t && t.trades ? t.trades.length : ""; }
+    case "crafting": return c && c.crafts ? c.crafts.length : "";
+    case "roster": return DATA.account ? DATA.account.characters.length : "";
+    case "drops": return DATA.drops ? DATA.drops.tracked : "";
+    case "alts": return (DATA.transfers || []).length || "";
+    default: return "";
+  }
+}
+
+function drawNav() {
+  const groups = {};
+  for (const m of MODULES) if (available(m)) (groups[m.group] = groups[m.group] || []).push(m);
+  el("nav").innerHTML = Object.entries(groups).map(([g, list]) => `<div class="grp"><span>${GROUPS[g]}</span>${list.map(m => {
+    const b = badge(m);
+    const age = LIVE && LIVE.lastLine ? nowSec() - LIVE.lastLine : null;
+    const dot = m.key === "live" ? `<span class="dot ${age == null ? "off" : age < 30 ? "on" : age < 300 ? "slow" : "off"}" id="liveDot"></span>` : "";
+    return `<button type="button" data-route="${m.key}"${route === m.key ? ' aria-current="page"' : ""}>${dot}${esc(m.label)}${b !== "" && b != null ? `<span class="badge">${b}</span>` : ""}</button>`;
+  }).join("")}</div>`).join("");
+  const on = el("nav").querySelector("[aria-current]");
+  if (on && matchMedia("(max-width: 860px)").matches) el("nav").scrollLeft = on.offsetLeft - 16;
+}
+
+function drawSys() {
+  const M = DATA.marketTab, N = DATA.neutralTab, days = (M && M.days) || [];
+  const rows = [
+    ["build", date(DATA.generated)],
+    ["faction", days.length ? `${days.length} scan days` : "no scans"],
+    ["neutral", N && Object.keys(N.items || {}).length ? `${Object.keys(N.items).length} items${N.last ? " · " + date(N.last).split(",")[0] : ""}` : "no book yet"],
+    ["source", SERVED ? "live server" : "file"],
+  ];
+  el("sys").innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join("");
+}
+
+function go(key, opts = {}) {
+  const m = MODULES.find(x => x.key === key && available(x)) || MODULES.find(available);
+  route = m.key;
+  tab = route === "live" ? "live" : route;
+  store.set(ROUTE_KEY, route);
+  if (location.hash !== "#/" + route) history.replaceState(null, "", "#/" + route);
+  charts.splice(0).forEach(ch => ch.destroy());
+  document.querySelectorAll("section.mod").forEach(s => { s.hidden = s.dataset.mod !== route; });
+  el("crumb").innerHTML = `<b>${GROUPS[m.group]}</b>/${esc(m.key)}`;
+  el("title").textContent = m.label;
+  el("pickerBox").hidden = !chars().length;
+  const seg = el("houseSeg");
+  seg.hidden = !m.house;
+  seg.querySelectorAll("button").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.house === (hasNeutral() ? house : "faction")));
+    if (b.dataset.house === "neutral") { b.disabled = !hasNeutral(); b.title = hasNeutral() ? "" : "No Neutral prices yet: see Faction vs Neutral"; }
+  });
+  el("kpis").innerHTML = ""; el("who").textContent = "";
+  // the inspector lives in the open module's slot
+  const slot = document.querySelector(`section.mod[data-mod="${route}"] .slot`);
+  const insp = el("inspector");
+  if (slot) { slot.appendChild(insp); insp.hidden = false; } else { inspCharts.splice(0).forEach(ch => ch.destroy()); insp.hidden = true; document.body.appendChild(insp); }
+  drawNav();
+  RENDER[route]();
+  if (typeof Chart === "undefined") document.querySelectorAll(".chart").forEach(n => n.innerHTML = empty("Charts need an internet connection to load Chart.js."));
+  if (!opts.keepScroll) window.scrollTo(0, 0);
+}
+
+function selectChar(id) {
+  const list = chars();
+  current = (list.find(x => x.id === id) || list[0] || {}).id || null;
+  if (el("charSel")) el("charSel").value = current;
+  store.set(CHAR_KEY, current);
+}
+
+// ------------------------------------------------------------------ Character modules
+function charHeader(c) {
+  const p = c.profile;
+  el("who").textContent = [p.fullName || p.name, p.level && `level ${p.level}`, p.race === "Scourge" ? "Undead" : p.race,
+    p.class && cap(p.class), p.ruleset && `${p.ruleset} ruleset`, p.zone && `last in ${p.zone}`].filter(Boolean).join(", ");
+  const myArmory = armoryUrl(p.fullName);
+  if (myArmory) el("who").insertAdjacentHTML("beforeend", `. <a class="wh" href="${esc(myArmory)}" target="_blank" rel="noopener">Armory</a>`);
+}
+
+// XP still needed for the next level, and the recent XP rate (per played hour)
+function xpOutlook(c) {
+  const xs = c.xp.series || [], last = lastOf(xs), x = c.xpLive;
+  if (!last || !x || x.cur == null || !x.max) return null;
+  const need = Math.max(0, x.max - x.cur);
+  const span = last.h - xs[0].h;
+  const recent = xs.filter(s => s.h >= last.h - Math.max(3, span * 0.2));
+  const fit = FC.wls(recent.map(s => s.h), recent.map(s => s.xp), Math.max(1, span * 0.08));
+  if (!fit || fit.b <= 0) return { need, rate: null };
+  return { need, rate: fit.b, hours: need / fit.b, from: last };
+}
+
+function modOverview() {
+  const c = curChar(); if (!c) return;
+  charHeader(c);
+  const p = c.profile, P = PALETTE();
+  const lt = c.levelTimes || [];
+  const levelNow = lt.find(l => l.current);
+  const xs = c.xp.series, first = xs[0], last = lastOf(xs);
+  const xpPerHour = first && last && last.h > first.h ? last.xp / (last.h - first.h) : null;
+  const out = xpOutlook(c), lf = levelForecast(lt);
+  el("kpis").innerHTML = [
+    kpi("Level", p.level ?? "?", levelNow ? `${dur(levelNow.seconds)} in this level` : ""),
+    kpi("Played", dur(p.played), `${p.sessions || 0} sessions logged`),
+    kpi("XP per hour", xpPerHour ? short(xpPerHour) : "?", out && out.rate ? `${short(out.rate)} lately` : "since MuddyBoots started"),
+    kpi("Next level", out && out.hours != null ? `≈ ${dur(out.hours * 3600)}` : "?", out ? `${short(out.need)} XP to go` : "Haul saves your XP at each /reload", "fc"),
+    kpi(`Level ${MAX_LEVEL}`, lf && lf.total ? `≈ ${dur(lf.total * 3600)}` : p.level >= MAX_LEVEL ? "reached" : "?", lf ? `of play, from ${lf.n} finished levels` : "needs 3 finished levels", "fc"),
+    kpi("Gold on hand", money(p.money, { short: true }), `net worth ${moneyText(c.netWorth.total)}`),
+    kpi("Deaths", (c.deaths || []).length, c.deathCounts ? `${c.deathCounts.closeCalls || 0} close calls` : ""),
+  ].join("");
+
+  // Leveling, with the projection to the next level
+  const proj = out && out.hours != null && out.hours < 200
+    ? [{ x: out.from.h, y: out.from.xp }, { x: +(out.from.h + out.hours).toFixed(2), y: out.from.xp + out.need }] : [];
+  el("xpMeta").textContent = out && out.rate ? `${short(out.rate)} XP / played hour lately` : "";
+  chart("xpChart", { type: "line", data: { datasets: [
+      { label: "Total XP", data: xs.map(s => ({ x: s.h, y: s.xp })), borderColor: P[0], backgroundColor: alpha(P[0], .10), fill: true, pointRadius: 0, borderWidth: 2, tension: .2 },
+      { label: "New level", type: "scatter", data: c.xp.levels.map(l => {
+          const at = xs.filter(s => s.h <= l.h).pop(); return { x: l.h, y: at ? at.xp : 0, level: l.level }; }),
+        pointRadius: 5, pointBackgroundColor: css("--panel"), pointBorderColor: P[0], pointBorderWidth: 2 },
+      { label: "Next level, at your recent pace", data: proj, borderColor: css("--forecast"), borderDash: [6, 5], borderWidth: 2,
+        pointRadius: proj.map((_, i) => i ? 6 : 0), pointStyle: "rectRot", pointBackgroundColor: css("--forecast") },
+    ] },
+    options: { parsing: false, scales: { x: { type: "linear", title: { display: true, text: "played hours" } }, y: { ticks: { callback: v => short(v) } } },
+      plugins: { tooltip: { callbacks: { label: ctx => ctx.raw.level ? `Level ${ctx.raw.level} at ${ctx.raw.x}h played`
+        : ctx.datasetIndex === 2 ? (ctx.dataIndex ? `Level ${(p.level || 0) + 1} ≈ ${ctx.raw.x}h played` : "now") : `${short(ctx.raw.y)} XP at ${ctx.raw.x}h played` } } } } });
+
+  // Time per level, with the trend to 60
+  const ahead = lf ? lf.ahead : [];
+  const levels = [...new Set(lt.map(l => l.level).concat(ahead.map(a => a.level)))].sort((a, b) => a - b);
+  const actual = levels.map(L => { const r = lt.find(l => l.level === L); return r ? +(r.seconds / 3600).toFixed(2) : null; });
+  const projected = levels.map(L => { const a = ahead.find(x => x.level === L); return a ? +a.hours.toFixed(2) : null; });
+  el("levelMeta").textContent = lf ? `hours ∝ level^${lf.power.toFixed(1)}` : "";
+  chart("levelChart", { type: "bar", data: { labels: levels.map(L => { const r = lt.find(l => l.level === L); return `${L}${r && r.partial ? "*" : ""}`; }),
+      datasets: [
+        { label: "Played", data: actual, backgroundColor: levels.map(L => { const r = lt.find(l => l.level === L); return r && r.current ? P[2] : P[0]; }), borderRadius: 3, stack: "h" },
+        { label: "Projected", data: projected, backgroundColor: alpha(css("--forecast"), .22), borderColor: css("--forecast"), borderWidth: 1, borderRadius: 3, stack: "h" },
+        ...(lf ? [{ type: "line", label: "Trend", data: levels.map(L => +lf.hoursAt(L).toFixed(2)), borderColor: css("--forecast"), borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0 }] : []),
+      ] },
+    options: { plugins: { legend: { display: !!lf }, tooltip: { callbacks: { label: ctx => {
+        const v = ctx.raw; if (v == null) return null;
+        if (ctx.datasetIndex === 1) return `Projected: ${dur(v * 3600)}${ahead.find(a => a.level === levels[ctx.dataIndex] && a.current) ? " left in this level" : ""}`;
+        if (ctx.datasetIndex === 2) return `Trend: ${dur(v * 3600)}`;
+        const r = lt.find(l => l.level === levels[ctx.dataIndex]);
+        return `Played: ${dur(r.seconds)}${r.partial ? " (only since tracking began)" : ""}`; } } } },
+      scales: { x: { stacked: true, title: { display: true, text: "level" } }, y: { stacked: true, title: { display: true, text: "hours" } } } } });
+
+  renderRecaps(c.recaps || []);
+}
+
+function modProgress() {
+  const c = curChar(); if (!c) return;
+  charHeader(c);
+  const P = PALETTE();
+  const XP_KEYS = [["quest", "Quests"], ["kill", "Kills"], ["discover", "Exploring"], ["other", "Other"]];
+  const xpTotals = XP_KEYS.map(([k]) => c.xp.totals[k] || 0);
+  const xpSum = xpTotals.reduce((a, b) => a + b, 0);
+  el("xpHint").textContent = xpSum ? `${short(xpSum)} XP in total` + (c.xp.totals.rested ? `, of which ${short(c.xp.totals.rested)} was rested bonus.` : ".") : "No XP recorded yet.";
+  chart("xpSourceChart", { type: "doughnut", data: { labels: XP_KEYS.map(k => k[1]), datasets: [{ data: xpTotals, backgroundColor: P, borderColor: css("--panel"), borderWidth: 2 }] },
+    options: { cutout: "64%", plugins: { legend: { position: "right", labels: { boxHeight: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${short(ctx.raw)} (${Math.round(100 * ctx.raw / (xpSum || 1))}%)` } } } } });
+  chart("xpLevelChart", { type: "bar", data: { labels: c.xp.byLevel.map(r => r.level),
+      datasets: XP_KEYS.map(([k, label], i) => ({ label, data: c.xp.byLevel.map(r => r[k] || 0), backgroundColor: P[i], borderColor: css("--panel"), borderWidth: { top: 2 } })) },
+    options: { scales: { x: { stacked: true, title: { display: true, text: "level" } }, y: { stacked: true, ticks: { callback: v => short(v) } } } } });
+  chart("profChart", { type: "line", data: { datasets: (c.professions || []).map((pr, i) => ({
+      label: `${pr.name} ${pr.level}/${pr.max}`, data: pr.points.map(pt => ({ x: pt.h, y: pt.level })), borderColor: P[i % P.length],
+      backgroundColor: P[i % P.length], pointRadius: 0, borderWidth: 2, stepped: true })) },
+    options: { parsing: false, scales: { x: { type: "linear", title: { display: true, text: "played hours" } }, y: { title: { display: true, text: "skill" }, beginAtZero: true } } } });
+  const VERB = { made: "Made", cooked: "Cooked", picked: "Picked", caught: "Caught", mined: "Mined", skinned: "Skinned" };
+  table("craftedTable", [{ t: "What" }, { t: "Profession" }, { t: "Count", n: 1 }],
+    (c.crafted || []).map(r => [`${esc(VERB[r.verb] || r.verb)} ${esc(r.item === "?" ? "fish and junk" : r.item)}`, esc(r.profession || ""), r.count]), "Nothing crafted yet.");
+  const ACT = [["combat", "Combat"], ["travel", "Travel"], ["town", "In town"], ["afk", "AFK"], ["dead", "Dead"]];
+  chart("activityChart", { type: "doughnut", data: { labels: ACT.map(a => a[1]), datasets: [{ data: ACT.map(([k]) => c.activity[k] || 0), backgroundColor: P, borderColor: css("--panel"), borderWidth: 2 }] },
+    options: { cutout: "64%", plugins: { legend: { position: "right", labels: { boxHeight: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${dur(ctx.raw)}` } } } } });
+  bars("zoneBars", (c.zones || []).slice(0, 10).map(z => ({ label: z.name, value: z.seconds })), dur);
+}
+
+function modGold() {
+  const c = curChar(); if (!c) return;
+  charHeader(c);
+  const p = c.profile, P = PALETTE();
+  const flow = c.money.flow || [], onHand = c.money.onHand || [];
+  const earned = c.money.earned || [], spent = c.money.spent || [];
+  const sum = l => l.reduce((a, r) => a + r.copper, 0);
+  // Gold on hand: weighted least squares toward recent play
+  let fit = null, projLine = [], band = [];
+  if (onHand.length >= 3) {
+    const xs = onHand.map(s => s.h), span = xs[xs.length - 1] - xs[0];
+    const hl = Math.max(2, span * 0.2);
+    fit = FC.wls(xs, onHand.map(s => s.copper), hl);
+    if (fit) {
+      const x0 = fit.xmax, x1 = x0 + Math.max(3, span * 0.25);
+      const lastY = onHand[onHand.length - 1].copper;
+      const shift = lastY - fit.at(x0); // start the line at today's gold
+      for (let i = 0; i <= 12; i++) {
+        const x = x0 + (x1 - x0) * i / 12, y = Math.max(0, fit.at(x) + shift), w = 1.2816 * fit.se * Math.sqrt(1 + (x - x0) / hl);
+        projLine.push({ x: +x.toFixed(2), y }); band.push({ x: +x.toFixed(2), lo: Math.max(0, y - w), hi: y + w });
+      }
+    }
+  }
+  el("kpis").innerHTML = [
+    kpi("Gold on hand", money(p.money, { short: true }), ""),
+    kpi("Earned", money(sum(earned), { short: true }), "since tracking began"),
+    kpi("Spent", money(sum(spent), { short: true }), ""),
+    kpi("Gold trend", fit ? `${fit.b >= 0 ? "+" : "−"}${moneyText(Math.abs(fit.b))}` : "?", fit ? "per played hour, recent play weighted most" : "needs 3 gold snapshots", "fc"),
+    kpi("Net worth", money(c.netWorth.total, { short: true }), `items at faction AH prices: ${moneyText(c.netWorth.items)}`),
+  ].join("");
+  el("moneyMeta").textContent = fit ? `${fit.b >= 0 ? "+" : "−"}${moneyText(Math.abs(fit.b))} / played hour` : "";
+  el("moneyMethod").textContent = fit ? `forecast: weighted least squares, half-life ${dur(Math.max(2, (onHand[onHand.length - 1].h - onHand[0].h) * 0.2) * 3600)} of play; band ≈ 80%` : "";
+  const fc = css("--forecast");
+  chart("moneyChart", { type: "line", data: { datasets: [
+      { label: "Earned", data: flow.map(s => ({ x: s.h, y: s.earned })), borderColor: css("--green"), pointRadius: 0, borderWidth: 2, stepped: true },
+      { label: "Spent", data: flow.map(s => ({ x: s.h, y: s.spent })), borderColor: css("--purple"), pointRadius: 0, borderWidth: 2, stepped: true },
+      { label: "Gold on hand", data: onHand.map(s => ({ x: s.h, y: s.copper })), borderColor: P[0], backgroundColor: P[0], pointRadius: 3, borderWidth: 2 },
+      { label: "Band hi", data: band.map(b => ({ x: b.x, y: b.hi })), borderWidth: 0, pointRadius: 0, fill: "+1", backgroundColor: alpha(fc, .14) },
+      { label: "Band lo", data: band.map(b => ({ x: b.x, y: b.lo })), borderWidth: 0, pointRadius: 0 },
+      { label: "Gold on hand, projected", data: projLine, borderColor: fc, borderDash: [6, 5], borderWidth: 2, pointRadius: 0 },
+    ] },
+    options: { parsing: false, interaction: { mode: "nearest", intersect: false },
+      scales: { x: { type: "linear", title: { display: true, text: "played hours" } }, y: { ticks: { callback: v => moneyText(v) } } },
+      plugins: { legend: { labels: { filter: i => !i.text.startsWith("Band") } },
+        tooltip: { filter: i => !i.dataset.label.startsWith("Band"), callbacks: { label: ctx => `${ctx.dataset.label}: ${moneyText(ctx.raw.y)} at ${ctx.raw.x}h played` } } } } });
+  const SRC = { quest: "Quest rewards", loot: "Looted coin", vendor: "Vendors", mail: "Mail", auction: "Auction house", trade: "Trades",
+    trainer: "Trainers", repair: "Repairs", flight: "Flights", postage: "Postage", bank: "Bank slots", gossip: "NPC services", respec: "Talent resets", other: "Other" };
+  el("flowHint").innerHTML = `Earned ${money(sum(earned), { short: true })}, spent ${money(sum(spent), { short: true })}.`;
+  bars("incomeBars", earned.map(r => ({ label: SRC[r.source] || r.source, value: r.copper, color: css("--green") })), moneyText);
+  bars("spendBars", spent.map(r => ({ label: SRC[r.source] || r.source, value: r.copper, color: css("--purple") })), moneyText);
+  const inv = c.inventory, loc = inv.byLocation || {};
+  el("worthHint").innerHTML = `Gold ${money(p.money || 0, { short: true })} plus items at the faction AH's last minimum price.`;
+  chart("worthChart", { type: "doughnut", data: { labels: ["Gold", "Bags", "Bank", "Mail"],
+      datasets: [{ data: [p.money || 0, loc.bags || 0, loc.bank || 0, loc.mail || 0], backgroundColor: [css("--gold"), P[0], P[2], P[3]], borderColor: css("--panel"), borderWidth: 2 }] },
+    options: { cutout: "64%", plugins: { legend: { position: "right", labels: { boxHeight: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${moneyText(ctx.raw)}` } } } } });
+  el("haulBox").innerHTML = c.haul ? `<table>
+      <tr><td>Length</td><td class="n">${dur(c.haul.elapsed)}${c.haul.zone ? ` · ${esc(c.haul.zone)}` : ""}</td></tr>
+      <tr><td>XP</td><td class="n">${short(c.haul.xp || 0)}</td></tr>
+      <tr><td>Coin (loot and quests)</td><td class="n">${money(c.haul.coin)}</td></tr>
+      <tr><td>Loot value</td><td class="n">${money(c.haul.items)}</td></tr>
+      <tr><td>Per hour</td><td class="n">${money(c.haul.perHour)}</td></tr></table>` : empty("No Haul data yet.");
+}
+
+function modCombat() {
+  const c = curChar(); if (!c) return;
+  charHeader(c);
+  const f = c.fights || {}, q = (c.quests || []).slice().reverse(), dc = c.deathCounts || {};
+  el("kpis").innerHTML = [
+    kpi("Fights", short(f.fights || 0), f.combatSeconds ? `${dur(f.combatSeconds)} in combat` : ""),
+    kpi("Longest fight", f.longest ? `${f.longest}s` : "?", ""),
+    kpi("Quests", q.length, q.length ? `${short(q.reduce((a, r) => a + r.xp, 0))} XP` : ""),
+    kpi("Deaths", (c.deaths || []).length, `${dc.closeCalls || 0} close calls`),
+  ].join("");
+  el("fightHint").textContent = f.fights ? `${f.fights} fights, ${dur(f.combatSeconds)} in combat, longest ${f.longest}s.` : "";
+  table("mobTable", [{ t: "Mob" }, { t: "Level", n: 1 }, { t: "Kills", n: 1 }, { t: "XP", n: 1 }],
+    (f.top || []).map(m => [whNpc(m.name, m.npc) + (m.type ? ` <span class="pill">${esc(m.type)}</span>` : ""), m.level || "", m.kills, short(m.xp)]), "No kills logged yet.");
+  el("questHint").textContent = q.length ? `${q.length} quests turned in for ${short(q.reduce((a, r) => a + r.xp, 0))} XP and ${moneyText(q.reduce((a, r) => a + r.copper, 0))}. Newest first.` : "";
+  table("questTable", [{ t: "Quest" }, { t: "Zone" }, { t: "XP", n: 1 }, { t: "Reward", n: 1 }, { t: "When", n: 1 }],
+    q.map(r => [whQuest(r.id, r.name), esc(r.zone || ""), short(r.xp), r.copper ? money(r.copper) : "", `<span data-sort="${r.t || 0}">${date(r.t)}</span>`]), "No quests logged yet.");
+  el("deathHint").textContent = `${(c.deaths || []).length} deaths, ${dc.closeCalls || 0} close calls, ${dc.lowHealth || 0} times at low health.`;
+  table("deathTable", [{ t: "When", n: 1 }, { t: "Killed by" }, { t: "Their level", n: 1 }, { t: "Your level", n: 1 }, { t: "Zone" }],
+    (c.deaths || []).slice().reverse().map(d => [`<span data-sort="${d.t || 0}">${date(d.t)}</span>`,
+      (d.byPlayer ? playerLink(d.killer) : d.killer !== "?" ? whNpc(d.killer, d.npc) : d.env ? esc(d.env[0].toUpperCase() + d.env.slice(1)) : "Unknown")
+        + (d.spell ? ` <span class="pill">${esc(d.spell)}</span>` : "") + (d.byPlayer ? ' <span class="pill">player</span>' : ""),
+      d.killerLevel || "", d.level || "", esc(d.place || d.zone || "")]),
+    "No deaths. Nice.");
+}
+
+function renderCrafts(c) {
+  const list = c.crafts || [];
+  if (!list.some(r => r.id === selectedCraft)) selectedCraft = list[0] ? list[0].id : null;
+  table("craftsTable", [{ t: "Recipe" }, { t: "Cost", n: 1 }, { t: "AH price", n: 1 }, { t: "After 5% cut", n: 1 }, { t: "Profit", n: 1 }, { t: "Margin", n: 1 }],
+    list.map(r => rowId(r.id, [
+      `${whItem(r.id, r.name)}${r.outputQty > 1 ? ` ×${r.outputQty}` : ""} ${r.ownReagents ? '<span class="pill">own reagents</span>' : ""}`,
+      money(r.cost),
+      r.gross != null ? money(r.gross) : money(r.sale),
+      money(r.sale),
+      `<span class="${r.profit >= 0 ? "pos" : "neg"}" data-sort="${r.profit}">${r.profit >= 0 ? "+" : ""}${money(r.profit)}</span>`,
+      r.margin != null ? `<span class="${r.margin >= 0 ? "pos" : "neg"}" data-sort="${r.margin}">${Math.round(r.margin * 100)}%</span>` : "",
+    ])), "No priced recipes yet: open your professions in game and scan the AH.",
+    { onRender: () => document.querySelectorAll("#craftsTable tr.pick").forEach(tr => tr.classList.toggle("sel", selectedCraft != null && Number(tr.dataset.id) === selectedCraft)) });
+  renderCraftPlan(c);
+}
+
+function renderCraftPlan(c) {
+  const box = el("craftPlanBox");
+  if (!box) return;
+  const list = (c && c.crafts) || [];
+  const r = list.find(x => x.id === selectedCraft) || list[0];
+  document.querySelectorAll("#craftsTable tr.pick").forEach(tr => tr.classList.toggle("sel", r && Number(tr.dataset.id) === r.id));
+  if (!r || !r.reagents || !r.reagents.length) { box.innerHTML = ""; return; }
+  const n = craftBatch || 1;
+  const chips = [1, 5, 10].map(k => `<button type="button" class="chip" data-craft-batch="${k}" aria-pressed="${k === n}">${k}×</button>`).join("");
+  const rows = r.reagents.map(l => {
+    const qty = l.qty * n, tot = l.total * n;
+    const indent = l.depth > 0 ? `<span class="muted">${"&nbsp;&nbsp;&nbsp;&nbsp;".repeat(l.depth - 1)}↳ </span>` : "";
+    const badge = l.method === "craft" ? '<span class="pill kill">craft</span>' : l.source === "vendor" ? '<span class="pill">vendor</span>' : '<span class="pill info">AH</span>';
+    const each = qty > 1 && l.unit > 0 ? ` <span class="muted">@ ${money(l.unit)}</span>` : "";
+    const vsAh = l.buyTotal ? ` <span class="muted">(AH ${money(l.buyTotal * n)})</span>` : "";
+    return `<tr><td>${indent}${qty}× ${whItem(l.id, l.name)} ${badge}${each}</td><td class="n">${money(tot)}${vsAh}</td></tr>`;
+  }).join("");
+  const gross = (r.gross != null ? r.gross : r.sale) * n, sale = r.sale * n, cut = Math.max(0, gross - sale);
+  const cost = r.cost * n, naive = (r.naiveCost || r.cost) * n, profit = r.profit * n;
+  const saved = naive > cost ? ` <span class="pos">(saves ${money(naive - cost)} vs buying all)</span>` : "";
+  box.innerHTML = `<div class="planbox">
+    <div class="planhead"><div><b>Reagent breakdown:</b> ${whItem(r.id, r.name)}${r.outputQty * n > 1 ? ` ×${r.outputQty * n}` : ""}</div><div class="chips" style="margin:0">${chips}</div></div>
+    <table><tbody>${rows}</tbody></table>
+    <div class="planfoot">
+      <span>Best cost: <b>${money(cost)}</b>${saved}</span>
+      <span>Gross AH: <b>${money(gross)}</b> (−5% cut: −${money(cut)})</span>
+      <span>Net payout: <b>${money(sale)}</b></span>
+      <span>Net profit: <b class="${profit >= 0 ? "pos" : "neg"}">${profit >= 0 ? "+" : ""}${money(profit)}</b>${n > 1 ? ` (${money(r.profit)}/craft)` : ""}</span>
+    </div>
+  </div>`;
+}
+
+function renderAhTrades(ah) {
+  if (!el("ahTable")) return;
+  const t = (ah && ah.totals) || { sold: 0, soldCount: 0, bought: 0, boughtCount: 0, deposits: 0, postCount: 0, expiredCount: 0, net: 0 };
+  const trades = (ah && ah.trades) || [], items = (ah && ah.items) || [];
+  el("ahHint").innerHTML = trades.length
+    ? `From MuddyBoots' auction and mailbox logs: sold <span class="pos">+${money(t.sold, { short: true })}</span> (${t.soldCount} items) · bought <span class="neg">−${money(t.bought, { short: true })}</span> (${t.boughtCount} items)`
+      + (t.deposits ? ` · deposits −${money(t.deposits, { short: true })} (${t.postCount} posted${t.expiredCount ? `, ${t.expiredCount} expired` : ""})` : "")
+      + ` · net <span class="${t.net >= 0 ? "pos" : "neg"}">${t.net >= 0 ? "+" : ""}${money(t.net, { short: true })}</span>.`
+    : "Purchases, sales, deposits and mail invoices logged by MuddyBoots.";
+  const modes = [
+    ["trades", `All activity (${trades.length})`],
+    ["items", `By item (${items.length})`],
+    ["sold", `Sold (${trades.filter(r => r.act === "sold").length})`],
+    ["bought", `Bought (${trades.filter(r => r.act === "buyout" || r.act === "bid").length})`],
+  ];
+  el("ahChips").innerHTML = modes.map(([k, l]) => `<button type="button" class="chip" data-ah="${k}" aria-pressed="${k === ahMode}">${esc(l)}</button>`).join("");
+  if (ahMode === "items") {
+    table("ahTable", [{ t: "Item" }, { t: "Bought", n: 1 }, { t: "Avg buy", n: 1 }, { t: "Sold", n: 1 }, { t: "Avg sell", n: 1 }, { t: "Deposits", n: 1 }, { t: "Net", n: 1 }],
+      items.map(it => [
+        whItem(it.id, it.name),
+        it.boughtCount ? `<span data-sort="${it.boughtCopper}">${it.boughtCount}× (${money(it.boughtCopper, { short: true })})</span>` : "",
+        it.avgBuy ? money(it.avgBuy) : "",
+        it.soldCount ? `<span data-sort="${it.soldCopper}">${it.soldCount}× (${money(it.soldCopper, { short: true })})</span>` : "",
+        it.avgSell ? money(it.avgSell) : "",
+        it.deposits ? `<span data-sort="${it.deposits}" title="${it.posts} posted${it.expired ? `, ${it.expired} expired` : ""}">${money(it.deposits)} <span class="muted">(${it.posts}×)</span></span>` : (it.expired ? `<span class="pill">${it.expired} expired</span>` : ""),
+        `<span class="${it.net > 0 ? "pos" : it.net < 0 ? "neg" : "muted"}" data-sort="${it.net}">${it.net > 0 ? "+" : ""}${money(it.net)}</span>`,
+      ]), "No auction house trades recorded yet.");
+    return;
+  }
+  const filtered = ahMode === "sold" ? trades.filter(r => r.act === "sold")
+    : ahMode === "bought" ? trades.filter(r => r.act === "buyout" || r.act === "bid")
+    : trades;
+  const BADGE = {
+    sold: '<span class="pill kill">sold</span>',
+    buyout: '<span class="pill info">bought</span>',
+    bid: '<span class="pill info">bid</span>',
+    post: '<span class="pill">deposit</span>',
+    expired: '<span class="pill">expired</span>',
+  };
+  table("ahTable", [{ t: "When", n: 1 }, { t: "Type" }, { t: "Item" }, { t: "Qty", n: 1 }, { t: "Each", n: 1 }, { t: "Total", n: 1 }, { t: "Buyer / Seller" }],
+    filtered.map(r => [
+      `<span data-sort="${r.t || 0}">${date(r.t)}</span>`,
+      BADGE[r.act] || esc(r.act),
+      whItem(r.id, r.name),
+      r.count || 1,
+      r.copper ? money(r.unit) : "",
+      r.act === "sold" ? `<span class="pos" data-sort="${r.copper}">+${money(r.copper)}</span>` : r.copper ? `<span class="neg" data-sort="${-r.copper}">-${money(r.copper)}</span>` : "",
+      (r.who || []).map(playerLink).join(", "),
+    ]), "No matching auction house trades.");
+}
+
+function renderRecaps(recaps) {
+  el("recapHint").textContent = recaps.length
+    ? `${recaps.length} play sessions, newest first. Reloads within 30 minutes count as one session. Click one to open it.`
+    : "No sessions logged yet.";
+  el("recapBox").innerHTML = recaps.map((r, i) => {
+    const net = r.earned - r.spent;
+    const stats = [
+      dur(r.played) + " played",
+      r.xp ? `${short(r.xp)} XP` : "",
+      r.levels.length ? `level ${r.levels.join(", ")}` : "",
+      net ? `<span class="${net >= 0 ? "pos" : "neg"}">${net >= 0 ? "+" : "-"}${moneyText(Math.abs(net))}</span>` : "",
+      r.kills ? `${r.kills} kills` : "",
+      r.quests.length ? `${r.quests.length} quests` : "",
+      r.deaths.length ? `<span class="neg">${r.deaths.length} death${r.deaths.length > 1 ? "s" : ""}</span>` : "",
+    ].filter(Boolean).map(x => `<span class="stat">${x}</span>`).join("");
+    const body = [
+      ["Where", esc(r.zones.join(" → ") || "?")],
+      ["Gold", `earned ${money(r.earned, { short: true })}, spent ${money(r.spent, { short: true })}`],
+      ["Fights", r.kills ? `${r.kills} kills` + (r.topMob ? `, mostly ${esc(r.topMob.name)} (${r.topMob.n})` : "") : '<span class="pill">none</span>'],
+      ["Professions", listOf(r.skills, k => `${esc(k.name)} ${k.from} → ${k.to}`)],
+      ["Loot and rewards", listOf(r.loot, l => whItem(l.id, l.name) + (l.count > 1 ? ` ×${l.count}` : "") + (l.value ? ` <span class="pill">${moneyText(l.value)}</span>` : ""))],
+      ["Made", listOf(r.made, l => whItem(l.id, l.name) + (l.count > 1 ? ` ×${l.count}` : ""))],
+      ["Auction house", [
+        ...(r.ahSold || []).map(x => `<span class="pos">sold</span> ${whItem(x.id, x.name)}${x.count > 1 ? ` ×${x.count}` : ""} <span class="pill kill">+${moneyText(x.copper)}</span>`),
+        ...(r.ahBought || []).map(x => `<span class="muted">bought</span> ${whItem(x.id, x.name)}${x.count > 1 ? ` ×${x.count}` : ""} <span class="pill">-${moneyText(x.copper)}</span>`),
+      ].join(", ") || '<span class="pill">none</span>'],
+      ["Quests", listOf(r.quests, q => esc(q))],
+      ["Deaths", listOf(r.deaths, d => esc(d))],
+    ].map(([h, v]) => `<div><h3>${h}</h3><p>${v}</p></div>`).join("");
+    return `<details class="session"${i === 0 ? " open" : ""}><summary><span class="when">${day(r.start)}, ${clock(r.start)}–${clock(r.finish)}</span>${stats}</summary><div class="body">${body}</div></details>`;
+  }).join("") || empty("Play with MuddyBoots enabled and log out; sessions show up here.");
+}
+
+const cap = s => s ? s[0] + s.slice(1).toLowerCase() : "";
+
+// ------------------------------------------------------------------ Account modules
+function modRoster() {
+  const a = DATA.account; if (!a) { el("who").textContent = "No account data."; return; }
+  const P = PALETTE(), t = a.totals, rows = a.characters;
+  const rulesets = new Set(rows.map(r => r.ruleset).filter(Boolean));
+  el("who").textContent = `${rows.length} character${rows.length === 1 ? "" : "s"}` + (rulesets.size ? `, ${[...rulesets].join(" and ")} ruleset` : "") + ".";
+  el("kpis").innerHTML = [
+    kpi("Characters", rows.length, t.maxLevel ? `highest level ${t.maxLevel}` : ""),
+    kpi("Played", dur(t.played), "all characters"),
+    kpi("Gold on hand", money(t.money, { short: true }), "all characters"),
+    kpi("Items", money(t.items, { short: true }), "bags, bank and mail at faction AH prices"),
+    kpi("Net worth", money(t.netWorth, { short: true }), "gold plus items"),
+  ].join("");
+  el("charsHint").textContent = "From MuddyBoots (level, gold, played) and Stockpile (items). Click a name to open that character."
+    + (rows.some(r => !r.detailed) ? " \"No log\": no detailed history yet; log in with that character once." : "");
+  table("charsTable", [{ t: "Character" }, { t: "Level", n: 1 }, { t: "Class" }, { t: "Ruleset" }, { t: "Played", n: 1 }, { t: "Gold", n: 1 }, { t: "Items", n: 1 }, { t: "Net worth", n: 1 }, { t: "Last played", n: 1 }],
+    rows.map(r => [
+      (r.detailed ? `<button class="link" data-char="${esc(r.id)}">${esc(r.fullName || r.name)}</button>` : esc(r.fullName || r.name) + ' <span class="pill">no log</span>')
+        + (armoryUrl(r.fullName) ? ` <a class="wh muted" href="${esc(armoryUrl(r.fullName))}" target="_blank" rel="noopener" title="Armory">armory</a>` : ""),
+      r.level || "", esc(cap(r.class)), esc(r.ruleset || ""), r.played ? dur(r.played) : "",
+      r.money != null ? money(r.money, { short: true }) : '<span class="pill">unknown</span>',
+      money(r.items, { short: true }) + (r.unpriced ? ` <span class="pill" title="items with no AH price">+${r.unpriced}</span>` : ""),
+      money(r.netWorth, { short: true }), `<span data-sort="${r.lastSeen || 0}">${date(r.lastSeen)}</span>`]),
+    "No characters found yet.");
+  chart("acctWorthChart", { type: "bar", data: { labels: rows.map(r => r.name),
+      datasets: [
+        { label: "Gold", data: rows.map(r => r.money || 0), backgroundColor: css("--gold") },
+        { label: "Bags", data: rows.map(r => r.byLocation.bags || 0), backgroundColor: P[0] },
+        { label: "Bank", data: rows.map(r => r.byLocation.bank || 0), backgroundColor: P[2] },
+        { label: "Mail", data: rows.map(r => r.byLocation.mail || 0), backgroundColor: P[3] },
+      ].map(d => Object.assign(d, { borderColor: css("--panel"), borderWidth: { right: 2 } })) },
+    options: { indexAxis: "y", scales: { x: { stacked: true, ticks: { callback: v => moneyText(v) } }, y: { stacked: true } },
+      plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${moneyText(ctx.raw)}` } } } } });
+  bars("playedBars", rows.filter(r => r.played).slice().sort((x, y) => y.played - x.played)
+    .map(r => ({ label: `${r.name}${r.level ? " (" + r.level + ")" : ""}`, value: r.played })), dur);
+}
+
+function modInventory() {
+  const a = DATA.account;
+  if (a) {
+    const inv = a.inventory;
+    el("who").textContent = `${inv.kinds} kinds of items across all characters, valued at faction AH prices.`;
+    el("acctInvHint").textContent = (inv.unpriced ? `${inv.unpriced} have no AH price. ` : "") + "Click a column header to sort. Price history lives in Market, Stockpile.";
+    table("acctInvTable", [{ t: "Item" }, { t: "Total", n: 1 }, { t: "Held by" }, { t: "AH each", n: 1 }, { t: "Value", n: 1 }],
+      inv.items.map(it => [whItem(it.id, it.name), it.count, esc(it.holders.map(h => `${h.name} ${h.count}`).join(", ")), money(it.unit), it.unit ? money(it.value) : ""]),
+      "No Stockpile data yet: log in with Stockpile enabled and open your bank once.");
+  }
+  const c = curChar();
+  el("charInvPanel").hidden = !c;
+  if (!c) return;
+  const inv = c.inventory;
+  el("invTitle").textContent = `On ${c.profile.fullName || c.profile.name}`;
+  el("invHint").textContent = `${inv.kinds || 0} kinds in bags, bank and mail, worth ${moneyText(inv.total)}` + (inv.unpriced ? `; ${inv.unpriced} have no AH price.` : ".");
+  const trend = Object.fromEntries((c.prices || []).map(ph => [ph.id, ph.points]));
+  table("invTable", [{ t: "Item" }, { t: "Bags", n: 1 }, { t: "Bank", n: 1 }, { t: "Mail", n: 1 }, { t: "AH each", n: 1 }, { t: "Value", n: 1 }, { t: "Trend", n: 1 }],
+    (inv.items || []).map(it => [whItem(it.id, it.name), it.bags || "", it.bank || "", it.mail || "", money(it.unit), it.unit ? money(it.value) : "", it.unit ? spark(trend[it.id]) : ""]),
+    "No Stockpile data for this character yet.");
+}
+
+function modAlts() {
+  const people = DATA.account ? DATA.account.characters.length : 0;
+  el("who").textContent = "Items one character holds that another crafts with or still needs.";
+  renderMail(DATA.transfers || [], people);
+}
+function modDrops() {
+  el("who").textContent = "From the DropLab addon: what each kind of mob dropped for you.";
+  renderDrops(DATA.drops);
+}
+
+function renderDrops(d) {
+  const pct = f => f == null ? "?" : (f * 100 >= 10 || f === 0 ? Math.round(f * 100) : (f * 100).toFixed(1)) + "%";
+  if (!d) {
+    el("dropsHint").textContent = "";
+    table("dropsTable", [{ t: "Mob" }], [], "Install the DropLab addon and kill a few mobs: it counts what each kill drops.");
+    return;
+  }
+  el("dropsHint").textContent = `${d.kills.toLocaleString()} kills of ${d.tracked} kinds of mob. Mobs with ${d.minKills}+ kills come first, by value per kill (drops at the AH price after the 5% cut, plus coin). The range is where the true rate most likely is (95%); few kills = wide range.`;
+  table("dropsTable", [{ t: "Mob" }, { t: "Kills", n: 1 }, { t: "Per kill", n: 1 }, { t: "Per hour", n: 1 }, { t: "Drops (your rate, likely range)" }],
+    d.mobs.map(m => [whNpc(m.name, m.npcID) + (m.ranked ? "" : ' <span class="pill">few kills</span>'),
+      `<span data-sort="${m.n}" title="${m.basis === "looted" ? "Only corpses you opened (no XP line): rates run high" : "Kills from XP lines"}">${m.n}${m.basis === "looted" ? "*" : ""}</span>`,
+      money(m.value), m.perHour != null ? money(m.perHour, { short: true }) : "",
+      m.drops.map(x => `${whItem(x.id, x.name)} <b>${pct(x.rate)}</b> <span class="muted">(${pct(x.lo)}–${pct(x.hi)})</span>`).join(", ")]),
+    "No kills recorded yet.");
+}
+
+function renderMarket(m) {
+  if (!m) { el("marketBox").innerHTML = empty("No Auctionator data."); return; }
+  const pct = x => Math.round(x * 100) + "%";
+  if (!m.ready) {
+    el("marketHint").textContent = "";
+    el("marketBox").innerHTML = empty(`Needs at least 3 days of AH scans to know an item's usual price; you have ${m.scanDays}. Run a full Auctionator scan once a day and this fills in.`);
+    return;
+  }
+  el("marketHint").textContent = `Usual price = median of the lowest price on each earlier scan day (${m.scanDays} scan days so far). Cheap = 30% or more under usual; high = 25% or more over.`;
+  const buy = `<h3 class="sub2">Cheap right now</h3><div class="scroll"><table id="buyTable"></table></div>`;
+  const sell = `<h3 class="sub2">You own it and it's high</h3><div class="scroll"><table id="sellTable"></table></div>`;
+  el("marketBox").innerHTML = buy + sell;
+  table("buyTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Under", n: 1 }, { t: "Listed", n: 1 }],
+    m.buy.map(b => [whItem(b.id, b.name), money(b.now), money(b.usual), `<span class="pos" data-sort="${b.pct}">${pct(b.pct)}</span>`, b.available ?? ""]),
+    "Nothing well under its usual price in the last scan.");
+  table("sellTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Over", n: 1 }, { t: "You have", n: 1 }, { t: "Extra", n: 1 }],
+    m.sell.map(x => [whItem(x.id, x.name), money(x.now), money(x.usual), `<span class="pos" data-sort="${x.pct}">+${pct(x.pct)}</span>`,
+      `<span data-sort="${x.count}" title="${esc(x.holders.join(", "))}">${x.count}</span>`, money(x.extra)]),
+    "Nothing you own is well above its usual price.");
+}
+
+function renderMail(list, people) {
+  el("mailHint").textContent = people < 2
+    ? "Once you have alts, this lists items one character holds that another crafts with (from Make or Buy's recipes and restock list). The in-game mailbox shows the same list."
+    : "Items one character holds that another crafts with. \"Restock\" = that character's restock list still needs them. The mailbox in game can attach them for you.";
+  table("mailTable", [{ t: "Item" }, { t: "From" }, { t: "To" }, { t: "Count", n: 1 }],
+    list.map(x => [whItem(x.id, x.name) + (x.reason === "restock" ? ' <span class="pill">restock</span>' : ""),
+      esc(x.from) + (x.bank && !x.bags ? ' <span class="pill">bank</span>' : ""), esc(x.to), `<span data-sort="${x.count}">${x.count}${x.need ? ` / ${x.need}` : ""}</span>`]),
+    people < 2 ? "Nothing yet: you have one character." : "Nothing to move: no character holds what another one crafts with.");
+}
+
+// ------------------------------------------------------------------ Market modules
+const MKT_KEY = "adventureLedger.market";
+let mktFilter = "all", mktFamily = "all", mktItem = null;
+try { const m = JSON.parse(store.get(MKT_KEY) || "{}"); mktFilter = m.filter || mktFilter; mktFamily = m.family || mktFamily; mktItem = m.item || null; } catch (e) {}
+const saveMkt = () => store.set(MKT_KEY, JSON.stringify({ filter: mktFilter, family: mktFamily, item: mktItem }));
+const signedPct = v => v == null ? "" : `<span class="${v > 0.005 ? "pos" : v < -0.005 ? "neg" : "muted"}" data-sort="${v}">${v > 0 ? "+" : ""}${Math.round(v * 100)}%</span>`;
+// Supply falling is good news for a seller, so it reads green
+const supplyPct = v => v == null ? '<span class="muted">–</span>' : `<span class="${v < -0.05 ? "pos" : v > 0.05 ? "neg" : "muted"}" data-sort="${v}">${v > 0 ? "+" : ""}${Math.round(v * 100)}%</span>`;
+const rowId = (id, cells) => { cells.id = id; return cells; };
+
+// What the numbers say, in a word
+function signal(it) {
+  if (!it.days || it.days.length < 2 || it.change == null) return '<span class="pill" data-sort="0">new</span>';
+  if (it.change >= 1 && (it.supply == null || it.supply < -0.15)) return '<span class="pill kill" data-sort="3" title="Twice its launch low or more, and fewer listed">selling window</span>';
+  if (it.change >= 0.5) return '<span class="pill fight" data-sort="2" title="50%+ over its launch low">rising</span>';
+  if (it.change <= 0.15) return '<span class="pill" data-sort="1" title="Within 15% of its launch low">still cheap</span>';
+  return "";
+}
+function itemSpark(it) {
+  const pts = (it.days || []).map(d => ({ t: d[0], low: d[1] })).concat((it.seen || []).map(s => ({ t: s[0], low: s[1] })));
+  pts.sort((a, b) => a.t - b.t);
+  return spark(pts);
+}
+
+function marketHeader(M) {
+  const items = Object.values(M.items || {}), days = M.days || [];
+  const range = days.length ? `${date(days[0]).split(",")[0]} to ${date(days[days.length - 1]).split(",")[0]}` : "";
+  el("who").innerHTML = `<span class="pill ${house === "neutral" && hasNeutral() ? "neutral" : "faction"}">${houseName()}</span> ${items.length.toLocaleString()} priced items over ${days.length} scan day${days.length === 1 ? "" : "s"}${range ? ` (${range})` : ""}. Lowest buyout; every /reload after a scan adds a point.`;
+}
+function noMarket() {
+  el("who").textContent = "";
+  el("kpis").innerHTML = `<div class="kpi">${empty("No Auctionator prices yet: scan the auction house in game, then /reload.")}</div>`;
+}
+const ownedOf = M => (M.owned || []).map(id => M.items[String(id)]).filter(Boolean);
+const pickRows = id => document.querySelectorAll("tr.pick").forEach(tr => tr.classList.toggle("sel", Number(tr.dataset.id) === id && !tr.closest("#craftsTable")));
+
+// What everything held now was worth on each scan day (each item at its low that day, or its nearest earlier day)
+function holdingsSeries(M) {
+  const owned = ownedOf(M);
+  return (M.days || []).map(t => {
+    let v = 0;
+    for (const it of owned) {
+      const ds = it.days || []; let p = null;
+      for (const d of ds) { if (d[0] <= t) p = d[1]; else break; }
+      if (p == null && ds.length) p = ds[0][1];
+      if (p != null) v += p * it.have;
+    }
+    return { t, v };
+  });
+}
+
+function modSignals() {
+  const M = MKT(); if (!M || !Object.keys(M.items || {}).length) return noMarket();
+  marketHeader(M);
+  const owned = ownedOf(M);
+  const valueNow = owned.reduce((a, it) => a + it.now * it.have, 0);
+  const valueLow = owned.reduce((a, it) => a + (it.low || it.now) * it.have, 0);
+  const windows = owned.filter(it => it.change >= 1 && (it.supply == null || it.supply < -0.15));
+  const series = holdingsSeries(M);
+  const fc = FC.holt(series.map(s => s.v), 7);
+  const lastV = lastOf(series);
+  const in7 = fc ? lastOf(fc.f) : null;
+  el("kpis").innerHTML = [
+    kpi("Stockpile value", money(valueNow, { short: true }), `${owned.length} kinds, all characters`),
+    kpi("Vs launch lows", signedPct(valueLow ? valueNow / valueLow - 1 : null), `worth ${moneyText(valueLow)} at the lowest prices`),
+    kpi("In 7 days", in7 ? money(in7.y, { short: true }) : "?", in7 ? `80%: ${moneyText(in7.lo)} to ${moneyText(in7.hi)}` : "needs 3 scan days", "fc"),
+    kpi("Selling windows", String(windows.length), "2× launch low and fewer listed"),
+    kpi("Scan days", String((M.days || []).length), houseName()),
+  ].join("");
+  // Value chart with the forecast
+  const DAY = 86400, mid = t => (t + DAY / 2) * 1000, P = PALETTE(), fcol = css("--forecast"), hcol = house === "neutral" && hasNeutral() ? css("--neutral") : css("--faction");
+  const fpts = fc && lastV ? [{ x: mid(lastV.t), y: lastV.v, lo: lastV.v, hi: lastV.v }].concat(fc.f.map(f => ({ x: mid(lastV.t + f.k * DAY), y: f.y, lo: f.lo, hi: f.hi }))) : [];
+  el("valueMeta").textContent = in7 && lastV ? `${signedPctText(in7.y / lastV.v - 1)} in 7 days` : "";
+  el("valueMethod").textContent = fc ? `forecast: damped Holt on log value (α ${fc.alpha.toFixed(1)}, β ${fc.beta.toFixed(2)}, φ 0.85) over ${fc.n} scan days` : "";
+  chart("valueChart", { type: "line", data: { datasets: [
+      { label: "Stockpile value", data: series.map(s => ({ x: mid(s.t), y: s.v })), borderColor: hcol, backgroundColor: alpha(hcol, .10), fill: true, borderWidth: 2, pointRadius: 3, tension: .25 },
+      { label: "Band hi", data: fpts.map(p => ({ x: p.x, y: p.hi })), borderWidth: 0, pointRadius: 0, fill: "+1", backgroundColor: alpha(fcol, .14) },
+      { label: "Band lo", data: fpts.map(p => ({ x: p.x, y: p.lo })), borderWidth: 0, pointRadius: 0 },
+      { label: "Forecast", data: fpts.map(p => ({ x: p.x, y: p.y })), borderColor: fcol, borderDash: [6, 5], borderWidth: 2, pointRadius: 0 },
+    ] }, options: timeOpts(v => moneyText(v), { legendFilter: true }) });
+  // Best sellers
+  const best = owned.filter(it => it.change != null && it.change > 0).sort((a, b) => b.change - a.change).slice(0, 15);
+  table("windowTable", [{ t: "Item" }, { t: "vs low", n: 1 }, { t: "Value", n: 1 }],
+    best.map(it => rowId(it.id, [whItem(it.id, it.name) + " " + signal(it), signedPct(it.change), money(it.now * it.have, { short: true })])),
+    "Nothing you hold is above its launch low.");
+  // Buy low / sell high (faction prices, from the build)
+  renderMarket(DATA.market);
+}
+
+function modStockpile() {
+  const M = MKT(); if (!M || !Object.keys(M.items || {}).length) return noMarket();
+  marketHeader(M);
+  const owned = ownedOf(M);
+  const valueNow = owned.reduce((a, it) => a + it.now * it.have, 0);
+  const herbIds = new Set(((M.families || []).find(f => f.key === "herbs") || { ids: [] }).ids);
+  const herbs = owned.filter(it => herbIds.has(it.id));
+  const herbNow = herbs.reduce((a, it) => a + it.now * it.have, 0), herbLow = herbs.reduce((a, it) => a + (it.low || it.now) * it.have, 0);
+  el("kpis").innerHTML = [
+    kpi("Held", String(owned.length), "kinds with a price here"),
+    kpi("Value", money(valueNow, { short: true }), houseName()),
+    kpi("Herbs held", money(herbNow, { short: true }), herbs.length ? `${signedPct(herbLow ? herbNow / herbLow - 1 : null)} vs launch lows` : "none"),
+    kpi("Rising", String(owned.filter(it => it.change >= 0.5).length), "50%+ over launch low"),
+  ].join("");
+  const fams = (M.families || []).filter(f => owned.some(it => f.ids.includes(it.id)));
+  if (mktFilter !== "all" && !fams.some(f => f.key === mktFilter)) mktFilter = "all";
+  el("stockChips").innerHTML = [["all", "Everything"]].concat(fams.map(f => [f.key, f.label]))
+    .map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${k === mktFilter}">${esc(l)}</button>`).join("");
+  const famIds = mktFilter === "all" ? null : new Set(fams.find(f => f.key === mktFilter).ids);
+  const rows = owned.filter(it => !famIds || famIds.has(it.id));
+  el("stockHint").textContent = `Everything your characters hold that this house has priced, by value. "vs low" = today's price against the lowest daily low; supply = listed now against the first scan day (green = fewer). Click a row for its chart.`;
+  table("stockTable", [{ t: "Item" }, { t: "Have", n: 1 }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "vs low", n: 1 }, { t: "Peak", n: 1 }, { t: "Supply", n: 1 }, { t: "Trend", n: 1 }, { t: "Value", n: 1 }, { t: "Signal", n: 1 }],
+    rows.map(it => rowId(it.id, [whItem(it.id, it.name), `<span data-sort="${it.have}" title="${esc((it.holders || []).join(", "))}">${short(it.have)}</span>`, money(it.now), money(it.low), signedPct(it.change),
+      money(it.peak), supplyPct(it.supply), itemSpark(it), money(it.now * it.have, { short: true }), signal(it)])),
+    "You don't hold anything this house has a price for.", { onRender: () => pickRows(mktItem) });
+  inspect(mktItem && M.items[String(mktItem)] ? mktItem : (herbs[0] || owned[0] || {}).id);
+}
+
+function modBrowse() {
+  const M = MKT(); if (!M || !Object.keys(M.items || {}).length) return noMarket();
+  marketHeader(M);
+  const items = M.items, get = id => items[String(id)];
+  const allItems = Object.values(items).sort((a, b) => (b.available || 0) - (a.available || 0) || (b.now || 0) - (a.now || 0) || a.id - b.id);
+  const allFams = [["all", `All items (${allItems.length.toLocaleString()})`]].concat((M.families || []).map(f => [f.key, f.label]));
+  if (!allFams.some(([k]) => k === mktFamily)) mktFamily = "all";
+  el("famChips").innerHTML = allFams.map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${k === mktFamily}">${esc(l)}</button>`).join("");
+  const fam = mktFamily === "all" ? null : (M.families || []).find(f => f.key === mktFamily);
+  const famRows = fam ? fam.ids.map(get).filter(Boolean) : allItems;
+  table("famTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "vs low", n: 1 }, { t: "Peak", n: 1 }, { t: "Supply", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }, { t: "Trend", n: 1 }, { t: "Signal", n: 1 }],
+    famRows.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.low), signedPct(it.change), money(it.peak), supplyPct(it.supply),
+      it.available != null ? `<span data-sort="${it.available}">${short(it.available)}</span>` : "",
+      it.have ? `<span data-sort="${it.have}" title="${esc((it.holders || []).join(", "))}">${short(it.have)}</span>` : "",
+      itemSpark(it), signal(it)])),
+    "No prices for this family yet.",
+    { limit: 250, onRender: (shown, match, total) => {
+      pickRows(mktItem);
+      el("famHint").textContent = match < total
+        ? `Showing ${shown.toLocaleString()} of ${match.toLocaleString()} matching items (from ${total.toLocaleString()}). Click a row for its chart.`
+        : shown < total
+        ? `Showing the top ${shown.toLocaleString()} of ${total.toLocaleString()} by listings. Search, or sort a column, to reach the rest.`
+        : `${total.toLocaleString()} priced items. Click a row for its chart.`;
+    } });
+  inspect(mktItem && get(mktItem) ? mktItem : (famRows[0] || {}).id);
+}
+
+function modMovers() {
+  const M = MKT(); if (!M || !Object.keys(M.items || {}).length) return noMarket();
+  marketHeader(M);
+  const get = id => M.items[String(id)], days = M.days || [];
+  const up = (M.rising || []).map(get).filter(Boolean), down = (M.falling || []).map(get).filter(Boolean);
+  el("kpis").innerHTML = [
+    kpi("Rising", String(up.length), "50%+ over launch low"),
+    kpi("Falling", String(down.length), "30%+ under peak"),
+    kpi("You hold", String(up.filter(it => it.have).length), "of the risers"),
+  ].join("");
+  table("risingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "Change", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }],
+    up.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.low), signedPct(it.change), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`, it.have ? `<span data-sort="${it.have}">${short(it.have)}</span>` : ""])),
+    days.length < 2 ? "Needs two scan days." : "Nothing up 50% or more.", { onRender: () => pickRows(mktItem) });
+  table("fallingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Peak", n: 1 }, { t: "Down", n: 1 }, { t: "Listed", n: 1 }],
+    down.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.peak), signedPct(it.peak ? it.now / it.peak - 1 : null), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`])),
+    days.length < 2 ? "Needs two scan days." : "Nothing down 30% or more from its peak.", { onRender: () => pickRows(mktItem) });
+  inspect(mktItem && get(mktItem) ? mktItem : (up[0] || down[0] || {}).id);
+}
+
+function modNeutral() {
+  const N = DATA.neutralTab, have = hasNeutral();
+  let list = DATA.houses || [];
+  el("neutralSetup").hidden = have;
+  ["gapPanel", "gapDistPanel"].forEach(id => el(id).hidden = !have);
+  el("visitPanel").hidden = !(N && (N.visits || []).length);
+  el("inspector").hidden = !have;
+  if (!have) {
+    el("who").textContent = "The goblin auction house runs its own prices. Here they're kept apart from your faction's.";
+  } else {
+    const n = Object.keys(N.items).length;
+    const moved = (N.movedDays || []).map(t => date(t).split(",")[0]);
+    el("who").innerHTML = `<span class="pill neutral">Neutral AH</span> ${n.toLocaleString()} items priced${N.last ? `, last scanned by Ledger Link ${date(N.last)}` : ""}.`
+      + (moved.length ? ` Includes ${moved.join(", ")}, moved out of the faction book (neutral_days.txt).` : "")
+      + ` <span class="pill faction">Faction AH</span> prices come from Auctionator.`;
+    const deep = r => (r.nListed || 0) >= GAP_MIN && (r.fListed || 0) >= GAP_MIN;
+    const modes = [["deep", `Well listed (${list.filter(deep).length})`], ["mine", `You hold (${list.filter(r => r.have).length})`], ["all", `All (${list.length})`]];
+    if (!modes.some(m => m[0] === gapMode)) gapMode = "deep";
+    el("gapChips").innerHTML = modes.map(([k, l]) => `<button type="button" class="chip" data-gap="${k}" aria-pressed="${k === gapMode}">${esc(l)}</button>`).join("");
+    const all = list;
+    list = gapMode === "deep" ? all.filter(deep) : gapMode === "mine" ? all.filter(r => r.have) : all;
+    const spreads = list.map(r => r.spread).sort((a, b) => a - b);
+    const med = spreads.length ? spreads[Math.floor(spreads.length / 2)] : null;
+    const toN = list.filter(r => r.toNeutral > 0), toF = list.filter(r => r.toFaction > 0);
+    const heldGain = list.filter(r => r.have).reduce((a, r) => { const g = (Math.floor(r.neutral * 0.85) - Math.floor(r.faction * 0.95)) * r.have; return g > 0 ? a + g : a; }, 0);
+    el("kpis").innerHTML = [
+      kpi("Priced at both", String(all.length), `of ${n} Neutral items; ${list.length} in this view`),
+      kpi("Typical gap", med == null ? "?" : gapPct(med), "median in this view"),
+      kpi("Flip to Neutral", String(toN.length), "buy at Faction, still ahead after the 15% cut"),
+      kpi("Flip to Faction", String(toF.length), "buy at Neutral, ahead after 5%"),
+      kpi("Your extra at Neutral", money(heldGain, { short: true }), "selling there instead, after each cut"),
+    ].join("");
+    const flip = v => `<span class="${v > 0 ? "pos" : "muted"}" data-sort="${v}">${v > 0 ? "+" : ""}${money(v)}</span>`;
+    const listed = (a, b) => `<span data-sort="${Math.min(a || 0, b || 0)}">${a != null ? short(a) : "?"} <span class="muted">/</span> ${b != null ? short(b) : "?"}</span>`;
+    table("gapTable", [{ t: "Item" }, { t: "Faction", n: 1 }, { t: "Neutral", n: 1 }, { t: "Gap", n: 1 }, { t: "Flip to Neutral", n: 1 }, { t: "Flip to Faction", n: 1 }, { t: "Listed (F / N)", n: 1 }, { t: "Have", n: 1 }],
+      list.map(r => rowId(r.id, [whItem(r.id, r.name), money(r.faction), money(r.neutral), gapPct(r.spread), flip(r.toNeutral), flip(r.toFaction),
+        listed(r.fListed, r.nListed), r.have ? `<span data-sort="${r.have}">${short(r.have)}</span>` : ""])),
+      "No item is priced at both houses yet.", { onRender: () => pickRows(mktItem) });
+    // Gap distribution
+    const BINS = [[-Infinity, -0.25, "< −25%"], [-0.25, -0.1, "−25 to −10%"], [-0.1, 0, "−10 to 0%"], [0, 0.1, "0 to 10%"], [0.1, 0.25, "10 to 25%"],
+      [0.25, 0.5, "25 to 50%"], [0.5, 1, "50 to 100%"], [1, Infinity, "> 100%"]];
+    const counts = BINS.map(([lo, hi]) => list.filter(r => r.spread >= lo && r.spread < hi).length);
+    chart("gapChart", { type: "bar", data: { labels: BINS.map(b => b[2]), datasets: [{ label: "Items", data: counts,
+        backgroundColor: BINS.map(b => b[1] <= 0 ? css("--faction") : css("--neutral")), borderRadius: 3 }] },
+      options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} items` } } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
+    const first = list.find(r => r.id === mktItem) || list[0];
+    inspect(first ? first.id : Object.values(N.items)[0].id, { both: true });
+  }
+  const visits = ((N && N.visits) || []).slice().reverse();
+  el("visitMeta").textContent = visits.length ? `${visits.filter(v => v.kind === "neutral").length} neutral of ${visits.length}` : "";
+  table("visitTable", [{ t: "When", n: 1 }, { t: "House" }, { t: "Where" }],
+    visits.map(v => [`<span data-sort="${v.t}">${date(v.t)}</span>`, `<span class="pill ${v.kind === "neutral" ? "neutral" : "faction"}">${v.kind === "neutral" ? "Neutral" : "Faction"}</span>`, esc(v.zone || "")]),
+    "No visits recorded yet.");
+}
+
+function modTrades() {
+  const c = curChar(); if (!c) return;
+  el("who").textContent = `${c.profile.fullName || c.profile.name}'s auction house ledger, rebuilt from MuddyBoots' auction, mail and money lines.`;
+  const t = c.money && c.money.ahTrades && c.money.ahTrades.totals;
+  if (t) el("kpis").innerHTML = [
+    kpi("Sold", money(t.sold, { short: true }), `${t.soldCount} items`),
+    kpi("Bought", money(t.bought, { short: true }), `${t.boughtCount} items`),
+    kpi("Deposits", money(t.deposits, { short: true }), `${t.postCount} posted${t.expiredCount ? `, ${t.expiredCount} expired` : ""}`),
+    kpi("Net", `<span class="${t.net >= 0 ? "pos" : "neg"}">${t.net >= 0 ? "+" : ""}${money(t.net, { short: true })}</span>`, "sold less bought and deposits"),
+  ].join("");
+  renderAhTrades(c.money && c.money.ahTrades);
+}
+
+function modCrafting() {
+  const c = curChar(); if (!c) return;
+  el("who").textContent = `${c.profile.fullName || c.profile.name}'s known recipes, priced at the faction AH.`;
+  const list = c.crafts || [];
+  const profitable = list.filter(r => r.profit > 0);
+  el("kpis").innerHTML = [
+    kpi("Priced recipes", String(list.length), ""),
+    kpi("Profitable", String(profitable.length), "after the 5% cut"),
+    kpi("Best profit", profitable[0] ? money(Math.max(...profitable.map(r => r.profit))) : "?", "per craft"),
+  ].join("");
+  renderCrafts(c);
+  el("restockBox").innerHTML = c.restock && c.restock.length
+    ? `<table>${c.restock.map(r => `<tr><td>${whItem(r.id, r.name)}</td><td class="n">${r.crafts}×</td></tr>`).join("")}</table>` : empty("Nothing on the restock list.");
+}
+
+function modLive() {
+  el("who").textContent = "From the combat log, up to 5 minutes behind the game.";
+  renderLive(LIVE);
+  requestAnimationFrame(() => { if (LIVE) drawLiveMap(LIVE); });
+}
+
+const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, combat: modCombat, roster: modRoster, inventory: modInventory,
+  alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral,
+  trades: modTrades, crafting: modCrafting, live: modLive };
+
+// ------------------------------------------------------------------ The item inspector (both houses on one chart)
+const inspCharts = [];
+const GAP_MIN = 5;
+let gapMode = "deep";
+// big gaps read better as a multiple: +1,150% is ×12.5
+const gapPct = v => v == null ? "" : v >= 1
+  ? `<span class="pos" data-sort="${v}">×${(v + 1).toFixed(v >= 9 ? 0 : 1)}</span>` : signedPct(v);
+const signedPctText = v => v == null ? "" : `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`;
+function timeOpts(yTick, o = {}) {
+  return {
+    parsing: false, interaction: { mode: "nearest", intersect: false },
+    scales: {
+      x: { type: "linear", ticks: { stepSize: 86400000, callback: v => new Date(v).toLocaleDateString(undefined, { month: "short", day: "numeric" }), maxTicksLimit: 10 } },
+      y: { beginAtZero: !o.zoom, ticks: { callback: yTick } },
+    },
+    plugins: {
+      legend: { labels: { filter: i => !/^Band/.test(i.text) } },
+      tooltip: { filter: i => !/^Band/.test(i.dataset.label), callbacks: {
+        title: items => items.length ? new Date(items[0].parsed.x).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
+        label: c => `${c.dataset.label}: ${o.count ? Math.round(c.parsed.y).toLocaleString() : moneyText(c.parsed.y)}` + (c.raw && c.raw.lo != null && c.raw.hi !== c.raw.lo ? ` (80%: ${moneyText(c.raw.lo)} to ${moneyText(c.raw.hi)})` : ""),
+      } },
+    },
+  };
+}
+
+function inspect(id) {
+  inspCharts.splice(0).forEach(ch => ch.destroy());
+  const F = DATA.marketTab && DATA.marketTab.items[String(id)], N = DATA.neutralTab && DATA.neutralTab.items[String(id)];
+  const it = F || N;
+  if (!it) { el("itemTitle").textContent = "Price history"; el("itemHint").textContent = "Click an item in a table below."; el("itemLegend").innerHTML = ""; el("itemMethod").textContent = ""; return; }
+  mktItem = it.id; saveMkt(); pickRows(it.id);
+  const active = house === "neutral" && N ? N : F || N, activeName = active === N ? "Neutral" : "Faction";
+  el("itemTitle").innerHTML = whItem(it.id, it.name);
+  const fmtHouse = (h, name, cls) => h ? `<span class="pill ${cls}">${name}</span> now ${money(h.now)}, launch low ${money(h.low)} (${signedPct(h.change)}), peak ${money(h.peak)}` : "";
+  el("itemHint").innerHTML = [fmtHouse(F, "Faction", "faction"), fmtHouse(N, "Neutral", "neutral")].filter(Boolean).join("<br>")
+    + (it.have ? `<br>You hold ${short(it.have)}, worth ${money((active.now || 0) * it.have, { short: true })} at ${activeName}.` : "");
+  const DAY = 86400, mid = t => (t + DAY / 2) * 1000;
+  const fcol = css("--forecast");
+  const ds = [];
+  const series = (h, name, col) => {
+    if (!h) return;
+    const days = h.days || [];
+    ds.push({ label: `${name} daily low`, data: days.map(d => ({ x: mid(d[0]), y: d[1] })), borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 3, tension: .25 });
+    ds.push({ label: `${name} daily high`, data: days.map(d => ({ x: mid(d[0]), y: d[2] })), borderColor: alpha(col, .45), borderDash: [2, 3], borderWidth: 1.5, pointRadius: 0, tension: .25 });
+    if ((h.seen || []).length) ds.push({ type: "scatter", label: `${name} your saves`, data: h.seen.map(s => ({ x: s[0] * 1000, y: s[1] })), borderColor: col, backgroundColor: css("--panel"), pointRadius: 3.5, pointBorderWidth: 1.5 });
+  };
+  series(F, "Faction", css("--faction"));
+  series(N, "Neutral", css("--neutral"));
+  // Forecast for the house in view
+  const days = (active.days || []);
+  const fc = FC.holt(days.map(d => d[1]), 7);
+  const lastD = lastOf(days);
+  if (fc && lastD) {
+    const pts = [{ x: mid(lastD[0]), y: lastD[1], lo: lastD[1], hi: lastD[1] }].concat(fc.f.map(f => ({ x: mid(lastD[0] + f.k * DAY), y: f.y, lo: f.lo, hi: f.hi })));
+    ds.push({ label: "Band hi", data: pts.map(p => ({ x: p.x, y: p.hi })), borderWidth: 0, pointRadius: 0, fill: "+1", backgroundColor: alpha(fcol, .14) });
+    ds.push({ label: "Band lo", data: pts.map(p => ({ x: p.x, y: p.lo })), borderWidth: 0, pointRadius: 0 });
+    ds.push({ label: `${activeName} forecast`, data: pts, borderColor: fcol, borderDash: [6, 5], borderWidth: 2, pointRadius: 0 });
+    const end = lastOf(fc.f);
+    el("itemMeta").innerHTML = `${activeName}, 7 days: <span style="color:var(--pink)">${moneyText(end.y)}</span> (${signedPctText(end.y / lastD[1] - 1)})`;
+    el("itemMethod").textContent = `forecast: damped Holt on log daily lows (α ${fc.alpha.toFixed(1)}, β ${fc.beta.toFixed(2)}, φ 0.85), ${fc.n} scan days; band ≈ 80%`;
+  } else {
+    el("itemMeta").textContent = "";
+    el("itemMethod").textContent = "forecast needs 3 scan days at this house";
+  }
+  el("itemLegend").innerHTML = [F && `<span><i style="background:var(--faction)"></i>Faction</span>`, N && `<span><i style="background:var(--neutral)"></i>Neutral</span>`,
+    `<span><i style="background:var(--dim)"></i>solid: daily low · dotted: daily high · rings: your saves</span>`,
+    fc ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span>` : ""].filter(Boolean).join("");
+  const xs = ds.flatMap(d => d.data.map(p => p.x)).concat(lds0(F, N, mid));
+  const xr = xs.length ? { min: Math.min(...xs) - DAY * 500, max: Math.max(...xs) + DAY * 500 } : {};
+  const fixY = { afterFit: ax => { ax.width = 68; } };
+  const o = timeOpts(v => moneyText(v));
+  Object.assign(o.scales.x, xr); Object.assign(o.scales.y, fixY);
+  o.plugins.legend = { display: false };
+  chart("itemChart", { type: "line", data: { datasets: ds }, options: o }, inspCharts);
+  // Listings: a second chart rather than a second axis
+  const lds = [];
+  if (F) lds.push({ label: "Faction listed", data: (F.days || []).filter(d => d[3] != null).map(d => ({ x: mid(d[0]) - (N ? 3600000 * 3 : 0), y: d[3] })), backgroundColor: css("--faction"), barThickness: N ? 8 : 14, borderRadius: 2 });
+  if (N) lds.push({ label: "Neutral listed", data: (N.days || []).filter(d => d[3] != null).map(d => ({ x: mid(d[0]) + (F ? 3600000 * 3 : 0), y: d[3] })), backgroundColor: css("--neutral"), barThickness: F ? 8 : 14, borderRadius: 2 });
+  const lo = timeOpts(v => short(v), { count: true });
+  Object.assign(lo.scales.x, xr); Object.assign(lo.scales.y, fixY);
+  lo.plugins.legend = { display: false };
+  chart("listedChart", { type: "bar", data: { datasets: lds }, options: lo }, inspCharts);
+}
+
+const lds0 = (F, N, mid) => [F, N].filter(Boolean).flatMap(h => (h.days || []).map(d => mid(d[0])));
+
+// ------------------------------------------------------------------ Events
+document.addEventListener("click", e => {
+  const th = e.target.closest("th.sortable");
+  if (th) {
+    const tbl = th.closest("table");
+    const st = tbl && tableState[tbl.id];
+    if (st) {
+      const col = Number(th.dataset.col);
+      if (st.col === col) st.dir = -st.dir;
+      else { st.col = col; st.dir = st.head[col] && st.head[col].n ? -1 : 1; }
+      drawTable(tbl.id);
+    }
+    return;
+  }
+  const nav = e.target.closest("button[data-route]");
+  if (nav) { go(nav.dataset.route); return; }
+  const hb = e.target.closest("#houseSeg button");
+  if (hb && !hb.disabled) { house = hb.dataset.house; store.set(HOUSE_KEY, house); go(route, { keepScroll: true }); return; }
+  const charBtn = e.target.closest("button[data-char]");
+  if (charBtn) { selectChar(charBtn.dataset.char); go("overview"); return; }
+  const batchBtn = e.target.closest("button[data-craft-batch]");
+  if (batchBtn) { craftBatch = Number(batchBtn.dataset.craftBatch) || 1; if (curChar()) renderCraftPlan(curChar()); return; }
+  const gapBtn = e.target.closest("button[data-gap]");
+  if (gapBtn) { gapMode = gapBtn.dataset.gap; go(route, { keepScroll: true }); return; }
+  const ahBtn = e.target.closest("button[data-ah]");
+  if (ahBtn) { ahMode = ahBtn.dataset.ah || "trades"; const c = curChar(); if (c && c.money) renderAhTrades(c.money.ahTrades); return; }
+  const chip = e.target.closest("#stockChips button, #famChips button");
+  if (chip) { if (chip.closest("#stockChips")) mktFilter = chip.dataset.k; else mktFamily = chip.dataset.k; saveMkt(); go(route, { keepScroll: true }); return; }
+  const craftRow = e.target.closest("#craftsTable tr.pick");
+  if (craftRow && !e.target.closest("a")) { selectedCraft = Number(craftRow.dataset.id); if (curChar()) renderCraftPlan(curChar()); return; }
+  const row = e.target.closest("tr.pick");
+  if (row && !e.target.closest("a") && el("inspector").parentElement.classList.contains("slot")) {
+    inspect(Number(row.dataset.id));
+    el("inspector").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+  }
+});
+document.addEventListener("input", e => {
+  const inp = e.target.closest("input[data-table]");
+  if (inp && tableState[inp.dataset.table]) { tableState[inp.dataset.table].query = inp.value.trim(); drawTable(inp.dataset.table); }
+});
+window.addEventListener("hashchange", () => { const k = location.hash.replace(/^#\/?/, ""); if (k && k !== route) go(k); });
+
+// ------------------------------------------------------------------ Live (server.py only)
+const SERVED = location.protocol.startsWith("http");
+const TAB_KEY = "adventureLedger.tab", SCROLL_KEY = "adventureLedger.scroll";
+let tab = "ledger", LIVE = null;
+const hhmm = t => t ? new Date(t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
+const nowSec = () => Date.now() / 1000;
+function agoText(sec) {
+  if (sec == null) return "never";
+  sec = Math.max(0, Math.round(sec));
+  return sec < 60 ? `${sec} s ago` : sec < 3600 ? `${Math.floor(sec / 60)} min ago` : `${dur(sec)} ago`;
+}
+const pct = v => `${Math.round(v * 100)}%`;
+const countdown = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+const POWER = { 0: ["Mana", "--c2"], 1: ["Rage", "--bad"], 2: ["Focus", "--c6"], 3: ["Energy", "--gold"], 6: ["Runic power", "--c2"] };
+
+function liveCharacter(me) {
+  if (!me || !DATA || !DATA.characters) return null;
+  return DATA.characters.find(c => (c.profile.fullName || c.profile.name) === me.name) || null;
+}
+
+function meter(value, max, color) {
+  const f = max ? Math.max(0, Math.min(1, value / max)) : 0;
+  return `<div class="meter"><span style="width:${(f * 100).toFixed(1)}%;background:${color}"></span></div>`;
+}
+
+
+// Links. Wowhead for creatures (npc id from the combat log); Blizzard's WoW Forever armory for players, by
+// "First Surname" (lower case, as the armory's own URLs are). Empty PLAYER_URL = no player links.
+const PLAYER_URL = "https://worldofwarcraft.blizzard.com/en-us/forever/us/armory/character/{first}-{surname}";
+function armoryUrl(name) {
+  const [first, ...rest] = String(name || "").trim().toLowerCase().split(/\s+/);
+  if (!PLAYER_URL || !first || !rest.length) return null; // the armory needs the surname
+  return PLAYER_URL.replace("{first}", encodeURIComponent(first)).replace("{surname}", encodeURIComponent(rest.join("-")));
+}
+function playerLink(name) {
+  const url = armoryUrl(name);
+  return url ? `<a class="wh" href="${esc(url)}" target="_blank" rel="noopener" title="Open on the armory">${esc(name)}</a>` : esc(name);
+}
+
+// XP between saves: XP at your last /reload or logout (Haul) plus, for each kill the combat log saw since, the XP that
+// creature gave you last time (MuddyBoots). Quest and exploration XP only show after the next save.
+function xpEstimate(L, me) {
+  const ch = liveCharacter(me), x = ch && ch.xpLive;
+  if (!x || x.cur == null || !x.max) return null;
+  const mobs = Array.isArray(x.mobs) ? {} : (x.mobs || {});
+  let gained = 0, unknown = 0, kills = 0;
+  const recent = {}, now = (L && L.lastLine) || nowSec();
+  for (const [t, npc, name] of (L && L.killLog) || []) {
+    const m = npc != null ? mobs[String(npc)] : null;
+    if (x.savedAt && t > x.savedAt) { kills++; if (m) gained += m.xp; else unknown++; }
+    if (m && now - t < 1800) {
+      const r = recent[npc] = recent[npc] || { name: m.name, xp: m.xp, npc, n: 0, last: 0 };
+      r.n++; r.last = Math.max(r.last, t);
+    }
+  }
+  const farm = Object.values(recent).sort((a, b) => b.n - a.n || b.last - a.last);
+  const total = x.cur + gained;
+  return { cur: Math.min(total, x.max), max: x.max, gained, kills, unknown, left: Math.max(0, x.max - total), farm, leveled: total >= x.max };
+}
+
+function renderLive(L) {
+  if (tab !== "live") return;
+  const now = nowSec();
+  // Status line
+  const age = L && L.lastLine ? now - L.lastLine : null;
+  const state = age == null ? "off" : age < 30 ? "on" : age < 300 ? "slow" : "off";
+  const b = L && L.build;
+  el("liveStatus").innerHTML = !L
+    ? `<span><span class="dot off"></span>Connecting to the live server…</span>`
+    : [
+      `<span><span class="dot ${state}" style="background:var(${state === "on" ? "--good" : state === "slow" ? "--gold" : "--muted"})"></span>${
+        L.lastLine ? `Combat log: last line ${agoText(age)}` : "No combat log yet: type /combatlog in game, or install Ledger Link to switch it on at every login"}</span>`,
+      L.logWrites && L.logWrites.next ? `<span>WoW writes this file every ${Math.round(L.logWrites.every / 60)} min · next update ${
+        L.logWrites.next - now > 0 ? "in " + countdown(L.logWrites.next - now) : "any moment"}</span>` : "",
+      L.file ? `<span>${esc(L.file)}</span>` : "",
+      b && b.at ? `<span>${b.ok ? "Ledger rebuilt" : "Ledger build failed"} ${hhmm(b.at)}${b.ok ? " (at your last /reload or logout)" : ": " + esc(b.message)}</span>` : "",
+    ].join("");
+  if (!L) return;
+  const me = L.me, s = L.session || {};
+  el("who").textContent = (me ? me.name + " · " : "") + "from the combat log, up to 5 minutes behind the game";
+  const sessSecs = s.start && L.lastLine ? L.lastLine - s.start : null;
+  // KPIs
+  if (!me) {
+    el("liveKpis").innerHTML = empty("Waiting for your character in the combat log. Fight something or cast a spell.");
+  } else {
+    el("liveKpis").innerHTML = [
+      xpKpis(L, me),
+      kpi("Zone", `<span title="${esc(me.zone || me.mapName || "")}">${esc(me.zone || me.mapName || "?")}</span>`, me.x != null ? `${(me.x * 100).toFixed(1)}, ${(me.y * 100).toFixed(1)}` : ""),
+      kpi("Session", dur(sessSecs), s.start ? `since ${hhmm(s.start)}` : ""),
+      kpi("Kills", short(s.kills), s.deaths ? `<span class="neg">${s.deaths} death${s.deaths > 1 ? "s" : ""}</span>` : "no deaths"),
+      kpi("Damage done", short(s.dmgDone), sessSecs ? `${short(s.dmgDone / Math.max(1, sessSecs) * 60)} per minute` : ""),
+      kpi("Healing", short(s.healDone), s.overheal ? `${short(s.overheal)} overheal` : ""),
+    ].join("");
+  }
+  // Map
+  drawLiveMap(L);
+  // Fight now / last fight
+  const f = L.fight || (L.fights && L.fights[0]);
+  el("fightTitle").textContent = L.fight ? "Fighting now" : "Last fight";
+  el("fightBox").innerHTML = !f ? empty("No fights yet this session.") : `
+    <div class="big">${short(f.dps)} <span class="muted" style="font-size:14px">damage per second</span></div>
+    <div class="muted">${whNpc(f.target || "?", f.targetNpc)} · ${f.seconds}s${L.fight ? "" : " · " + agoText(now - f.end)}</div>
+    <div class="statgrid">
+      <div><span>Damage done</span>${short(f.dmgDone)}</div><div><span>Damage taken</span>${short(f.dmgTaken)}</div>
+      <div><span>Healing</span>${short(f.healDone)}</div><div><span>Lowest health</span>${f.died ? '<span class="neg">died</span>' : pct(f.minHp)}</div>
+    </div>${f.kills && f.kills.length ? `<div class="muted">Killed ${esc(f.kills.join(", "))}</div>` : ""}`;
+  // Around you
+  table("aroundTable", [{ t: "Player" }, { t: "Item lvl", n: 1 }, { t: "Health", n: 1 }, { t: "Seen", n: 1 }],
+    (L.players || []).map(p => [playerLink(p.name) + (p.hostile ? ' <span class="pill hostile">enemy</span>' : ""),
+      p.itemLevel ?? "", p.hp != null ? pct(p.hp) : "", agoText(p.ago)]),
+    "Nobody else in combat-log range.");
+  // Fights table
+  table("fightsTable", [{ t: "When" }, { t: "Against" }, { t: "Time", n: 1 }, { t: "Damage", n: 1 }, { t: "DPS", n: 1 }, { t: "Taken", n: 1 }, { t: "Low HP", n: 1 }],
+    (L.fights || []).map(x => [hhmm(x.start), whNpc(x.target || "?", x.targetNpc) + (x.kills.length ? ` <span class="pill kill">${x.kills.length} kill${x.kills.length > 1 ? "s" : ""}</span>` : ""),
+      `${x.seconds}s`, short(x.dmgDone), short(x.dps), short(x.dmgTaken), x.died ? '<span class="neg">died</span>' : pct(x.minHp)]),
+    "No fights yet.");
+  // Feed
+  const kinds = { kill: "kill", death: "death", hostile: "enemy", zone: "zone", fight: "fight", info: "info" };
+  el("feedList").innerHTML = (L.feed || []).length
+    ? L.feed.slice(0, 40).map(n => `<li><span class="t">${hhmm(n.t)}</span><span><span class="pill ${esc(n.kind)}">${kinds[n.kind] || esc(n.kind)}</span></span><span>${esc(n.text)}</span></li>`).join("")
+    : `<li>${empty("Nothing yet.")}</li>`;
+  // Spells, kills
+  const total = (s.spells || []).reduce((a, r) => a + r[1], 0);
+  el("spellHint").textContent = total ? `${short(total)} damage this session.` : "";
+  bars("spellBars", (s.spells || []).map(r => ({ label: r[0], value: r[1] })), short);
+  bars("healBars", (s.heals || []).map(r => ({ label: r[0], value: r[1], color: css("--good") })), short);
+  table("killsTable", [{ t: "Creature" }, { t: "Kills", n: 1 }], (s.topKills || []).map(r => [whNpc(r[0], r[2]), r[1]]), "No kills yet.");
+  // Screenshot
+  const shot = L.shot;
+  el("shotHint").textContent = shot ? `${shot.name} · ${agoText(now - shot.t)}` : "";
+  const img = el("shotBox").querySelector("img");
+  if (!shot) el("shotBox").innerHTML = empty("No screenshots yet.");
+  else if (!img || img.dataset.name !== shot.name) {
+    el("shotBox").innerHTML = `<a href="/shots/${encodeURIComponent(shot.name)}" target="_blank" rel="noopener"><img data-name="${esc(shot.name)}" src="/shots/${encodeURIComponent(shot.name)}" alt="Your latest screenshot"></a>`;
+  }
+}
+
+
+function xpKpis(L, me) {
+  const x = xpEstimate(L, me);
+  if (!x) return kpi("XP to level", "?", "Haul saves your XP at each /reload or logout") + kpi("Kills to level", "?", "");
+  if (x.leveled) return kpi("XP to level", "Level up!", "by the kills since your last save: /reload to refresh") + kpi("Kills to level", "0", "");
+  const since = x.kills ? `+${short(x.gained)} from ${x.kills} kill${x.kills > 1 ? "s" : ""} since your last save${x.unknown ? ` (${x.unknown} not counted)` : ""}` : "as of your last save";
+  const a = x.farm[0], b = x.farm[1];
+  return kpi("XP to level", `${short(x.left)} <span class="muted" style="font-size:14px">left</span>`,
+      meter(x.cur, x.max, css("--c2")) + `<div title="${esc(since)}">${short(x.cur)} / ${short(x.max)} · ${x.kills ? "+" + short(x.gained) + " est." : "at save"}</div>`) +
+    kpi("Kills to level", a ? `≈ ${Math.ceil(x.left / a.xp)}` : "?",
+      a ? `${whNpc(a.name, a.npc)} (${a.xp} XP)${b ? ` · or ${Math.ceil(x.left / b.xp)} ${whNpc(b.name, b.npc)}` : ""}` : "Kill something: it uses what you farmed in the last 30 min");
+}
+
+// Zone art from the server (/map/<uiMapID>.jpg, Wowhead's classic maps cached in Dashboard/maps), loaded once each
+const mapArt = {};
+function zoneArt(L, id) {
+  if (!id || !L || !(L.mapsWithArt || []).includes(id)) return null;
+  let a = mapArt[id];
+  if (!a) {
+    a = mapArt[id] = { img: new Image(), ok: false, failed: false };
+    a.img.onload = () => { a.ok = true; if (LIVE) drawLiveMap(LIVE); };
+    a.img.onerror = () => { a.failed = true; };
+    a.img.src = `/map/${id}.jpg`;
+  }
+  return a.ok ? a.img : null;
+}
+let mapZoom = false, mapMarks = [];
+const MAP_ZOOM = 0.28; // share of the zone's width shown when zoomed in on you
+
+function drawLiveMap(L) {
+  const canvas = el("liveMap"), me = L && L.me;
+  const box = canvas.getBoundingClientRect();
+  if (!box.width) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(box.width * dpr); canvas.height = Math.round(box.height * dpr);
+  const g = canvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = box.width, H = box.height;
+  g.fillStyle = css("--bg"); g.fillRect(0, 0, W, H);
+  const mapId = me && me.map;
+  const name = (me && me.mapName) || (L && L.maps && L.maps[mapId]) || (mapId ? `Map ${mapId}` : "");
+  el("mapTitle").textContent = name || "Where you are";
+  const ch = liveCharacter(me);
+  const past = ch && ch.trails ? ch.trails.find(t => t.map === mapId) : null;
+  const art = zoneArt(L, mapId), spec = L && L.mapImage;
+  const pts = [];
+  if (past) for (let i = 0; i < past.pts.length; i += 2) pts.push([past.pts[i] / 1000, past.pts[i + 1] / 1000]);
+  const trail = [];
+  for (let i = 0; i + 1 < (L && L.trail ? L.trail.length : 0); i += 2) trail.push([L.trail[i], L.trail[i + 1]]);
+  const here = me && me.x != null ? [me.x, me.y] : null;
+  el("mapHint").textContent = !me ? "Waiting for your position." : !here
+    ? "This map's edges aren't in the log yet (they come with each zone change)."
+    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (MuddyBoots). Line: this session. Hover a dot for who it is.";
+  el("mapZoom").hidden = !here;
+  el("mapZoom").textContent = mapZoom ? "Whole zone" : "Zoom to you";
+  // View: the whole zone (it has the canvas' 3:2 shape), or a window centred on you
+  let x0 = 0, x1 = 1, y0 = 0, y1 = 1;
+  if (here && mapZoom) {
+    const w = MAP_ZOOM, h = w * H / W;
+    x0 = here[0] - w / 2; x1 = here[0] + w / 2; y0 = here[1] - h / 2; y1 = here[1] + h / 2;
+  } else if (!art) {
+    const all = pts.concat(trail); if (here) all.push(here);
+    if (all.length) {
+      x0 = Math.min(...all.map(p => p[0])); x1 = Math.max(...all.map(p => p[0]));
+      y0 = Math.min(...all.map(p => p[1])); y1 = Math.max(...all.map(p => p[1]));
+      let w = Math.max(0.15, (x1 - x0) * 1.3), h = Math.max(0.10, (y1 - y0) * 1.3);
+      if (w / h > W / H) h = w * H / W; else w = h * W / H;
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      x0 = cx - w / 2; x1 = cx + w / 2; y0 = cy - h / 2; y1 = cy + h / 2;
+    }
+  }
+  const X = x => (x - x0) / (x1 - x0) * W, Y = y => (y - y0) / (y1 - y0) * H;
+  if (art) {
+    g.drawImage(art, spec.left + x0 * spec.mapWidth, y0 * spec.mapHeight, (x1 - x0) * spec.mapWidth, (y1 - y0) * spec.mapHeight, 0, 0, W, H);
+  } else {
+    g.strokeStyle = css("--line"); g.lineWidth = 1; g.fillStyle = css("--muted"); g.font = "10px Segoe UI, sans-serif";
+    const step = (x1 - x0) > 0.5 ? 0.1 : 0.05;
+    for (let v = Math.ceil(x0 / step) * step; v < x1; v += step) { g.beginPath(); g.moveTo(X(v), 0); g.lineTo(X(v), H); g.stroke(); g.fillText(Math.round(v * 100), X(v) + 3, 11); }
+    for (let v = Math.ceil(y0 / step) * step; v < y1; v += step) { g.beginPath(); g.moveTo(0, Y(v)); g.lineTo(W, Y(v)); g.stroke(); g.fillText(Math.round(v * 100), 3, Y(v) - 3); }
+  }
+  // Earlier visits
+  g.fillStyle = art ? "rgba(40, 25, 10, .55)" : css("--muted"); g.globalAlpha = art ? 1 : 0.45;
+  for (const p of pts) g.fillRect(X(p[0]) - 1, Y(p[1]) - 1, 2, 2);
+  g.globalAlpha = 1;
+  // This session: a light halo under the line so it reads on the parchment
+  const path = () => {
+    g.beginPath();
+    trail.forEach((p, i) => {
+      const jump = i && Math.hypot(p[0] - trail[i - 1][0], p[1] - trail[i - 1][1]) > 0.06;
+      if (!i || jump) g.moveTo(X(p[0]), Y(p[1])); else g.lineTo(X(p[0]), Y(p[1]));
+    });
+  };
+  g.lineJoin = "round"; g.lineCap = "round";
+  if (art) { g.strokeStyle = "rgba(255, 250, 235, .85)"; g.lineWidth = 5; path(); g.stroke(); }
+  g.strokeStyle = art ? "#8c2a1c" : css("--accent"); g.lineWidth = 2.4; path(); g.stroke();
+  // Things you can hover: deaths, players, you
+  mapMarks = [];
+  const ago = t => agoText(nowSec() - t);
+  g.strokeStyle = css("--bad"); g.lineWidth = 2.5;
+  for (const d of (L && L.deaths) || []) {
+    if (d.x == null) continue;
+    const x = X(d.x), y = Y(d.y);
+    g.beginPath(); g.moveTo(x - 5, y - 5); g.lineTo(x + 5, y + 5); g.moveTo(x + 5, y - 5); g.lineTo(x - 5, y + 5); g.stroke();
+    mapMarks.push({ x, y, html: `<b>You died</b> ${esc(ago(d.t))}${d.killer ? `<br>to ${esc(d.killer)}${d.spell && d.spell !== d.killer ? ` (${esc(d.spell)})` : ""}` : ""}` });
+  }
+  for (const p of (L && L.players) || []) {
+    if (p.map !== mapId || p.x == null) continue;
+    const x = X(p.x), y = Y(p.y);
+    g.fillStyle = p.hostile ? "#c0392b" : "#2f7f9c"; g.strokeStyle = "#fff"; g.lineWidth = 1.5;
+    g.globalAlpha = Math.max(0.45, 1 - p.ago / 120);
+    g.beginPath(); g.arc(x, y, p.hostile ? 5 : 4, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.globalAlpha = 1;
+    mapMarks.push({ x, y, url: armoryUrl(p.name), html: `<b>${esc(p.name)}</b>${p.hostile ? ' <span class="pill hostile">enemy</span>' : ""}<br>item level ${p.itemLevel ?? "?"}${p.hp != null ? ` · ${pct(p.hp)} health` : ""}<br>seen ${esc(agoText(p.ago))}` });
+  }
+  if (here) {
+    const x = X(here[0]), y = Y(here[1]), a = me.facing || 0;
+    const dx = -Math.sin(a), dy = -Math.cos(a);
+    g.fillStyle = art ? "#8c2a1c" : css("--accent"); g.strokeStyle = "#fff"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x + dx * 15, y + dy * 15); g.lineTo(x - dy * 6, y + dx * 6); g.lineTo(x + dy * 6, y - dx * 6); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.arc(x, y, 6.5, 0, Math.PI * 2); g.fill(); g.stroke();
+    mapMarks.push({ x, y, url: armoryUrl(me.name), html: `<b>${esc(me.name)}</b> (you)<br>${(here[0] * 100).toFixed(1)}, ${(here[1] * 100).toFixed(1)} · ${esc(ago(me.at))}` });
+  }
+  el("mapLegend").innerHTML = `<span><i style="background:${art ? "#8c2a1c" : "var(--accent)"}"></i>You (arrow = facing)</span><span><i style="background:rgba(40,25,10,.55)"></i>Earlier visits</span>
+    <span><i style="background:#2f7f9c"></i>Players</span><span><i style="background:#c0392b"></i>Enemies</span><span>✕ your deaths</span>${art ? "<span>Map art: Wowhead</span>" : ""}`;
+}
+
+function mapHover(e) {
+  const r = el("liveMap").getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = null, bd = 12;
+  for (const m of mapMarks) { const d = Math.hypot(m.x - mx, m.y - my); if (d < bd) { bd = d; best = m; } }
+  const tip = el("mapTip");
+  if (!best) { tip.hidden = true; el("liveMap").style.cursor = ""; return; }
+  tip.innerHTML = best.html + (best.url ? '<br><span class="muted">click: armory</span>' : ""); tip.hidden = false;
+  el("liveMap").style.cursor = best.url ? "pointer" : "";
+  const left = Math.min(best.x + 12, r.width - tip.offsetWidth - 4), top = Math.max(4, best.y - tip.offsetHeight - 8);
+  tip.style.left = `${Math.max(4, left)}px`; tip.style.top = `${top}px`;
+}
+
+function connectLive() {
+  const src = new EventSource("/events");
+  src.addEventListener("live", e => {
+    LIVE = JSON.parse(e.data);
+    const age = LIVE.lastLine ? nowSec() - LIVE.lastLine : null;
+    el("liveDot").className = "dot " + (age == null ? "off" : age < 30 ? "on" : age < 300 ? "slow" : "off");
+    if (tab === "live") renderLive(LIVE);
+  });
+  src.addEventListener("rebuilt", () => {
+    // WoW saved (a /reload or logout): load the fresh page, keeping the view and the scroll position
+    try { sessionStorage.setItem(SCROLL_KEY, String(window.scrollY)); } catch (e) {}
+    location.reload();
+  });
+  src.addEventListener("buildError", e => { if (LIVE) { LIVE.build = JSON.parse(e.data); renderLive(LIVE); } });
+  src.onerror = () => { el("liveDot").className = "dot off"; };
+}
+
+function setupLive() {
+  new ResizeObserver(() => { if (tab === "live" && LIVE) drawLiveMap(LIVE); }).observe(el("liveMap"));
+  el("liveMap").addEventListener("mousemove", mapHover);
+  el("liveMap").addEventListener("mouseleave", () => { el("mapTip").hidden = true; });
+  el("liveMap").addEventListener("click", e => {
+    const r = el("liveMap").getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const hit = mapMarks.find(m => m.url && Math.hypot(m.x - mx, m.y - my) < 12);
+    if (hit) window.open(hit.url, "_blank", "noopener");
+  });
+  el("mapZoom").addEventListener("click", () => { mapZoom = !mapZoom; if (LIVE) drawLiveMap(LIVE); });
+  connectLive();
+  setInterval(() => { if (tab === "live" && LIVE) renderLive(LIVE); }, 1000); // keep the clocks moving
+}
+
+function start() {
+  if (!DATA) { el("who").textContent = "No data: run wowstats (or build.bat)."; return; }
+  const list = chars(), acct = DATA.account;
+  if (!list.length && !(acct && acct.characters.length)) {
+    el("who").textContent = "No character data found. Log out of WoW (so it saves), then run wowstats (or build.bat) again.";
+    return;
+  }
+  if (list.length) {
+    el("charSel").innerHTML = list.map(c => `<option value="${esc(c.id)}">${esc(c.profile.fullName || c.profile.name)} (${c.profile.level || "?"})</option>`).join("");
+    el("charSel").addEventListener("change", e => { selectChar(e.target.value); const m = MODULES.find(x => x.key === route); go(m && (m.char || m.key === "inventory") ? route : "overview"); });
+    selectChar(store.get(CHAR_KEY));
+  }
+  el("foot").textContent = SERVED
+    ? `Built ${date(DATA.generated)} from your SavedVariables. Reloads itself whenever WoW saves them.`
+    : `Built ${date(DATA.generated)} from your SavedVariables (your last logout or /reload). Run wowstats again to refresh, or wowstats live for a page that refreshes itself.`;
+  drawSys();
+  if (SERVED) setupLive();
+  const fromHash = location.hash.replace(/^#\/?/, "");
+  go(fromHash || store.get(ROUTE_KEY) || "overview");
+  try {
+    const y = sessionStorage.getItem(SCROLL_KEY);
+    if (y) { sessionStorage.removeItem(SCROLL_KEY); window.scrollTo(0, Number(y)); }
+  } catch (e) {}
+}
+start();
+</script>
+</body>
+</html>

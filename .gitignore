@@ -1,0 +1,10 @@
+# Your own data: characters, gold, price history, zone art downloaded from Wowhead
+/data/
+/ledger.cfg
+# Python and editor leftovers
+__pycache__/
+*.pyc
+.playwright-mcp/
+.vscode/
+.idea/
+Thumbs.db

@@ -1,0 +1,10 @@
+## Interface: 16001
+## Title: Ledger Link
+## Notes: The Adventure Ledger's in-game half: keeps the combat log on, and keeps Neutral auction house prices apart from your faction's.
+## Author: Azhariel
+## Version: 0.2.0
+## OptionalDeps: Auctionator
+## SavedVariables: LedgerLinkDB
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+
+Core.lua
