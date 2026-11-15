@@ -987,7 +987,8 @@ function go(key, opts = {}) {
   if (location.hash !== "#/" + route) history.replaceState(null, "", "#/" + route);
   charts.splice(0).forEach(ch => ch.destroy());
   document.querySelectorAll("section.mod").forEach(s => { s.hidden = s.dataset.mod !== route; });
-  el("crumb").innerHTML = `<b>${GROUPS[m.group]}</b>/${esc(m.key)}`;
+  // a group with one module of the same name (~/live, ~/about) shows just the group
+  el("crumb").innerHTML = `<b>${GROUPS[m.group]}</b>` + (m.key === m.group ? "" : `/${esc(m.key)}`);
   el("title").textContent = m.label;
   el("pickerBox").hidden = !chars().length;
   const seg = el("houseSeg");
