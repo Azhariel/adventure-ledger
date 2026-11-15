@@ -595,6 +595,13 @@ test("end to end: fixture SavedVariables -> one character with every section, em
         first = { level = 11 } }, sessions = { { start = 5, played0 = 3500, played1 = 7200, last = 50 } },
         counts = { xp = { all = 300, kill = 100, quest = 200 } },
         log = { "10|3600|1|1|1|zo|Elwynn", "20|3610|1|1|1|xp|100|kill|Wolf", "30|3620|1|1|1|mn|50|loot", "40|5400|1|1|1|lv|12" } }]])
+    -- addons: Logbook installed one version behind the repo's, DropLab switched off for Hero, Questie's own toc
+    local repo = dir .. "/repo"
+    mkdir(repo .. "/Logbook"); mkdir(wow .. "/Interface/AddOns/Logbook"); mkdir(wow .. "/Interface/AddOns/Questie")
+    U.writeFile(repo .. "/Logbook/Logbook.toc", "## Title: Logbook\n## Notes: Your journey.\n## Version: 0.2.0\n\nCore.lua\n")
+    U.writeFile(wow .. "/Interface/AddOns/Logbook/Logbook.toc", "## Version: 0.1.0\n")
+    U.writeFile(wow .. "/Interface/AddOns/Questie/Questie_Forever.toc", "## Title: Questie|cFF00FF00 v12.9.0|r\n## Version: 12.9.0\n")
+    U.writeFile(acct .. "/91/Hero-Realm/AddOns.txt", "DropLab: disabled\nLogbook: enabled\n")
     U.writeFile(acct .. "/SavedVariables/DropLab.lua", 'DropLabDB = { version = 1, mobs = { [1] = { name = "Gnoll", kills = 6, looted = 5, money = 60, items = { [2592] = { drops = 3, qty = 3 } } } } }')
     local listDirs = function(p)
         if p:match("/WTF/Account$") then return { "ACC" } end
@@ -603,7 +610,14 @@ test("end to end: fixture SavedVariables -> one character with every section, em
         return {}
     end
     local data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs,
-        dropStats = Build.dropStats(wowDir()) })
+        dropStats = Build.dropStats(wowDir()), repoAddons = repo })
+    local byKey = {}
+    for _, r in ipairs(data.addons) do byKey[r.key] = r end
+    eq(byKey.Logbook.repo, "0.2.0"); eq(byKey.Logbook.installed, "0.1.0"); eq(byKey.Logbook.notes, "Your journey.")
+    eq(byKey.Logbook.ours, true); eq(byKey.Logbook.saved, false, "no Logbook file in the fixture")
+    eq(byKey.DropLab.present, false); eq(byKey.DropLab.disabledOn[1], "Hero"); eq(byKey.DropLab.saved, true)
+    eq(byKey.Questie.installed, "12.9.0"); eq(byKey.Questie.title, "Questie v12.9.0", "colour codes stripped")
+    eq(byKey.Auctionator.present, false); eq(byKey.Auctionator.saved, true); eq(byKey.Auctionator.ours, false)
     eq(data.drops.mobs[1].name, "Gnoll"); eq(data.drops.mobs[1].drops[1].name, "Wool Cloth")
     near(data.drops.mobs[1].value, (60 + 3 * 95) / 6, "AH 100 after the 5% cut")
     eq(#data.characters, 1)
@@ -631,6 +645,21 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     truthy(page:find('"name":"Hero"', 1, true), "data embedded")
     truthy(not page:find("/*DATA*/", 1, true), "placeholder replaced")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+test("AddOns.txt: switched off, on, and unlisted (enabled)", function()
+    local on = S.addonStates("Logbook: enabled\r\nDropLab: disabled\r\n!BugGrabber: enabled")
+    eq(on.Logbook, true); eq(on.DropLab, false); eq(on["!BugGrabber"], true); eq(on.Haul, nil)
+    eq(next(S.addonStates(nil)), nil)
+end)
+
+test("toc header: stops at the file list, skips baked item data, missing file is nil", function()
+    local path = os.tmpname()
+    U.writeFile(path, "## Interface: 16001\n## X-Item-25-S: AAAA\n## Version: 1.2\n# a comment\nCore.lua\n## Late: no\n")
+    local m = S.tocMeta(path)
+    os.remove(path)
+    eq(m.Version, "1.2"); eq(m.Interface, "16001"); eq(m["X-Item-25-S"], nil); eq(m.Late, nil)
+    eq(S.tocMeta(path), nil)
 end)
 
 test("a character folder without any of our addons' files is skipped", function()

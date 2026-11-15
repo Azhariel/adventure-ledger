@@ -237,6 +237,38 @@ function S.mergeAccountChars(lbDB, mbDB)
     return next(out) and out or nil
 end
 
+-- A .toc's "## Key: value" header as { Title, Notes, Version, ... }, or nil when the file is missing. Reads only
+-- the header (QuestieDB's toc carries megabytes of item data after it). Colour codes are stripped from values.
+function S.tocMeta(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local meta, n = {}, 0
+    for line in f:lines() do
+        n = n + 1
+        local k, v = line:match("^##%s*([%w%-_]+)%s*:%s*(.-)%s*$")
+        if k then
+            if not k:match("^X%-Item%-") then
+                meta[k] = v:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+            end
+        elseif line:match("%S") and not line:match("^#") then
+            break
+        end
+        if n > 200 then break end
+    end
+    f:close()
+    return meta
+end
+
+-- A character's AddOns.txt ("Name: enabled" / "Name: disabled") as { [name] = true | false }. An addon that
+-- isn't listed has never been switched off there, so it's enabled.
+function S.addonStates(text)
+    local out = {}
+    for name, state in (text or ""):gmatch("([^\r\n:]+):%s*(%a+)") do
+        out[name] = state == "enabled"
+    end
+    return out
+end
+
 -- Lists the sub-directories of a folder (Windows `dir`, POSIX `ls` fallback). Overridable in tests.
 function S.listDirs(path)
     local out = {}

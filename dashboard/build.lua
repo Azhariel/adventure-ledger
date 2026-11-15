@@ -114,6 +114,65 @@ local function sv(dir, file, global)
     return env and env[global] or nil
 end
 
+-- The addons the page reads. Ours ship in addons/ (the repo's copy is what install.bat installs); the others
+-- are checked for, and `tocs` are tried in order (Questie keeps one toc per client).
+Build.OUR_ADDONS = { "Logbook", "LedgerLink", "MakeOrBuy", "Stockpile", "Haul", "DropLab" }
+Build.OTHER_ADDONS = {
+    { key = "Auctionator" },
+    { key = "Questie", tocs = { "Questie_Forever", "Questie" } },
+    { key = "QuestieDB", tocs = { "QuestieDB_Forever", "QuestieDB" } },
+    { key = "MuddyBoots" },
+}
+
+local function exists(path)
+    local f = io.open(path, "rb")
+    if f then f:close() end
+    return f ~= nil
+end
+
+-- Each addon's version here (repo) and in WoW, the characters it's switched off on, and whether it has saved
+-- anything yet: { { key, title, notes, ours, repo, installed, disabledOn = { names }, saved } }
+function Build.addons(wow, folders, repoAddons)
+    repoAddons = repoAddons or (root .. "addons")
+    local function installed(key, tocs)
+        for _, name in ipairs(tocs or { key }) do
+            local m = S.tocMeta(wow .. "/Interface/AddOns/" .. key .. "/" .. name .. ".toc")
+            if m then return m end
+        end
+    end
+    local states = {}
+    for _, c in ipairs(folders) do
+        states[#states + 1] = { name = c.name:match("^[^-]+") or c.name,
+            on = S.addonStates(U.readFile((c.dir:gsub("/SavedVariables$", "")) .. "/AddOns.txt")) }
+    end
+    local out = {}
+    local function add(key, ours, tocs)
+        local mine = ours and S.tocMeta(repoAddons .. "/" .. key .. "/" .. key .. ".toc") or nil
+        local there = installed(key, tocs)
+        local meta = mine or there or {}
+        local row = { key = key, ours = ours, title = meta.Title or key, notes = meta.Notes,
+            repo = mine and mine.Version, installed = there and there.Version, present = there ~= nil,
+            disabledOn = {}, saved = false }
+        local seen = {}
+        for _, s in ipairs(states) do
+            if s.on[key] == false and not seen[s.name] then
+                seen[s.name] = true
+                row.disabledOn[#row.disabledOn + 1] = s.name
+            end
+        end
+        for _, c in ipairs(folders) do
+            if exists(c.dir .. "/" .. key .. ".lua") or exists(c.accountDir .. "/" .. key .. ".lua") then
+                row.saved = true
+                break
+            end
+        end
+        out[#out + 1] = row
+    end
+    for _, key in ipairs(Build.OUR_ADDONS) do add(key, true) end
+    for _, a in ipairs(Build.OTHER_ADDONS) do add(a.key, false, a.tocs) end
+    return out
+end
+
 -- Returns the dashboard data: { generated, characters = { ... } }
 function Build.data(wow, opts)
     opts = opts or {}
@@ -125,7 +184,9 @@ function Build.data(wow, opts)
     local result = { generated = os.time(), characters = {} }
 
     local folders = {}
-    for _, c in ipairs(Build.characters(wow, opts.listDirs)) do
+    local charDirs = Build.characters(wow, opts.listDirs)
+    result.addons = Build.addons(wow, charDirs, opts.repoAddons)
+    for _, c in ipairs(charDirs) do
         local fname, fsurname = c.name:match("^([^-]+)-(.+)$")
         if fname then folders[#folders + 1] = { name = fname, surname = fsurname } end
         local acct = accounts[c.account]
