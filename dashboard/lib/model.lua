@@ -278,9 +278,25 @@ function M.ahTrades(events, idOf)
             local rawItem = e.args[3] or ""
             local name, count = parseItemQty(rawItem)
             if act == "sold" and name then
-                findMn(i, 1, copper, rawItem)
+                local got = findMn(i, 1, copper, rawItem)
                 local who = findInvoice(i, true, copper, name, rawItem)
-                raw[#raw + 1] = { t = e.t, act = "sold", name = name, count = count, copper = copper or 0, who = who }
+                -- Logbook before 2026-11-15 logged a sale on every open-all retry: a repeat with no gold of its
+                -- own, seconds after the same sale, is that retry, not another sale
+                local repeat_ = false
+                if not got then
+                    for k = #raw, 1, -1 do
+                        local r = raw[k]
+                        if r.t and e.t and e.t - r.t > M.INVOICE_SECONDS then break end
+                        if r.act == "sold" and r.name == name and r.count == count and r.copper == (copper or 0) then
+                            repeat_ = true
+                            if who and not r.who then r.who = who end
+                            break
+                        end
+                    end
+                end
+                if not repeat_ then
+                    raw[#raw + 1] = { t = e.t, act = "sold", name = name, count = count, copper = copper or 0, who = who }
+                end
             elseif (act == "buyout" or act == "bid") and name then
                 local spent = findMn(i, -1, copper, rawItem)
                 copper = copper or spent or 0

@@ -791,6 +791,16 @@ test("mergeAccountChars: the newer row wins, field by field", function()
     eq(S.mergeAccountChars(nil, nil), nil)
 end)
 
+test("AH trades: open-all retries logged by an older Logbook count as one sale", function()
+    local ah = M.ahTrades(ev({
+        "100|||||ma|invoice|?|7090|Woolen Reagent Bag", "100|||||ah|sold|7090|Woolen Reagent Bag",
+        "101|||||ma|invoice|Buyer|7090|Woolen Reagent Bag", "101|||||ah|sold|7090|Woolen Reagent Bag",
+        "101|||||mn|7090|auction|Woolen Reagent Bag",
+        "200|||||ah|sold|7090|Woolen Reagent Bag", "200|||||mn|7090|auction|Woolen Reagent Bag",
+    }))
+    eq(ah.totals.soldCount, 2); eq(ah.totals.sold, 14180)
+end)
+
 test("level: the highest any source knows, never a newer row's stale level 1", function()
     local rows = S.mergeAccountChars({ chars = { d = { name = "Des", level = 1, money = 0, lastSeen = 300 } } },
         { chars = { d = { name = "Des", level = 5, money = 267, lastSeen = 200 } } })
