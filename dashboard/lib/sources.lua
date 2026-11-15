@@ -153,11 +153,30 @@ function S.mergeJournal(lb, mb)
     out.char.level = math.max(tonumber(lb.char and lb.char.level) or 0, tonumber(mb.char and mb.char.level) or 0)
     if out.char.level == 0 then out.char.level = nil end
     out.char.first = (mb.char and mb.char.first) or (lb.baseline and lb.baseline.first) or (lb.char and lb.char.first)
+    -- MuddyBoots' flight lines (tx, tl) also stay after Logbook's start, until Logbook's first flight line:
+    -- Logbook only began recording flights later
+    local firstFlight = math.huge
+    for _, line in ipairs(lb.log or {}) do
+        if type(line) == "string" and line:match("^[^|]*|[^|]*|[^|]*|[^|]*|[^|]*|fl|") then
+            firstFlight = lineTime(line) or firstFlight
+            break
+        end
+    end
     for _, line in ipairs(mb.log or {}) do
         local t = lineTime(line)
-        if t and t < since then out.log[#out.log + 1] = line end
+        if t and (t < since or (t < firstFlight and line:match("^[^|]*|[^|]*|[^|]*|[^|]*|[^|]*|t[xl]|"))) then
+            out.log[#out.log + 1] = line
+        end
     end
+    local kept = #out.log
     for _, line in ipairs(lb.log or {}) do out.log[#out.log + 1] = line end
+    if kept > 0 and #lb.log > 0 and (lineTime(out.log[kept]) or 0) > (lineTime(out.log[kept + 1]) or 0) then
+        -- MuddyBoots' flight lines from after Logbook's start: put everything back in time order (stable)
+        local order = {}
+        for i, line in ipairs(out.log) do order[i] = { t = lineTime(line) or 0, i = i, line = line } end
+        table.sort(order, function(x, y) return x.t < y.t or (x.t == y.t and x.i < y.i) end)
+        for i, o in ipairs(order) do out.log[i] = o.line end
+    end
     for _, s in ipairs(mb.sessions or {}) do
         if type(s) == "table" and (s.start or 0) < since then out.sessions[#out.sessions + 1] = s end
     end

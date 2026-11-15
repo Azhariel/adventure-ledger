@@ -791,6 +791,31 @@ test("mergeAccountChars: the newer row wins, field by field", function()
     eq(S.mergeAccountChars(nil, nil), nil)
 end)
 
+test("flights: Logbook's fl lines and MuddyBoots' take-off and landing, by route", function()
+    local f = M.flights(ev({
+        "100|||||tx|Undercity, Tirisfal|The Sepulcher, Silverpine Forest|99", "210|||||tl|The Sepulcher, Silverpine Forest",
+        "300|||||tx|The Sepulcher, Silverpine Forest|Undercity, Tirisfal|99", "305|||||in|reload",
+        "4000|||||tl|Undercity, Tirisfal",
+        "5000|||||fl|Undercity, Tirisfal|The Sepulcher, Silverpine Forest|99|100",
+        "6000|||||fl|Thunder Bluff, Mulgore|Ratchet, The Barrens|330|",
+    }))
+    eq(f.n, 3, "a landing an hour after take-off isn't that flight"); eq(f.copper, 528); eq(f.seconds, 210)
+    eq(f.longest, 110); eq(f.longestTrip.to, "The Sepulcher, Silverpine Forest")
+    eq(f.routes[1].n, 2); eq(f.routes[1].avgSeconds, 105); eq(f.routes[2].avgSeconds, nil)
+    eq(f.recent[1].to, "Ratchet, The Barrens")
+    eq(M.flights(ev({ "1|||||in|login" })), nil)
+end)
+
+test("mergeJournal: MuddyBoots' flights stay until Logbook's first flight, in time order", function()
+    local mb = { log = { "50|||||tx|A|B|10", "60|||||tl|B", "150|||||tx|B|A|10", "160|||||tl|A", "170|||||mn|5|loot",
+        "400|||||tx|A|B|10", "410|||||tl|B" } }
+    local lb = { since = 100, log = { "120|||||in|login", "155|||||mn|-10|flight|A", "300|||||fl|A|B|10|9" } }
+    local out = S.mergeJournal(lb, mb).log
+    eq(#out, 7)
+    eq(out[3], "120|||||in|login"); eq(out[4], "150|||||tx|B|A|10"); eq(out[6], "160|||||tl|A")
+    eq(out[7], "300|||||fl|A|B|10|9", "after Logbook's first flight, Logbook's lines only")
+end)
+
 test("AH trades: open-all retries logged by an older Logbook count as one sale", function()
     local ah = M.ahTrades(ev({
         "100|||||ma|invoice|?|7090|Woolen Reagent Bag", "100|||||ah|sold|7090|Woolen Reagent Bag",

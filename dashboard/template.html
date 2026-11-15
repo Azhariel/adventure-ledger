@@ -292,6 +292,8 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w5"><div class="ph"><h2>Made, cooked and gathered</h2></div><div class="scroll"><table id="craftedTable"></table></div></article>
       <article class="panel w5"><div class="ph"><h2>How you spend your time</h2></div><p class="hint">From Logbook's activity counters (and MuddyBoots' before it).</p><div class="chart"><canvas id="activityChart"></canvas></div></article>
       <article class="panel w7"><div class="ph"><h2>Zones</h2></div><p class="hint">Time per zone; gaps over 10 minutes count as offline.</p><div id="zoneBars" class="bars"></div></article>
+      <article class="panel w7"><div class="ph"><h2>Flight routes</h2></div><p class="hint" id="flightHint"></p><div class="scroll"><table id="routeTable"></table></div></article>
+      <article class="panel w5"><div class="ph"><h2>Recent flights</h2></div><div class="scroll"><table id="flightTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="gold" hidden>
@@ -1009,6 +1011,17 @@ function modProgress() {
   chart("activityChart", { type: "doughnut", data: { labels: ACT.map(a => a[1]), datasets: [{ data: ACT.map(([k]) => c.activity[k] || 0), backgroundColor: P, borderColor: css("--panel"), borderWidth: 2 }] },
     options: { cutout: "64%", plugins: { legend: { position: "right", labels: { boxHeight: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${dur(ctx.raw)}` } } } } });
   bars("zoneBars", (c.zones || []).slice(0, 10).map(z => ({ label: z.name, value: z.seconds })), dur);
+  const fl = c.flights, mmss = s => s == null ? "" : `${Math.floor(s / 60)}m ${String(Math.round(s) % 60).padStart(2, "0")}s`;
+  const place = n => esc((n || "?").split(",")[0]);
+  el("flightHint").textContent = fl
+    ? `${fl.n} flights, ${moneyText(fl.copper)} in fares, ${dur(fl.seconds)} in the air. Longest: ${mmss(fl.longest)}${fl.longestTrip ? `, ${(fl.longestTrip.from || "?").split(",")[0]} to ${fl.longestTrip.to.split(",")[0]}` : ""}.`
+    : "No flights recorded yet.";
+  table("routeTable", [{ t: "From" }, { t: "To" }, { t: "Flights", n: 1 }, { t: "Fare", n: 1 }, { t: "Time", n: 1 }],
+    (fl ? fl.routes : []).map(r => [place(r.from), place(r.to), r.n, money(Math.round(r.copper / r.n)),
+      `<span data-sort="${Math.round(r.avgSeconds || 0)}">${mmss(r.avgSeconds)}</span>`]), "No flights yet.");
+  table("flightTable", [{ t: "When", n: 1 }, { t: "Route" }, { t: "Fare", n: 1 }, { t: "Time", n: 1 }],
+    (fl ? fl.recent : []).map(r => [`<span data-sort="${r.t || 0}">${date(r.t)}</span>`, `${place(r.from)} → ${place(r.to)}`,
+      r.copper != null ? money(r.copper) : "", `<span data-sort="${Math.round(r.seconds || 0)}">${mmss(r.seconds)}</span>`]), "No flights yet.");
 }
 
 function modGold() {

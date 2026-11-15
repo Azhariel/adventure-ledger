@@ -515,6 +515,56 @@ function M.deaths(events)
     return out
 end
 
+-- Flights: Logbook's "fl|from|to|copper|seconds", and MuddyBoots' older "tx|from|to|copper" (take-off) with the
+-- "tl|to" (landing) after it. Totals, routes by use, and the trips newest first.
+M.FLIGHT_MAX_SECONDS = 30 * 60 -- a landing later than this after a take-off isn't that flight's
+
+function M.flights(events, limit)
+    local trips, takeoff = {}, nil
+    for _, e in ipairs(events) do
+        if e.kind == "fl" and (e.args[2] or "") ~= "" then
+            trips[#trips + 1] = { t = e.t, from = e.args[1] ~= "" and e.args[1] or nil, to = e.args[2],
+                copper = tonumber(e.args[3]), seconds = tonumber(e.args[4]) }
+        elseif e.kind == "tx" and (e.args[2] or "") ~= "" then
+            takeoff = { t = e.t, from = e.args[1] ~= "" and e.args[1] or nil, to = e.args[2], copper = tonumber(e.args[3]) }
+        elseif e.kind == "tl" and takeoff then
+            local sec = e.t and takeoff.t and e.t - takeoff.t
+            if sec and sec >= 0 and sec <= M.FLIGHT_MAX_SECONDS and (e.args[1] == "" or e.args[1] == takeoff.to) then
+                takeoff.seconds = sec
+                trips[#trips + 1] = takeoff
+            end
+            takeoff = nil
+        end
+    end
+    if #trips == 0 then return nil end
+    local routes, byKey = {}, {}
+    local total = { n = #trips, copper = 0, seconds = 0, longest = 0 }
+    for _, r in ipairs(trips) do
+        total.copper = total.copper + (r.copper or 0)
+        total.seconds = total.seconds + (r.seconds or 0)
+        if (r.seconds or 0) > total.longest then total.longest, total.longestTrip = r.seconds, r end
+        local key = (r.from or "?") .. " > " .. r.to
+        local route = byKey[key]
+        if not route then
+            route = { from = r.from, to = r.to, n = 0, copper = 0, seconds = 0, timed = 0 }
+            byKey[key] = route
+            routes[#routes + 1] = route
+        end
+        route.n = route.n + 1
+        route.copper = route.copper + (r.copper or 0)
+        if r.seconds then route.seconds, route.timed = route.seconds + r.seconds, route.timed + 1 end
+        route.last = r.t
+    end
+    for _, route in ipairs(routes) do
+        route.avgSeconds = route.timed > 0 and route.seconds / route.timed or nil
+    end
+    table.sort(routes, function(a, b) return a.n > b.n or (a.n == b.n and (a.last or 0) > (b.last or 0)) end)
+    local recent = {}
+    for i = #trips, math.max(1, #trips - (limit or 30) + 1), -1 do recent[#recent + 1] = trips[i] end
+    total.routes, total.recent = routes, recent
+    return total
+end
+
 -- Damage from Logbook's damage-meter counters: totals, DPS, per level, your spells, what hurts you
 function M.damage(counts, limit)
     local d = counts.damage
@@ -802,6 +852,7 @@ function M.character(data)
         deaths = M.deaths(events),
         deathCounts = counts.deaths,
         damage = M.damage(counts),
+        flights = M.flights(events),
         quests = M.quests(events),
         professions = M.professions(events),
         crafted = M.crafted(counts.prof),
