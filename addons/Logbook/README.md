@@ -1,9 +1,9 @@
 # Logbook
 
 Records your journey for the Adventure Ledger: XP and levels, gold by source, kills, quests, deaths, zones,
-dungeon runs, professions, play sessions, how you spend your time and where you've walked. The dashboard's
-character modules (Overview, Progress, Gold, Combat & quests, Play sessions, Your trades, the Live tab's XP
-estimate and trail) read it.
+dungeon runs, professions, play sessions, how you spend your time, where you've walked, your damage from the
+game's damage meter, and your flights. The dashboard's character modules (Overview, Progress, Gold, Combat &
+quests, Play sessions, Your trades, the Live tab's XP estimate and trail) read it.
 
 It replaces what the dashboard used to take from MuddyBoots. MuddyBoots is optional now:
 
@@ -14,7 +14,7 @@ It replaces what the dashboard used to take from MuddyBoots. MuddyBoots is optio
 - After that first login you can disable MuddyBoots. Leave its saved file in `WTF` if you want your older
   history to stay on the page.
 
-Nothing to set up. `/logbook` says how much it has recorded.
+Nothing to set up. `/logbook` says how much it has recorded, and whether the damage meter is available.
 
 ## What it records, and how
 
@@ -29,9 +29,9 @@ is guarded, so a hidden value leaves a field empty rather than breaking anything
 | `xp` | XP gained: amount, source (kill, quest, discover, dungeon, other), what | `PLAYER_XP_UPDATE` deltas, explained by the kill / discovery chat line or `QUEST_TURNED_IN` |
 | `lv`, `ge` | level reached; gear worn at the ding | `PLAYER_LEVEL_UP`, `GetInventoryItemID` |
 | `ki` | kill: name, npc, type, classification, XP, level | "X dies, you gain N experience"; the npc from your target, mouse-over or nameplates |
-| `mn` | gold change: delta, source, what | `PLAYER_MONEY`, explained by hooks (repair, flight, vendor sale or buy, mail, AH, respec, postage), the loot line, a quest reward, or the open window |
+| `mn` | gold change: delta, source, what | `PLAYER_MONEY`, explained by hooks (repair, flight, vendor sale or buy, mail, AH, respec, postage), the loot line, a quest reward, or the open window. A vendor sale is matched by the item's exact sell price, so a fast run of sales keeps each name |
 | `ah` | auction post (deposit), buyout, sale, expiry | AH post / purchase hooks, mail invoices, the expiry system line |
-| `ma` | mail: AH invoice (buyer, copper, item), item taken, item sent | `TakeInboxMoney`, `AutoLootMailItem`, `TakeInboxItem`, `SendMail` hooks |
+| `ma` | mail: AH sale invoice (buyer, copper, item), AH purchase invoice (seller, item), item taken, item sent | `TakeInboxMoney`, `AutoLootMailItem`, `TakeInboxItem`, `SendMail` hooks. A sale is logged once, when its gold arrives: the mailbox's open-all calls `TakeInboxMoney` again and again until then |
 | `qa`, `qt`, `qx` | quest accepted (id, title, level), turned in (id, XP, copper, title), abandoned | `QUEST_ACCEPTED`, `QUEST_TURNED_IN`, `QUEST_REMOVED` right after you confirm Abandon (a failed or removed quest isn't an abandon) |
 | `de` | death: likely killer, npc, environment, place, killer level and class, by a player | `PLAYER_DEAD`, your last hostile target in that fight, breath / fatigue timers |
 | `fi` | fight from the damage meter: seconds, damage, taken, healed, enemies hit, who hurt you most (and how much), killing blow (attacker, spell) | `C_DamageMeter`, each finished session read once after `PLAYER_REGEN_ENABLED` |
@@ -44,9 +44,9 @@ Every line starts with `time|played|uiMapID|x|y` (x, y in ten-thousandths of the
 totals and per-level totals (`kill:24`): XP by source and rested bonus, time per activity (combat, travel, dungeon,
 town, idle, afk, dead; sampled every 5 seconds), distance by mode (foot, mount, swim, fly, ghost, hearth), fights
 (count, seconds, longest, died), low-health moments and close calls, damage done / taken / healed and meter seconds
-per level with best DPS and biggest fight (`damage`), damage per spell (`damageBy`) and per attacker
-(`damageFrom`), crafts / catches / gathers per item, AH
-activity, flights (count, fares, seconds, longest), quests accepted / done / abandoned, casts per spell, dungeon entries and time inside, repairs, respecs.
+per level with best DPS and biggest fight (`damage`), damage per spell (`damageBy`) and per attacker (`damageFrom`),
+crafts / catches / gathers per item, AH activity, flights (count, fares, seconds, longest), quests accepted / done /
+abandoned, casts per spell, dungeon entries and time inside, repairs, respecs.
 `snap[level]` keeps your gold, played time, zone and gear when you reached each level. `trail` keeps a point
 whenever you've moved, per map.
 
@@ -57,7 +57,12 @@ Known limits:
 - The `de` line's killer is your last hostile target during that fight. The damage meter's killing blow comes a
   second later in the `fi` line, and the dashboard uses it when there is one.
 - The damage meter's numbers are secret in combat. A fight is read once you're out of combat; if you pull again
-  within a second, it's read after the next one.
+  within a second, it's read after the next one. Your pet's damage counts as yours.
+- A logout to the character list can report level 1 and no gold. Logbook keeps the highest level it knows (the
+  client's, the saved one, the levels reached) and saves the gold it tracked from `PLAYER_MONEY`.
+- The game sometimes skips `PLAYER_LOGOUT` on a `/reload` (MuddyBoots misses it too), so there's no `out` line.
+  Nothing is lost: the session is updated every 5 seconds and the saved file is still written.
+- Flying along a zone border logs a `zo` line at every crossing.
 
 ## Next to record
 
@@ -74,18 +79,19 @@ From the Forever API docs (warcraft.wiki.gg, build 1.60.1), ranked by what they 
 8. **Talents and respecs** (`CHARACTER_POINTS_CHANGED`, `CONFIRM_TALENT_WIPE`).
 9. **Bag space** (`C_Container.GetContainerNumFreeSlots`).
 
-Untested on Forever so far: whether the damage meter records while its window is off (`/logbook` says whether
-it's available and how many fights it has read); whether it keeps one session per fight; which fields the death
-recap returns; how talent queries address the three-tree layout.
+Checked in game (Nov 2026): the damage meter keeps one session per fight and Logbook reads them all; it leaves
+`creatureName` empty and names the attacker in `combatSpellDetails.unitName`. Still untested on Forever: which
+fields the death recap returns; how talent queries address the three-tree layout.
 
 ## Files
 
 | File | Role |
 | --- | --- |
-| `Journal.lua` | Pure: saved-data shape, log lines, counters, sessions, trail, XP and money attribution, chat-line parsers |
-| `Core.lua` | Events, hooks, the 5-second tick, `/logbook` |
+| `Journal.lua` | Pure: saved-data shape, log lines, counters, sessions, trail, XP and money attribution, damage meter readings, chat-line parsers |
+| `Core.lua` | Events, hooks, the damage meter and flight readers, the 5-second tick, `/logbook` |
 
-Saved data: `LogbookCharDB` (per character), `LogbookDB` (account: level, gold, played and last seen per character).
+Saved data: `LogbookCharDB` (per character; `flying` holds a flight in progress across a `/reload`), `LogbookDB`
+(account: level, gold, played and last seen per character).
 
 ## Tests
 

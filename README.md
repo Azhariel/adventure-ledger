@@ -1,8 +1,8 @@
 # Adventure Ledger
 
 A dashboard for WoW Forever built from what your addons already save: leveling, gold, time, zones, professions,
-best crafts, net worth, the auction house (your faction's and the Neutral one, kept apart), fights, quests and
-deaths, with forecasts. Plus a live view from the combat log while you play.
+best crafts, net worth, the auction house (your faction's and the Neutral one, kept apart), fights and damage,
+quests, deaths and flights, with forecasts. Plus a live view from the combat log while you play.
 
 Two parts:
 
@@ -24,7 +24,7 @@ Two parts:
 
 | Addon | What it records |
 | --- | --- |
-| Logbook | Your journey: XP, levels, gold by source, kills, quests, deaths, zones, dungeons, professions, sessions, trail |
+| Logbook | Your journey: XP, levels, gold by source, kills, quests, deaths, zones, dungeons, professions, sessions, trail, damage (from the game's damage meter), flights |
 | Ledger Link | Keeps the combat log on for the Live view; keeps Neutral auction house prices apart from your faction's |
 | Make or Buy | Your recipes and what to craft or buy (Best crafts, restock list, mail to alts) |
 | Stockpile | What each character holds in bags, bank and mail |
@@ -166,6 +166,11 @@ history). The page remembers which view you had open.
 
 Also on the page:
 
+- **Damage** (Combat & quests): damage per second and your best, damage by spell (your pet's included), what hurts
+  you, and damage, damage taken and healing per fight at each level. A death whose killing blow the damage meter
+  saw names that attacker and spell, marked *confirmed*; without it, the killer is your last hostile target.
+- **Flights** (Progress): every route you've flown with its usual fare and time in the air, the stops on the way,
+  and your recent flights. A route with a stop is counted apart from the direct one, since the fares differ.
 - **Play sessions** (each character): a diary of every session, newest first: time, XP and levels, gold earned and
   spent, kills, quests, deaths, zones, profession gains, loot, what you made, and Auction House buys & sales. The log starts a new piece at
   every reload; pieces less than 30 minutes apart are one session.
