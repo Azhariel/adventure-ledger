@@ -163,6 +163,33 @@ function M.install(opts)
     LOOT_ITEM_PUSHED_SELF_MULTIPLE = "You receive item: %sx%d."
     LOOT_ITEM_CREATED_SELF = "You create: %s."
     LOOT_ITEM_CREATED_SELF_MULTIPLE = "You create: %sx%d."
+    -- damage meter: st.meter.sessions = { { id, seconds, [type] = { sources = {...}, spells = {...} } } }
+    st.meter = { sessions = opts.meterSessions or {}, available = true }
+    Enum = { DamageMeterType = { DamageDone = 0, HealingDone = 2, DamageTaken = 7, EnemyDamageTaken = 10 } }
+    local function meterSession(id)
+        for _, s in ipairs(st.meter.sessions) do if s.id == id then return s end end
+    end
+    C_DamageMeter = {
+        IsDamageMeterAvailable = function() return st.meter.available, st.meter.available and "" or "disabled" end,
+        GetAvailableCombatSessions = function()
+            local out = {}
+            for _, s in ipairs(st.meter.sessions) do
+                out[#out + 1] = { sessionID = s.id, name = "Fight " .. s.id, durationSeconds = s.seconds }
+            end
+            return out
+        end,
+        GetCombatSessionFromID = function(id, kind)
+            local s = meterSession(id)
+            local d = s and s[kind]
+            return { combatSources = d and d.sources or {}, maxAmount = 0, totalAmount = 0, durationSeconds = s and s.seconds }
+        end,
+        GetCombatSessionSourceFromID = function(id, kind, guid)
+            local s = meterSession(id)
+            local d = s and s[kind]
+            return { combatSpells = d and d.spells or {}, maxAmount = 0, totalAmount = 0 }
+        end,
+    }
+    C_Spell = { GetSpellName = function(id) return st.spells[id] end }
     LogbookCharDB, LogbookDB, MuddyBootsCharDB = opts.charDB, opts.accountDB, opts.muddy
     return st
 end

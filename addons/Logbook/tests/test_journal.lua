@@ -138,4 +138,32 @@ return function(H)
         eq(item, "Wool Cloth"); eq(cnt, 20)
         eq(J.ItemQty("Wool Cloth", 20), "Wool Cloth x20"); eq(J.ItemQty("Tigerseye", 1), "Tigerseye")
     end)
+
+    test("damage meter: your totals, spells, attackers and the killing blow; nothing seen is no fight", function()
+        local me = function(n) return { combatSources = { { name = "Other", totalAmount = 999 },
+            { isLocalPlayer = true, totalAmount = n } } } end
+        local f = J.MeterFight({
+            seconds = 20, done = me(400.4), taken = me(150), healed = me(0),
+            enemies = { combatSources = { {}, {} } },
+            spells = { combatSpells = { { spellID = 585, totalAmount = 300 }, { spellID = 0, totalAmount = 100 },
+                { spellID = 589, totalAmount = 0 } } },
+            hits = { combatSpells = { { spellID = 0, totalAmount = 90, creatureName = "Boar" },
+                { spellID = 12, totalAmount = 60, creatureName = "Shaman", isDeadly = true },
+                { spellID = 0, totalAmount = 10, creatureName = "Shaman" } } },
+            spellName = function(id) return id == 585 and "Smite" or nil end,
+        })
+        eq(f.done, 400); eq(f.taken, 150); eq(f.healed, 0); eq(f.enemies, 2)
+        eq(f.spells.Smite, 300); eq(f.spells.Melee, 100); eq(f.spells["spell 589"], nil)
+        eq(f.from.Boar, 90); eq(f.from.Shaman, 70); eq(f.worst, "Boar"); eq(f.worstAmount, 90)
+        eq(f.killer, "Shaman"); eq(f.killSpell, "spell 12")
+        eq(J.MeterFight({ seconds = 3, done = me(0), taken = {}, healed = nil }), nil)
+
+        local counts = J.Tidy({}).counts
+        J.CountDamage(counts, f, 20)
+        J.CountDamage(counts, { seconds = 5, done = 500, taken = 0, healed = 40, spells = { Smite = 500 }, from = {} }, 21)
+        local d = counts.damage
+        eq(d.fights, 2); eq(d.sec, 25); eq(d.done, 900); eq(d["done:20"], 400); eq(d["sec:21"], 5); eq(d.healed, 40)
+        eq(d.bestDps, 20, "the 5-second fight is too short for best DPS"); eq(d.biggest, 500)
+        eq(counts.damageBy.Smite, 800); eq(counts.damageFrom.Shaman, 70)
+    end)
 end

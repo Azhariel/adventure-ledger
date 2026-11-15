@@ -26,9 +26,10 @@ J.TRAIL_STEP = 12      -- ten-thousandths of the map a point must move from the 
 J.HINT_SECONDS = 2     -- how long a hint (chat line, hook) can explain an XP or money change
 
 J.COUNT_GROUPS = { "xp", "activity", "fights", "deaths", "distance", "prof", "auction", "quests", "spells",
-    "dungeons", "character" }
+    "dungeons", "character", "damage", "damageBy", "damageFrom" }
 -- counters that hold a record, not a sum
-J.MAX_KEYS = { longest = true, hardest = true }
+J.MAX_KEYS = { longest = true, hardest = true, bestDps = true, biggest = true }
+J.DPS_MIN_SECONDS = 10 -- best DPS only counts fights at least this long
 
 ----------------------------------------------------------------------------------------------------
 -- Saved data
@@ -319,6 +320,77 @@ function J.EndFight(counts, fight, clock, died)
         if low <= 0.1 and not died then J.Count(counts.deaths, "closeCalls") end
     end
     return sec
+end
+
+----------------------------------------------------------------------------------------------------
+-- Damage meter (C_DamageMeter: Blizzard's own meter, readable once you're out of combat)
+
+-- The local player's entry among a meter session's combatSources
+function J.MeterSelf(session)
+    if type(session) ~= "table" or type(session.combatSources) ~= "table" then return nil end
+    for _, s in ipairs(session.combatSources) do
+        if type(s) == "table" and s.isLocalPlayer == true then return s end
+    end
+    return nil
+end
+
+local function amount(v) return type(v) == "number" and v > 0 and math.floor(v + 0.5) or 0 end
+
+-- One fight from the meter's readings, or nil when the meter saw nothing:
+--   m = { seconds, done, taken, healed, enemies (sessions), spells, hits (your source's spell breakdowns),
+--         spellName = function(id) }
+-- Returns { seconds, done, taken, healed, enemies, spells = { name = n }, from = { mob = n }, worst, worstAmount,
+--           killer, killSpell }
+function J.MeterFight(m)
+    local function total(session)
+        local me = J.MeterSelf(session)
+        return me and amount(me.totalAmount) or 0
+    end
+    local f = { seconds = m.seconds, done = total(m.done), taken = total(m.taken), healed = total(m.healed),
+        spells = {}, from = {} }
+    if f.done == 0 and f.taken == 0 and f.healed == 0 then return nil end
+    if type(m.enemies) == "table" and type(m.enemies.combatSources) == "table" then
+        f.enemies = #m.enemies.combatSources
+    end
+    local name = m.spellName or function() return nil end
+    local function spellLabel(id)
+        if type(id) ~= "number" or id <= 0 then return "Melee" end
+        return name(id) or ("spell " .. id)
+    end
+    for _, sp in ipairs(type(m.spells) == "table" and m.spells.combatSpells or {}) do
+        local n = amount(sp.totalAmount)
+        if n > 0 then
+            local key = spellLabel(sp.spellID)
+            f.spells[key] = (f.spells[key] or 0) + n
+        end
+    end
+    for _, sp in ipairs(type(m.hits) == "table" and m.hits.combatSpells or {}) do
+        local n = amount(sp.totalAmount)
+        local mob = type(sp.creatureName) == "string" and sp.creatureName ~= "" and sp.creatureName or nil
+        if n > 0 and mob then
+            f.from[mob] = (f.from[mob] or 0) + n
+            if not f.worst or f.from[mob] > f.worstAmount then f.worst, f.worstAmount = mob, f.from[mob] end
+        end
+        if sp.isDeadly == true and not f.killer then
+            f.killer, f.killSpell = mob, spellLabel(sp.spellID)
+        end
+    end
+    return f
+end
+
+-- Adds a meter fight to counts.damage (totals and per level), counts.damageBy (your spells) and
+-- counts.damageFrom (what hit you)
+function J.CountDamage(counts, f, level)
+    local d = counts.damage
+    J.Count(d, "fights", 1, level)
+    J.Count(d, "sec", f.seconds or 0, level)
+    J.Count(d, "done", f.done, level)
+    J.Count(d, "taken", f.taken, level)
+    J.Count(d, "healed", f.healed, level)
+    J.Max(d, "biggest", f.done)
+    if (f.seconds or 0) >= J.DPS_MIN_SECONDS then J.Max(d, "bestDps", math.floor(f.done / f.seconds + 0.5)) end
+    for k, n in pairs(f.spells) do J.Count(counts.damageBy, k, n) end
+    for k, n in pairs(f.from) do J.Count(counts.damageFrom, k, n) end
 end
 
 -- What you were doing for the last tick: afk | dead | combat | dungeon | travel | town | idle

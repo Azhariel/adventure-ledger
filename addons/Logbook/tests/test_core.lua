@@ -244,4 +244,62 @@ return function(H)
         W.fire("PLAYER_LOGOUT")
         eq(W.rows("out")[1].map, nil)
     end)
+
+    test("damage meter: each finished fight read once, after combat, with the real killer", function()
+        local old = { id = 3, seconds = 9, [0] = { sources = { { isLocalPlayer = true, totalAmount = 50 } } } }
+        local _, st = boot({ meterSessions = { old } })
+        eq(LogbookCharDB.meter.available, true)
+        st.spells[585] = "Smite"
+        st.combat = true
+        W.fire("PLAYER_REGEN_DISABLED")
+        st.meter.sessions[#st.meter.sessions + 1] = { id = 4, seconds = 12.4,
+            [0] = { sources = { { isLocalPlayer = true, totalAmount = 360 } }, spells = { { spellID = 585, totalAmount = 360 } } },
+            [7] = { sources = { { isLocalPlayer = true, totalAmount = 200 } },
+                spells = { { spellID = 0, totalAmount = 200, creatureName = "Razormane Mystic", isDeadly = true } } },
+            [2] = { sources = {} }, [10] = { sources = { { name = "Razormane Mystic" }, { name = "Razormane Hunter" } } } }
+        st.combat = false
+        W.fire("PLAYER_REGEN_ENABLED")
+        W.runTimers()
+        local fi = W.rows("fi")
+        eq(#fi, 1, "the session from before login isn't counted")
+        eq(fi[1].args[1], "12"); eq(fi[1].args[2], "360"); eq(fi[1].args[3], "200"); eq(fi[1].args[4], "0")
+        eq(fi[1].args[5], "2"); eq(fi[1].args[6], "Razormane Mystic"); eq(fi[1].args[8], "Razormane Mystic")
+        eq(fi[1].args[9], "Melee")
+        local c = LogbookCharDB.counts
+        eq(c.damage.done, 360); eq(c.damage["done:20"], 360); eq(c.damageBy.Smite, 360)
+        eq(c.damageFrom["Razormane Mystic"], 200); eq(c.damage.bestDps, 30)
+        W.fire("PLAYER_REGEN_DISABLED"); W.fire("PLAYER_REGEN_ENABLED"); W.runTimers()
+        eq(#W.rows("fi"), 1, "a session is read once")
+    end)
+
+    test("damage meter: back in combat before the read waits for the next fight; secrets are skipped", function()
+        local _, st = boot()
+        local me = function(n) return { sources = { { isLocalPlayer = true, totalAmount = n } } } end
+        st.meter.sessions[1] = { id = 1, seconds = 10, [0] = me(100) }
+        W.fire("PLAYER_REGEN_DISABLED"); W.fire("PLAYER_REGEN_ENABLED")
+        st.combat = true
+        W.runTimers()
+        eq(#W.rows("fi"), 0, "still in combat: secret, not read")
+        st.meter.sessions[2] = { id = 2, seconds = 10, [0] = me(80) }
+        st.secrets[80] = true
+        st.combat = false
+        W.fire("PLAYER_REGEN_ENABLED"); W.runTimers()
+        eq(#W.rows("fi"), 1, "the first fight now; the second's secret damage reads as nothing")
+        eq(LogbookCharDB.counts.damage.done, 100)
+        C_DamageMeter = nil
+        W.fire("PLAYER_REGEN_DISABLED"); W.fire("PLAYER_REGEN_ENABLED"); W.runTimers()
+    end)
+
+    test("damage meter missing: noted at login, fights still counted", function()
+        local st = W.install()
+        C_DamageMeter = nil
+        local ns = {}
+        for _, f in ipairs({ "Journal.lua", "Core.lua" }) do assert(loadfile(H.root .. f))("Logbook", ns) end
+        W.fire("PLAYER_LOGIN"); W.fire("PLAYER_ENTERING_WORLD", true, false)
+        eq(LogbookCharDB.meter.available, false)
+        W.fire("PLAYER_REGEN_DISABLED"); W.fire("PLAYER_REGEN_ENABLED")
+        eq(LogbookCharDB.counts.fights.n, 1)
+        SlashCmdList.LOGBOOK()
+        truthy(st.printed[#st.printed]:find("unavailable"))
+    end)
 end

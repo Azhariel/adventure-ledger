@@ -1,6 +1,7 @@
 -- Core: Logbook's game half. Listens to the client and writes LogbookCharDB / LogbookDB through Journal.lua.
 -- No combat log (Forever forbids it): kills come from the "X dies, you gain N experience" line, deaths from
 -- PLAYER_DEAD with your last hostile target as the likely killer, and fights from entering and leaving combat.
+-- Damage, healing and the killing blow come from Blizzard's damage meter (C_DamageMeter) once a fight is over.
 -- Every API call is guarded: a missing function, an error or a "secret" value just leaves that field empty.
 local ADDON, ns = ...
 local J = ns.Journal
@@ -20,6 +21,7 @@ L.TICK = 5          -- seconds between activity / trail / distance samples
 L.FLUSH = 0.4       -- seconds to wait for the line that explains an XP or money change
 L.CLOSED_GRACE = 2  -- a window closed this recently still explains a money change (the flight master closes first)
 L.FOES_MAX = 400
+L.METER_DELAY = 1   -- seconds after leaving combat before reading the damage meter (it closes the session first)
 
 ----------------------------------------------------------------------------------------------------
 -- Safe calls
@@ -39,6 +41,15 @@ local function call(fn, ...)
     return unpack(r, 2, n)
 end
 L.Call = call
+
+local function spellName(id)
+    if C_Spell and C_Spell.GetSpellName then
+        local n = call(C_Spell.GetSpellName, id)
+        if type(n) == "string" and n ~= "" then return n end
+    end
+    local n = call(GetSpellInfo, id)
+    return type(n) == "string" and n ~= "" and n or nil
+end
 
 local function str(v)
     if type(v) ~= "string" or secret(v) or v == "" then return nil end
@@ -74,6 +85,7 @@ function L.Reset()
     st.tradeSkill, st.gather, st.lootKind, st.questTitle, st.questTitles = nil, nil, nil, nil, {}
     st.turnedIn = {}
     st.ahAction, st.xpFlushing, st.moneyFlushing, st.wasDead = nil, nil, nil, nil
+    st.meterLast, st.meterReading = nil, nil
 end
 L.Reset()
 
@@ -606,10 +618,6 @@ end
 L.GATHER = { ["Herb Gathering"] = "Herbalism", ["Herbalism"] = "Herbalism", ["Mining"] = "Mining", ["Skinning"] = "Skinning",
     ["Fishing"] = "Fishing", ["Disenchant"] = "Enchanting" }
 
-local function spellName(id)
-    if C_Spell and C_Spell.GetSpellName then return str(call(C_Spell.GetSpellName, id)) end
-    return str(call(GetSpellInfo, id))
-end
 
 function L.OnSpellcast(unit, _, spellID)
     if unit ~= "player" then return end
@@ -739,6 +747,7 @@ end
 function L.OnCombatEnd()
     local f = st.fight
     st.fight = nil
+    L.ScheduleMeter()
     if not f then return end
     J.EndFight(ns.db.counts, f, ns.Clock(), f.died)
 end
@@ -792,6 +801,94 @@ function L.OnUnghost()
     if not st.wasDead then return end
     J.Count(ns.db.counts.deaths, "revive." .. (st.spiritHealer and "spirit" or "corpse"))
     st.wasDead, st.spiritHealer = nil, nil
+end
+
+----------------------------------------------------------------------------------------------------
+-- Damage meter
+-- C_DamageMeter keeps a session per fight. Its numbers are secret during combat, so each finished session is
+-- read after you leave combat: your damage, damage taken and healing, per spell and per attacker, how many
+-- enemies you hit, and the hit that killed you ("isDeadly"). Sessions are read oldest first and once each.
+
+local function meterType(name, fallback)
+    local e = Enum and Enum.DamageMeterType
+    return (e and number(e[name])) or fallback
+end
+
+-- A copy of a meter table without secret values (and without anything past a few levels deep)
+local function clean(v, depth)
+    if secret(v) then return nil end
+    if type(v) ~= "table" then return v end
+    depth = depth or 0
+    if depth > 4 then return nil end
+    local out = {}
+    for k, x in pairs(v) do
+        if not secret(k) then out[k] = clean(x, depth + 1) end
+    end
+    return out
+end
+
+-- Session ids the meter has, oldest first, with their durations: { { id, seconds } }
+function L.MeterSessions()
+    local DM = C_DamageMeter
+    local list = DM and clean(call(DM.GetAvailableCombatSessions))
+    local out = {}
+    for _, s in ipairs(type(list) == "table" and list or {}) do
+        if type(s) == "table" and type(s.sessionID) == "number" then
+            out[#out + 1] = { id = s.sessionID, seconds = number(s.durationSeconds) }
+        end
+    end
+    table.sort(out, function(a, b) return a.id < b.id end)
+    return out
+end
+
+-- At login: what the meter can do, and which sessions are already there (not ours to count)
+function L.InitMeter()
+    local DM = C_DamageMeter
+    if not DM then ns.db.meter = { available = false, reason = "no C_DamageMeter" } return end
+    local ok, reason = call(DM.IsDamageMeterAvailable)
+    ns.db.meter = { available = ok == true, reason = str(reason) }
+    local list = L.MeterSessions()
+    st.meterLast = list[#list] and list[#list].id or 0
+end
+
+function L.ScheduleMeter()
+    if st.meterReading or not C_DamageMeter then return end
+    st.meterReading = true
+    ns.After(L.METER_DELAY, function()
+        st.meterReading = nil
+        L.ReadMeter()
+    end)
+end
+
+-- "fi|seconds|damage|taken|healed|enemies|worstMob|worstAmount|killer|killSpell"
+function L.ReadMeter()
+    local DM, db = C_DamageMeter, ns.db
+    if not DM or not db then return end
+    if call(UnitAffectingCombat, "player") then return end -- back in combat: secret again, read after this one
+    local guid = str(call(UnitGUID, "player"))
+    local DONE, TAKEN, HEALED, ENEMIES = meterType("DamageDone", 0), meterType("DamageTaken", 7),
+        meterType("HealingDone", 2), meterType("EnemyDamageTaken", 10)
+    for _, s in ipairs(L.MeterSessions()) do
+        if s.id > (st.meterLast or 0) then
+            local function session(kind) return clean(call(DM.GetCombatSessionFromID, s.id, kind)) end
+            local function source(kind)
+                return guid and clean(call(DM.GetCombatSessionSourceFromID, s.id, kind, guid)) or nil
+            end
+            local done = session(DONE)
+            local f = J.MeterFight({
+                seconds = s.seconds or (done and number(done.durationSeconds)),
+                done = done, taken = session(TAKEN), healed = session(HEALED), enemies = session(ENEMIES),
+                spells = source(DONE), hits = source(TAKEN), spellName = spellName,
+            })
+            st.meterLast = s.id
+            if f then
+                f.seconds = f.seconds and floor(f.seconds + 0.5) or nil
+                J.CountDamage(db.counts, f, level())
+                L.Log("fi", f.seconds, f.done, f.taken, f.healed, f.enemies, f.worst, f.worstAmount, f.killer,
+                    f.killSpell)
+            end
+        end
+    end
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -979,6 +1076,7 @@ function L.OnLogin()
     st.lastMoney = number(call(GetMoney))
     st.lastXP, st.lastXPMax, st.xpLevel = number(call(UnitXP, "player")), number(call(UnitXPMax, "player")), level()
     L.Hook()
+    L.InitMeter()
     L.RequestPlayed()
     L.UpdateAccount()
     if C_Timer and C_Timer.NewTicker and not L.ticker then
@@ -1033,6 +1131,7 @@ local handlers = {
     TRADE_SKILL_SHOW = function() L.OnTradeSkill() end,
     TRADE_SKILL_UPDATE = function() L.OnTradeSkill() end,
     CRAFT_SHOW = function() L.OnTradeSkill() end,
+    DAMAGE_METER_RESET = function() st.meterLast = 0 end,
 }
 for event in pairs(L.WINDOWS) do
     if not handlers[event] then handlers[event] = function() L.OnWindow(event) end end
@@ -1060,4 +1159,7 @@ SlashCmdList.LOGBOOK = function()
     local base = db.baseline and (" Carried on from " .. db.baseline.from .. "'s counters.") or ""
     ns.Print(("%d lines since %s, %d sessions, %d trail chunks.%s"):format(#db.log,
         date and date("%d %b %Y", db.since) or tostring(db.since), #db.sessions, #db.trail.chunks, base))
+    local m, d = db.meter or {}, db.counts.damage or {}
+    ns.Print(m.available and ("Damage meter: %d fights read."):format(d.fights or 0)
+        or ("Damage meter unavailable (%s)."):format(m.reason or "unknown"))
 end
