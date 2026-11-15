@@ -179,6 +179,9 @@ footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: va
 .prose .hint { max-width: none; } /* the About panels set their own width: text runs to the panel's edge */
 .prose dl { margin: 8px 0 4px; }
 .prose dt { font-weight: 600; color: var(--fg); margin-top: 10px; }
+.prose dt a { color: var(--fg); text-decoration-color: var(--line); }
+.prose dt a:hover { color: var(--purple); text-decoration-color: var(--purple); }
+.prose dt span[title] { cursor: help; }
 .prose dd { margin: 2px 0 0; color: var(--muted); line-height: 1.5; }
 .prose dl.cols { columns: 2 320px; column-gap: 32px; }
 .prose dl.cols > div { break-inside: avoid; padding-top: 1px; }
@@ -439,27 +442,27 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w6 prose"><div class="ph"><h2>~/character</h2></div>
         <p class="hint">The character picked above the menu.</p>
         <dl>
-          <dt>Overview</dt><dd>XP over played time with a forecast to your next level, hours spent in each level with a curve
+          <dt><a href="#/overview" data-module="overview">Overview</a></dt><dd>XP over played time with a forecast to your next level, hours spent in each level with a curve
             carried to 60, and a diary of your play sessions.</dd>
-          <dt>Progress</dt><dd>Where your XP comes from (quests, kills, dungeons, exploring), profession skill over time, what
+          <dt><a href="#/progress" data-module="progress">Progress</a></dt><dd>Where your XP comes from (quests, kills, dungeons, exploring), profession skill over time, what
             you made and gathered, how you spend your time, time per zone, and your flights: routes, fares and time in the air.</dd>
-          <dt>Gold</dt><dd>Gold on hand over played time with its trend, where gold comes from and goes, net worth (gold plus
+          <dt><a href="#/gold" data-module="gold">Gold</a></dt><dd>Gold on hand over played time with its trend, where gold comes from and goes, net worth (gold plus
             what your items would sell for), and your last farming session from Haul.</dd>
-          <dt>Combat &amp; quests</dt><dd>The mobs you fight most, every quest turned in, deaths and close calls, and from the
+          <dt><a href="#/combat" data-module="combat">Combat &amp; quests</a></dt><dd>The mobs you fight most, every quest turned in, deaths and close calls, and from the
             game's damage meter: damage per second, damage by spell, what hurts you, and damage at each level.</dd>
         </dl></article>
 
       <article class="panel w6 prose"><div class="ph"><h2>~/account</h2></div>
         <p class="hint">Every character together.</p>
         <dl>
-          <dt>Characters</dt><dd>Your alts side by side: level, class, played time, gold, items and net worth, last played.</dd>
-          <dt>Inventory</dt><dd>Everything you own in bags, bank and mail, with who holds it and what it's worth.</dd>
-          <dt>Mail to alts</dt><dd>Items one character holds that another crafts with or needs to restock.</dd>
-          <dt>Drop rates</dt><dd>What each kind of mob drops for you, how often, and gold per hour at your pace (DropLab).</dd>
+          <dt><a href="#/roster" data-module="roster">Characters</a></dt><dd>Your alts side by side: level, class, played time, gold, items and net worth, last played.</dd>
+          <dt><a href="#/inventory" data-module="inventory">Inventory</a></dt><dd>Everything you own in bags, bank and mail, with who holds it and what it's worth.</dd>
+          <dt><a href="#/alts" data-module="alts">Mail to alts</a></dt><dd>Items one character holds that another crafts with or needs to restock.</dd>
+          <dt><a href="#/drops" data-module="drops">Drop rates</a></dt><dd>What each kind of mob drops for you, how often, and gold per hour at your pace (DropLab).</dd>
         </dl>
         <h3>~/live</h3>
         <dl>
-          <dt>Live</dt><dd>Only with <code>wowstats live</code>. Follows the combat log while you play: XP to level, your
+          <dt><a href="#/live" data-module="live">Live</a></dt><dd>Only with <code>wowstats live</code>. Follows the combat log while you play: XP to level, your
             position on the zone map, fights, kills, players around you and your newest screenshot. WoW writes the log every
             5 minutes, so it runs a little behind.</dd>
         </dl></article>
@@ -468,16 +471,16 @@ tr.flash td { animation: flash .8s ease-out; }
         <p class="hint">From your Auctionator scans: each scan day keeps the lowest and highest price and how many were
           listed. The Faction / Neutral switch at the top picks which auction house the first four modules use.</p>
         <dl class="cols">
-          <div><dt>Signals</dt><dd>Your stockpile's value per scan day with a forecast, your best sellers, and deals: items far under
+          <div><dt><a href="#/signals" data-module="signals">Signals</a></dt><dd>Your stockpile's value per scan day with a forecast, your best sellers, and deals: items far under
             their usual price, and items you own far over it.</dd></div>
-          <div><dt>Stockpile</dt><dd>What you hold, against its launch low, peak and current supply, with a signal when it's a good
+          <div><dt><a href="#/stockpile" data-module="stockpile">Stockpile</a></dt><dd>What you hold, against its launch low, peak and current supply, with a signal when it's a good
             time to sell.</dd></div>
-          <div><dt>Browse</dt><dd>The whole price database, or one family of trade goods, with search.</dd></div>
-          <div><dt>Movers</dt><dd>What's rising fastest and what has fallen furthest.</dd></div>
-          <div><dt>Faction vs Neutral</dt><dd>Items priced at both houses, the gap between them, and what a flip makes after each
+          <div><dt><a href="#/browse" data-module="browse">Browse</a></dt><dd>The whole price database, or one family of trade goods, with search.</dd></div>
+          <div><dt><a href="#/movers" data-module="movers">Movers</a></dt><dd>What's rising fastest and what has fallen furthest.</dd></div>
+          <div><dt><a href="#/neutral" data-module="neutral">Faction vs Neutral</a></dt><dd>Items priced at both houses, the gap between them, and what a flip makes after each
             house's cut.</dd></div>
-          <div><dt>Your trades</dt><dd>Your auction house ledger: buys, sales, deposits and buyers, in total and per item.</dd></div>
-          <div><dt>Crafting</dt><dd>Your recipes ranked by profit at today's prices, with each one's full reagent tree, and your
+          <div><dt><a href="#/trades" data-module="trades">Your trades</a></dt><dd>Your auction house ledger: buys, sales, deposits and buyers, in total and per item.</dd></div>
+          <div><dt><a href="#/crafting" data-module="crafting">Crafting</a></dt><dd>Your recipes ranked by profit at today's prices, with each one's full reagent tree, and your
             restock list (Make or Buy).</dd></div>
         </dl>
         <p class="hint">Click any item row to open the item inspector: both houses' prices on one chart, the forecast, and how
@@ -1749,9 +1752,18 @@ const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, co
   alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral,
   trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout };
 
-// About: static text; the lede says when this page was built
+// About: static text; the lede says when this page was built. Module names link to their module; one this page
+// can't open (Live without the live server, character modules without a character) shows as plain text.
 function modAbout() {
   el("who").textContent = `Built ${date(DATA.generated)}${chars().length ? ` from ${chars().length} character${chars().length > 1 ? "s" : ""}` : ""}.`;
+  document.querySelectorAll('section.mod[data-mod="about"] a[data-module]').forEach(a => {
+    const m = MODULES.find(x => x.key === a.dataset.module);
+    if (m && available(m)) return;
+    const span = document.createElement("span");
+    span.textContent = a.textContent;
+    span.title = m && m.served ? "Open the page with wowstats live to use this" : "Needs a character's saved data";
+    a.replaceWith(span);
+  });
 }
 
 // ------------------------------------------------------------------ The item inspector (both houses on one chart)
