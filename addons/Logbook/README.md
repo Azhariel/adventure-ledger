@@ -5,16 +5,15 @@ dungeon runs, professions, play sessions, how you spend your time, where you've 
 game's damage meter, and your flights. The dashboard's character modules (Overview, Progress, Gold, Combat &
 quests, Play sessions, Your trades, the Live tab's XP estimate and trail) read it.
 
-It replaces what the dashboard used to take from MuddyBoots. MuddyBoots is optional now:
+**Copying your history from MuddyBoots.** If MuddyBoots is loaded when Logbook starts on a character, Logbook
+copies, once:
 
-- At Logbook's **first login** on a character, if MuddyBoots is loaded, Logbook copies its lifetime counters (XP
-  by source and level, time by activity, fights, deaths, distance, crafts) into `LogbookCharDB.baseline`, once.
-- The dashboard keeps MuddyBoots' log, sessions and trail from **before** Logbook's first login and uses Logbook's
-  from then on. Counters are the baseline plus Logbook's own. Nothing is counted twice, even with both enabled.
-- At any login with MuddyBoots loaded, Logbook also copies that older history (log lines, play sessions, trail,
-  level snapshots) into `LogbookCharDB.history`, once, and MuddyBoots' account rows for characters it hasn't
-  seen into `LogbookDB`. The dashboard reads the copy when MuddyBoots' file is gone. `/logbook` says when it has it.
-- After one login with both, you can remove MuddyBoots and its saved files.
+- its lifetime counters (XP by source and level, time by activity, fights, deaths, distance, crafts) into
+  `LogbookCharDB.baseline`, at Logbook's first login. The dashboard's totals are the baseline plus Logbook's own;
+- its history from before Logbook's first login (log lines, play sessions, trail, level snapshots, and its flight
+  lines) into `LogbookCharDB.history`, and its account rows for characters Logbook hasn't seen into `LogbookDB`.
+
+`/logbook` says when the copy is there; after that, MuddyBoots and its saved files can go. Nothing is counted twice.
 
 Nothing to set up. `/logbook` says how much it has recorded, and whether the damage meter is available.
 
@@ -62,7 +61,7 @@ Known limits:
   within a second, it's read after the next one. Your pet's damage counts as yours.
 - A logout to the character list can report level 1 and no gold. Logbook keeps the highest level it knows (the
   client's, the saved one, the levels reached) and saves the gold it tracked from `PLAYER_MONEY`.
-- The game sometimes skips `PLAYER_LOGOUT` on a `/reload` (MuddyBoots misses it too), so there's no `out` line.
+- The game sometimes skips `PLAYER_LOGOUT` on a `/reload`, so there's no `out` line.
   Nothing is lost: the session is updated every 5 seconds and the saved file is still written.
 - Flying along a zone border logs a `zo` line at every crossing.
 

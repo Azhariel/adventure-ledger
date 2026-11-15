@@ -42,15 +42,13 @@ These aren't ours to share, so the installer only checks for them:
 | Addon | Feeds | Get it |
 | --- | --- | --- |
 | Auctionator | All auction house prices: the Market section, net worth, craft profits | [CurseForge](https://www.curseforge.com/wow/addons/auctionator) |
-| MuddyBoots | Optional: your history from before Logbook (see below) | [CurseForge](https://www.curseforge.com/wow/addons/muddy-boots) |
 | QuestieDB | Item names | Comes with Questie: [CurseForge](https://www.curseforge.com/wow/addons/questie) |
 
 The page builds with whatever is there; a module without its addon says what it's waiting for.
 
-**Moving from MuddyBoots to Logbook.** Keep MuddyBoots enabled for one more login with Logbook installed. That
-login copies MuddyBoots' lifetime counters into Logbook, once. Then you can disable it. The page keeps MuddyBoots'
-log from before Logbook's first login and uses Logbook from then on, so nothing is counted twice. That login also copies MuddyBoots'
-older history into Logbook's own saved file, so after it you can remove MuddyBoots and its saved files too.
+**Coming from MuddyBoots?** Keep it enabled for one login (or `/reload`) on each character with Logbook
+installed. Logbook copies its lifetime counters and its older history (log, play sessions, trail) into its own
+saved file, once, and carries on from there. After that you can remove MuddyBoots and its saved files.
 
 ## Develop
 
@@ -151,7 +149,7 @@ and the build moves them to the Neutral side. A Neutral-only day stands out by i
     what's left by the XP of what you farmed in the last 30 minutes.
   - your zone and position on the **real zone map** (Wowhead's classic map art, downloaded once per zone into
     `data/maps/` by the server; `zones.py` maps uiMapIDs to Wowhead zones and holds the alignment). The line is this
-    session, the faint dots are your earlier visits (Logbook's trail, and MuddyBoots' before it). Hover a dot for who it is; "Zoom to you"
+    session, the faint dots are your earlier visits (Logbook's trail). Hover a dot for who it is; "Zoom to you"
     zooms in.
   - creature names link to Wowhead (npc id from the combat log), and player names link to the WoW Forever armory
     (`PLAYER_URL` in `template.html`).
@@ -171,7 +169,7 @@ Stop it with `wowstats stop`. Its messages go to `data\server.log`. Notes:
 Run it again whenever you want fresh numbers. With several characters, the picker above the menu switches between
 them; **Characters** (under `~/account`) shows every alt side by side (level, class, played, gold, items, net worth, last played),
 net worth and played time per character, and everything you own across all of them with who holds it. Alts that
-only appear in Logbook's or MuddyBoots' account file or in Stockpile are listed too (marked "no log" until they have a detailed
+only appear in Logbook's account file or in Stockpile are listed too (marked "no log" until they have a detailed
 history). The page remembers which view you had open.
 
 Also on the page:
@@ -214,10 +212,10 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 
 | Section | Source |
 | --- | --- |
-| Leveling, XP sources, time per level, gold earned/spent, zones, professions, fights, quests, deaths | Logbook's event log and counters (per character), with MuddyBoots' from before Logbook started |
-| Flight routes, fares and time in the air | Logbook's flight lines, with MuddyBoots' take-offs and landings from before Logbook started |
+| Leveling, XP sources, time per level, gold earned/spent, zones, professions, fights, quests, deaths | Logbook's event log and counters (per character) |
+| Flight routes, fares and time in the air | Logbook's flight lines |
 | Damage per second, damage by spell, what hurts you, killing blows | Logbook's readings of the game's damage meter (`C_DamageMeter`), from Logbook's first fight on |
-| Gold on hand | Logbook or MuddyBoots (account file) |
+| Gold on hand | Logbook (account file) |
 | Inventory | Stockpile (bags, bank, mail) |
 | Prices, price trends, net worth | Auctionator's price database (today's AH minimum; trend = lowest price per scan day) |
 | Neutral AH prices | Ledger Link (account file), plus any days listed in `neutral_days.txt` |
@@ -228,10 +226,10 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 
 Notes:
 
-- Time before Logbook (or MuddyBoots) was installed isn't known: the first level is marked `*` (partial).
+- Time before Logbook was installed isn't known: the first level is marked `*` (partial).
 - Zone time counts the time between logged events; gaps over 10 minutes and logouts count as offline.
 - Money comes from the log's money lines (every change to your gold, by source), so quest gold is counted once.
-  Logbook files an AH sale's gold under Auction house. MuddyBoots' older log sometimes labels it "mail" (it arrives
+  Logbook files an AH sale's gold under Auction house. History copied from MuddyBoots sometimes labels it "mail" (it arrives
   by mail); when an AH invoice of the same amount was logged within 5 seconds of it, it counts under Auction house.
   "Mail" is then gold from letters, e.g. from other players.
 - Crafts use the AH price after the 5% cut. Vendor sell prices aren't saved outside the game, so the in-game tab can
@@ -245,7 +243,7 @@ Notes:
 | `dashboard/build.lua` | Finds characters under `WTF/Account`, loads each addon's file, writes the page |
 | `dashboard/lib/util.lua` | Binary-safe SavedVariables loader, base64, JSON |
 | `dashboard/lib/cbor.lua` | CBOR decoder (Auctionator's prices and QuestieDB's data are CBOR) |
-| `dashboard/lib/sources.lua` | Readers for QuestieDB names, Auctionator and Ledger Link prices, log lines; joins Logbook with MuddyBoots' history |
+| `dashboard/lib/sources.lua` | Readers for QuestieDB names, Auctionator and Ledger Link prices, log lines; joins Logbook's log with the history it copied from MuddyBoots |
 | `dashboard/lib/model.lua` | Pure functions computing every figure on the page |
 | `dashboard/lib/insights.lua` | Pure: market deals, session recaps, items to mail between characters, Faction vs Neutral |
 | `dashboard/template.html` | The page; `build.lua` puts the data where `/*DATA*/null` is |
