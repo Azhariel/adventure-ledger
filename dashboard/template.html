@@ -172,8 +172,9 @@ details.session .body p { margin: 0; }
 .steps li { margin: 3px 0; }
 code { font: 12.5px var(--mono); color: var(--pink); background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 footer { color: var(--dim); font: 12px var(--mono); margin-top: 22px; }
-.prose a { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
-.prose a:hover { color: var(--purple); text-decoration-color: var(--purple); }
+footer .byline { margin-top: 6px; }
+footer a, .prose a { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: var(--purple); }
 .prose p { margin: 6px 0 10px; max-width: 80ch; line-height: 1.55; }
 .prose dl { margin: 8px 0 4px; }
 .prose dt { font-weight: 600; color: var(--fg); margin-top: 10px; }
@@ -2216,9 +2217,12 @@ function start() {
     el("charSel").addEventListener("change", e => { selectChar(e.target.value); const m = MODULES.find(x => x.key === route); go(m && (m.char || m.key === "inventory") ? route : "overview"); });
     selectChar(store.get(CHAR_KEY));
   }
-  el("foot").textContent = SERVED
+  el("foot").innerHTML = esc(SERVED
     ? `Built ${date(DATA.generated)} from your SavedVariables. Reloads itself whenever WoW saves them.`
-    : `Built ${date(DATA.generated)} from your SavedVariables (your last logout or /reload). Run wowstats again to refresh, or wowstats live for a page that refreshes itself.`;
+    : `Built ${date(DATA.generated)} from your SavedVariables (your last logout or /reload). Run wowstats again to refresh, or wowstats live for a page that refreshes itself.`)
+    + `<div class="byline">Adventure Ledger by <a href="https://github.com/Azhariel" target="_blank" rel="noopener">Azhariel</a> · `
+    + `<a href="https://github.com/Azhariel/adventure-ledger" target="_blank" rel="noopener">GitHub</a> · <a href="https://ko-fi.com/azhariel" target="_blank" rel="noopener">Ko-fi</a> · `
+    + `<a href="#/about">About</a></div>`;
   drawSys();
   if (SERVED) setupLive();
   const fromHash = location.hash.replace(/^#\/?/, "");
