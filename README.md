@@ -38,8 +38,8 @@ These aren't ours to share, so the installer only checks for them:
 | Addon | Feeds | Get it |
 | --- | --- | --- |
 | Auctionator | All auction house prices: the Market section, net worth, craft profits | [CurseForge](https://www.curseforge.com/wow/addons/auctionator) |
-| MuddyBoots | Optional: your history from before Logbook (see below) | From its author, Mookz |
-| QuestieDB | Item names | From the Questie project |
+| MuddyBoots | Optional: your history from before Logbook (see below) | [CurseForge](https://www.curseforge.com/wow/addons/muddy-boots) |
+| QuestieDB | Item names | Comes with Questie: [CurseForge](https://www.curseforge.com/wow/addons/questie) |
 
 The page builds with whatever is there; a module without its addon says what it's waiting for.
 

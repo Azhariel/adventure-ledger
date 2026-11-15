@@ -109,8 +109,8 @@ if (-not (Test-Path $Cfg)) {
 Say "`nOther addons the dashboard reads (install them yourself; they aren't ours to share):" Cyan
 $others = @(
     @{ Name = "Auctionator"; Why = "auction house prices (the whole Market section)"; Where = "https://www.curseforge.com/wow/addons/auctionator" },
-    @{ Name = "MuddyBoots"; Why = "optional: only your history from before Logbook (Logbook records the rest)"; Where = "from its author, Mookz" },
-    @{ Name = "QuestieDB"; Why = "item names"; Where = "from the Questie project" }
+    @{ Name = "MuddyBoots"; Why = "optional: only your history from before Logbook (Logbook records the rest)"; Where = "https://www.curseforge.com/wow/addons/muddy-boots" },
+    @{ Name = "QuestieDB"; Why = "item names"; Where = "comes with Questie: https://www.curseforge.com/wow/addons/questie" }
 )
 foreach ($o in $others) {
     if (Test-Path (Join-Path $AddOns $o.Name)) { Say ("  {0,-12} found" -f $o.Name) Green }
