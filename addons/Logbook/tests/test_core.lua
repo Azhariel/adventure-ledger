@@ -34,6 +34,25 @@ return function(H)
         eq(LogbookCharDB.baseline.counts.xp.all, 900, "not copied again")
     end)
 
+    test("login copies MuddyBoots' older history once, and its rows for alts Logbook hasn't seen", function()
+        local muddy = { char = { name = "Azhariel" }, log = { "5|1|1|1|1|zo|Durotar", "6|2|1|1|1|xp|5|kill|Boar" },
+            sessions = { { start = 5, last = 6 } } }
+        local _, st = boot({ muddy = muddy, muddyAccount = { chars = {
+            ["Player-6800-00A90C3E"] = { name = "Azhariel", level = 3 },
+            ["Player-6800-03549274"] = { name = "Des", level = 9, money = 267 } } } })
+        local h = LogbookCharDB.history
+        eq(#h.log, 2); eq(h.log[1], "5|1|1|1|1|zo|Durotar"); eq(#h.sessions, 1); eq(h.at, st.now)
+        eq(LogbookDB.chars["Player-6800-03549274"].level, 9); eq(LogbookDB.chars["Player-6800-03549274"].from, "MuddyBoots")
+        local me = LogbookDB.chars["Player-6800-00A90C3E"]
+        eq(me.level, 20, "this character's row is Logbook's"); eq(me.from, nil)
+        local saved, account = LogbookCharDB, LogbookDB
+        muddy.log[#muddy.log + 1] = "7|3|1|1|1|xp|9|kill|Wolf"
+        boot({ charDB = saved, accountDB = account, muddy = muddy, reload = true })
+        eq(#LogbookCharDB.history.log, 2, "not copied again")
+        boot({ charDB = saved, accountDB = account, reload = true })
+        eq(#LogbookCharDB.history.log, 2, "kept without MuddyBoots loaded")
+    end)
+
     test("a kill: ki line with the mob from your target, XP with rested bonus", function()
         local _, st = boot()
         st.units.target = { name = "Bristleback Hunter", guid = "Creature-0-1-2-3-3258-0000", hostile = true,

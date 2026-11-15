@@ -13,6 +13,8 @@
 --   trail                   { v = 1, chunks = { { m = mapID, t = start, n = points, d = "dt,x,y;..." } } }
 --   skills                  last rank seen per skill { [name] = "rank/max" }
 --   baseline                MuddyBoots' counters and first record, copied once at Logbook's first login
+--   history                 MuddyBoots' log, sessions, trail and snapshots from before `since`, copied once (J.History),
+--                           so the dashboard keeps your older history without MuddyBoots' file
 -- LogbookDB (account): chars[guid] = { name, realm, guid, class, race, faction, level, money, played, lastSeen }
 local _, ns = ...
 local J = {}
@@ -83,6 +85,53 @@ function J.Baseline(muddy, now)
     end
     local first = type(muddy.char) == "table" and type(muddy.char.first) == "table" and copy(muddy.char.first) or nil
     return { from = "MuddyBoots", at = now, counts = counts, first = first }
+end
+
+-- MuddyBoots' journey from before Logbook started, as MuddyBoots wrote it: the log lines from before `since`
+-- (and its flight lines tx / tl from any time: Logbook recorded flights only later), play sessions and trail
+-- chunks from before `since`, every level snapshot, and its character record. The dashboard reads this when
+-- MuddyBoots' own file is gone, with the same cut-over rules. Returns nil when there's nothing to keep.
+function J.History(muddy, since, now)
+    if type(muddy) ~= "table" then return nil end
+    since = since or math.huge
+    local log, sessions, chunks = {}, {}, {}
+    for _, line in ipairs(type(muddy.log) == "table" and muddy.log or {}) do
+        if type(line) == "string" then
+            local t = tonumber(line:match("^(%d+)"))
+            if t and (t < since or line:match("^[^|]*|[^|]*|[^|]*|[^|]*|[^|]*|t[xl]|")) then log[#log + 1] = line end
+        end
+    end
+    for _, s in ipairs(type(muddy.sessions) == "table" and muddy.sessions or {}) do
+        if type(s) == "table" and (tonumber(s.start) or 0) < since then sessions[#sessions + 1] = copy(s) end
+    end
+    local trail = type(muddy.trail) == "table" and muddy.trail or {}
+    for _, c in ipairs(type(trail.chunks) == "table" and trail.chunks or {}) do
+        if type(c) == "table" and (tonumber(c.t) or 0) < since then chunks[#chunks + 1] = copy(c) end
+    end
+    local snap = type(muddy.snap) == "table" and copy(muddy.snap) or {}
+    local char = type(muddy.char) == "table" and copy(muddy.char) or {}
+    if #log == 0 and #sessions == 0 and #chunks == 0 and not next(snap) then return nil end
+    return { from = "MuddyBoots", at = now, char = char, log = log, sessions = sessions, snap = snap,
+        trail = { v = trail.v or 1, chunks = chunks } }
+end
+
+-- MuddyBoots' account rows for characters Logbook hasn't seen (an alt not played since Logbook came), with
+-- the fields the dashboard shows. Adds to `chars` in place; returns how many it added.
+J.ACCOUNT_FIELDS = { "name", "realm", "guid", "class", "race", "faction", "sex", "level", "money", "played", "lastSeen" }
+function J.ImportAccountRows(chars, muddyAccount)
+    local added = 0
+    if type(chars) ~= "table" or type(muddyAccount) ~= "table" or type(muddyAccount.chars) ~= "table" then return 0 end
+    for guid, row in pairs(muddyAccount.chars) do
+        if type(row) == "table" and chars[guid] == nil then
+            local out = { from = "MuddyBoots" }
+            for _, k in ipairs(J.ACCOUNT_FIELDS) do
+                if type(row[k]) == "string" or type(row[k]) == "number" then out[k] = row[k] end
+            end
+            chars[guid] = out
+            added = added + 1
+        end
+    end
+    return added
 end
 
 ----------------------------------------------------------------------------------------------------

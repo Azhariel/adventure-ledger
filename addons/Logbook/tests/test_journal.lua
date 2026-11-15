@@ -44,6 +44,33 @@ return function(H)
         eq(J.Baseline(nil, 1), nil); eq(J.Baseline({}, 1), nil)
     end)
 
+    test("history keeps MuddyBoots' journey from before Logbook, and its flight lines from any time", function()
+        local mb = { char = { name = "Hero", first = { t = 5, level = 1 } },
+            log = { "10|1|1|1|1|xp|5|kill|Boar", "99|2|1|1|1|zo|Elwynn", "100|3|1|1|1|xp|9|kill|Wolf",
+                "150|4|1|1|1|tx|A|B|50", "160|5|1|1|1|tl|B", 7, "junk" },
+            sessions = { { start = 10, last = 90 }, { start = 100, last = 200 } },
+            trail = { v = 1, chunks = { { m = 1, t = 20, d = "0,1,1" }, { m = 1, t = 120, d = "0,2,2" } } },
+            snap = { [2] = { t = 50 } } }
+        local h = J.History(mb, 100, 999)
+        eq(h.from, "MuddyBoots"); eq(h.at, 999); eq(h.char.name, "Hero"); eq(h.char.first.level, 1)
+        eq(#h.log, 4, "two before since, tx and tl after it; bad lines dropped")
+        eq(h.log[2], "99|2|1|1|1|zo|Elwynn"); eq(h.log[3], "150|4|1|1|1|tx|A|B|50")
+        eq(#h.sessions, 1); eq(#h.trail.chunks, 1); eq(h.trail.chunks[1].t, 20); eq(h.snap[2].t, 50)
+        mb.sessions[1].start = 11
+        eq(h.sessions[1].start, 10, "a copy, not MuddyBoots' own tables")
+        eq(J.History(nil, 1, 1), nil); eq(J.History({ log = { "200|1|1|1|1|xp|1" } }, 100, 1), nil, "nothing older")
+    end)
+
+    test("account rows: MuddyBoots' characters Logbook hasn't seen, with the shown fields only", function()
+        local chars = { G1 = { name = "Mine", level = 30 } }
+        local n = J.ImportAccountRows(chars, { chars = {
+            G1 = { name = "Theirs", level = 2 },
+            G2 = { name = "Alt", realm = "R", level = 7, money = 55, played = 900, pins = { 1 }, stats = {} } } })
+        eq(n, 1); eq(chars.G1.name, "Mine", "Logbook's own row is left alone")
+        eq(chars.G2.name, "Alt"); eq(chars.G2.money, 55); eq(chars.G2.from, "MuddyBoots"); eq(chars.G2.pins, nil)
+        eq(J.ImportAccountRows(chars, nil), 0)
+    end)
+
     test("XP: kill hints take their amount, the rest goes to the open hint, then the fallback", function()
         local p = J.NewPending()
         J.Hint(p, { source = "kill", amount = 120, detail = "Boar", rested = 60 }, 10)

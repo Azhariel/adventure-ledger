@@ -201,6 +201,7 @@ function M.install(opts)
     }
     C_Spell = { GetSpellName = function(id) return st.spells[id] end }
     LogbookCharDB, LogbookDB, MuddyBootsCharDB = opts.charDB, opts.accountDB, opts.muddy
+    MuddyBootsDB = opts.muddyAccount
     return st
 end
 

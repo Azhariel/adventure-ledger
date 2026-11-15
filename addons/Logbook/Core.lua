@@ -189,6 +189,7 @@ function L.UpdateAccount()
     if not (c and c.guid and ns.account) then return end
     local row = ns.account.chars[c.guid] or {}
     ns.account.chars[c.guid] = row
+    row.from = nil -- a row copied from MuddyBoots is Logbook's own from now on
     row.name, row.realm, row.guid, row.class, row.race = c.name, c.realm, c.guid, c.class, c.race
     row.faction, row.sex, row.level = c.faction, c.sex, c.level
     -- the gold Logbook has tracked: at a logout to the character list the client can report 0
@@ -209,6 +210,17 @@ function L.ImportBaseline()
     else
         db.noBaseline = true
     end
+end
+
+-- MuddyBoots' older history, once, whenever MuddyBoots is loaded and Logbook doesn't have it yet; and its
+-- account rows for characters Logbook hasn't seen. With both copied, MuddyBoots' files can go.
+function L.ImportHistory()
+    local db = ns.db
+    if not db.history then
+        local h = J.History(rawget(_G, "MuddyBootsCharDB"), db.since, ns.Now())
+        if h then db.history = h end
+    end
+    if ns.account then J.ImportAccountRows(ns.account.chars, rawget(_G, "MuddyBootsDB")) end
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -1262,6 +1274,7 @@ function L.OnLogin()
     L.InitDB()
     L.Identity()
     L.ImportBaseline()
+    L.ImportHistory()
     L.ResumeFlight()
     st.lastMoney = number(call(GetMoney))
     st.lastXP, st.lastXPMax, st.xpLevel = number(call(UnitXP, "player")), number(call(UnitXPMax, "player")), level()
@@ -1353,6 +1366,10 @@ SlashCmdList.LOGBOOK = function()
     local base = db.baseline and (" Carried on from " .. db.baseline.from .. "'s counters.") or ""
     ns.Print(("%d lines since %s, %d sessions, %d trail chunks.%s"):format(#db.log,
         date and date("%d %b %Y", db.since) or tostring(db.since), #db.sessions, #db.trail.chunks, base))
+    if db.history then
+        ns.Print(("Kept %d of %s's older lines and %d sessions: its files are safe to delete."):format(
+            #db.history.log, db.history.from, #db.history.sessions))
+    end
     local m, d = db.meter or {}, db.counts.damage or {}
     ns.Print(m.available and ("Damage meter: %d fights read."):format(d.fights or 0)
         or ("Damage meter unavailable (%s)."):format(m.reason or "unknown"))
