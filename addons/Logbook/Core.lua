@@ -981,7 +981,7 @@ end
 -- Picking a destination at the flight master notes the route and fare; the flight starts when you're on the
 -- taxi and ends when you're off it (PLAYER_CONTROL_LOST / _GAINED, and the 5-second tick as a fallback).
 -- The flight in progress is kept in the saved data, so a /reload in the air doesn't lose it.
--- "fl|from|to|copper|seconds"
+-- "fl|from|to|copper|seconds|via" (via: the stops on the way, "A;B", from the flight map's route)
 
 L.TAKEOFF_SECONDS = 15 -- a route picked this long ago without taking off was cancelled
 
@@ -992,11 +992,25 @@ function L.CurrentTaxiNode()
     return nil
 end
 
+-- The stops between here and node i: the route is a chain of hops, each ending at a node; all but the last
+-- hop end at a stop
+function L.TaxiStops(i)
+    local stops = {}
+    local hops = number(call(GetNumRoutes, i)) or 0
+    for hop = 1, hops - 1 do
+        local slot = number(call(TaxiGetNodeSlot, i, hop, false))
+        local name = slot and str(call(TaxiNodeName, slot))
+        if name then stops[#stops + 1] = name end
+    end
+    return #stops > 0 and table.concat(stops, ";") or nil
+end
+
 function L.OnTakeTaxi(i)
     local to = str(call(TaxiNodeName, i))
     L.MoneyHint({ source = "flight", sign = -1, detail = to })
     if ns.db then
-        ns.db.flying = { from = L.CurrentTaxiNode(), to = to, cost = number(call(TaxiNodeCost, i)), asked = ns.Now() }
+        ns.db.flying = { from = L.CurrentTaxiNode(), to = to, via = L.TaxiStops(i), cost = number(call(TaxiNodeCost, i)),
+            asked = ns.Now() }
     end
 end
 
@@ -1017,7 +1031,7 @@ function L.CheckFlight()
     if onTaxi then return end
     db.flying = nil
     local sec = math.max(0, now - f.start)
-    L.Log("fl", f.from, f.to, f.cost, sec)
+    L.Log("fl", f.from, f.to, f.cost, sec, f.via)
     local c, lvl = db.counts.flights, level()
     J.Count(c, "n", 1, lvl)
     J.Count(c, "sec", sec, lvl)

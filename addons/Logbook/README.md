@@ -38,7 +38,7 @@ is guarded, so a hidden value leaves a field empty rather than breaking anything
 | `sk` | skill rank: name, rank, max | `GetProfessions`, `CHAT_MSG_SKILL` (weapon skills) |
 | `lo` | item received: id, quality, how (loot, made, roll, mail, bought, quest, trade, other), name, count | `CHAT_MSG_LOOT` and which window was open |
 | `ga` | gathered: profession, item, count, with where you stood | the gathering spellcast, then the loot window |
-| `fl` | flight: from, to, fare, seconds in the air | `TakeTaxiNode` (`TaxiNodeCost`, the `CURRENT` node), then `UnitOnTaxi` on `PLAYER_CONTROL_LOST` / `_GAINED` |
+| `fl` | flight: from, to, fare, seconds in the air, stops on the way | `TakeTaxiNode` (`TaxiNodeCost`, the `CURRENT` node, `GetNumRoutes` / `TaxiGetNodeSlot` for the stops), then `UnitOnTaxi` on `PLAYER_CONTROL_LOST` / `_GAINED` |
 
 Every line starts with `time|played|uiMapID|x|y` (x, y in ten-thousandths of the map). Counters (`counts.*`) hold
 totals and per-level totals (`kill:24`): XP by source and rested bonus, time per activity (combat, travel, dungeon,

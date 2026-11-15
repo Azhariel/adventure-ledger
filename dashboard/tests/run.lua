@@ -806,6 +806,17 @@ test("flights: Logbook's fl lines and MuddyBoots' take-off and landing, by route
     eq(M.flights(ev({ "1|||||in|login" })), nil)
 end)
 
+test("flights: stops on the way, and a route with a stop counted apart from the direct one", function()
+    local f = M.flights(ev({
+        "100|||||fl|Sun Rock Retreat, Stonetalon Mountains|Zoram'gar Outpost, Ashenvale|540|380|Crossroads, The Barrens",
+        "200|||||fl|Sun Rock Retreat, Stonetalon Mountains|Zoram'gar Outpost, Ashenvale|320|378",
+    }))
+    eq(f.recent[1].via, nil); eq(f.recent[2].via[1], "Crossroads, The Barrens")
+    eq(#f.routes, 2)
+    local stopped = f.routes[1].via and f.routes[1] or f.routes[2]
+    eq(stopped.via[1], "Crossroads, The Barrens"); eq(stopped.copper, 540)
+end)
+
 test("mergeJournal: MuddyBoots' flights stay until Logbook's first flight, in time order", function()
     local mb = { log = { "50|||||tx|A|B|10", "60|||||tl|B", "150|||||tx|B|A|10", "160|||||tl|A", "170|||||mn|5|loot",
         "400|||||tx|A|B|10", "410|||||tl|B" } }

@@ -515,7 +515,7 @@ function M.deaths(events)
     return out
 end
 
--- Flights: Logbook's "fl|from|to|copper|seconds", and MuddyBoots' older "tx|from|to|copper" (take-off) with the
+-- Flights: Logbook's "fl|from|to|copper|seconds|via" (via: stops, "A;B"), and MuddyBoots' older "tx|from|to|copper" (take-off) with the
 -- "tl|to" (landing) after it. Totals, routes by use, and the trips newest first.
 M.FLIGHT_MAX_SECONDS = 30 * 60 -- a landing later than this after a take-off isn't that flight's
 
@@ -523,8 +523,10 @@ function M.flights(events, limit)
     local trips, takeoff = {}, nil
     for _, e in ipairs(events) do
         if e.kind == "fl" and (e.args[2] or "") ~= "" then
+            local via = {}
+            for stop in (e.args[5] or ""):gmatch("[^;]+") do via[#via + 1] = stop end
             trips[#trips + 1] = { t = e.t, from = e.args[1] ~= "" and e.args[1] or nil, to = e.args[2],
-                copper = tonumber(e.args[3]), seconds = tonumber(e.args[4]) }
+                copper = tonumber(e.args[3]), seconds = tonumber(e.args[4]), via = #via > 0 and via or nil }
         elseif e.kind == "tx" and (e.args[2] or "") ~= "" then
             takeoff = { t = e.t, from = e.args[1] ~= "" and e.args[1] or nil, to = e.args[2], copper = tonumber(e.args[3]) }
         elseif e.kind == "tl" and takeoff then
@@ -543,10 +545,10 @@ function M.flights(events, limit)
         total.copper = total.copper + (r.copper or 0)
         total.seconds = total.seconds + (r.seconds or 0)
         if (r.seconds or 0) > total.longest then total.longest, total.longestTrip = r.seconds, r end
-        local key = (r.from or "?") .. " > " .. r.to
+        local key = (r.from or "?") .. " > " .. (r.via and table.concat(r.via, " > ") .. " > " or "") .. r.to
         local route = byKey[key]
         if not route then
-            route = { from = r.from, to = r.to, n = 0, copper = 0, seconds = 0, timed = 0 }
+            route = { from = r.from, to = r.to, via = r.via, n = 0, copper = 0, seconds = 0, timed = 0 }
             byKey[key] = route
             routes[#routes + 1] = route
         end

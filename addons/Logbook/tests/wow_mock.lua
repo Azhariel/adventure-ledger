@@ -117,6 +117,13 @@ function M.install(opts)
     NumTaxiNodes = function() return 5 end
     TaxiNodeGetType = function(i) return i == (st.taxiHere or 1) and "CURRENT" or "REACHABLE" end
     TaxiNodeCost = function(i) return i * 100 end
+    -- st.taxiRoutes[dest] = { slot of each hop's end }; a direct flight when not set
+    GetNumRoutes = function(i) return st.taxiRoutes and st.taxiRoutes[i] and #st.taxiRoutes[i] or 1 end
+    TaxiGetNodeSlot = function(i, hop, source)
+        local r = st.taxiRoutes and st.taxiRoutes[i] or { i }
+        if source then return hop == 1 and (st.taxiHere or 1) or r[hop - 1] end
+        return r[hop]
+    end
     BuyMerchantItem = function() end
     GetMerchantItemInfo = function(i) return "Merchant item " .. i end
     C_Container = {

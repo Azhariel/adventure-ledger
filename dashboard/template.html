@@ -1016,11 +1016,12 @@ function modProgress() {
   el("flightHint").textContent = fl
     ? `${fl.n} flights, ${moneyText(fl.copper)} in fares, ${dur(fl.seconds)} in the air. Longest: ${mmss(fl.longest)}${fl.longestTrip ? `, ${(fl.longestTrip.from || "?").split(",")[0]} to ${fl.longestTrip.to.split(",")[0]}` : ""}.`
     : "No flights recorded yet.";
+  const stops = r => r.via ? ` <span class="pill" title="Stops on the way">via ${r.via.map(place).join(", ")}</span>` : "";
   table("routeTable", [{ t: "From" }, { t: "To" }, { t: "Flights", n: 1 }, { t: "Fare", n: 1 }, { t: "Time", n: 1 }],
-    (fl ? fl.routes : []).map(r => [place(r.from), place(r.to), r.n, money(Math.round(r.copper / r.n)),
+    (fl ? fl.routes : []).map(r => [place(r.from), place(r.to) + stops(r), r.n, money(Math.round(r.copper / r.n)),
       `<span data-sort="${Math.round(r.avgSeconds || 0)}">${mmss(r.avgSeconds)}</span>`]), "No flights yet.");
   table("flightTable", [{ t: "When", n: 1 }, { t: "Route" }, { t: "Fare", n: 1 }, { t: "Time", n: 1 }],
-    (fl ? fl.recent : []).map(r => [`<span data-sort="${r.t || 0}">${date(r.t)}</span>`, `${place(r.from)} → ${place(r.to)}`,
+    (fl ? fl.recent : []).map(r => [`<span data-sort="${r.t || 0}">${date(r.t)}</span>`, [r.from, ...(r.via || []), r.to].map(place).join(" → "),
       r.copper != null ? money(r.copper) : "", `<span data-sort="${Math.round(r.seconds || 0)}">${mmss(r.seconds)}</span>`]), "No flights yet.");
 }
 

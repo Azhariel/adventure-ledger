@@ -337,10 +337,20 @@ return function(H)
         st2.taxi = false; W.fire("PLAYER_CONTROL_GAINED")
         local fl = W.rows("fl")
         eq(#fl, 1); eq(fl[1].args[1], "Node2"); eq(fl[1].args[2], "Node4"); eq(fl[1].args[3], "400"); eq(fl[1].args[4], "220")
+        eq(fl[1].args[5], nil, "a direct flight has no stops")
         local c = LogbookCharDB.counts.flights
         eq(c.n, 1); eq(c.copper, 400); eq(c.sec, 220); eq(c.longest, 220); eq(c["sec:20"], 220)
         eq(W.rows("mn")[1].args[2], "flight")
         W.fire("PLAYER_CONTROL_GAINED"); eq(#W.rows("fl"), 1, "one landing, one line")
+    end)
+
+    test("a flight with stops: each stop on the way, in order", function()
+        local _, st = boot()
+        st.taxiHere, st.taxiRoutes = 1, { [5] = { 3, 2, 5 } } -- 1 > 3 > 2 > 5
+        TakeTaxiNode(5); st.taxi = true; W.fire("PLAYER_CONTROL_LOST")
+        st.now = st.now + 380; st.taxi = false; W.fire("PLAYER_CONTROL_GAINED")
+        local fl = W.rows("fl")[1]
+        eq(fl.args[1], "Node1"); eq(fl.args[2], "Node5"); eq(fl.args[4], "380"); eq(fl.args[5], "Node3;Node2")
     end)
 
     test("a flight picked but never taken is dropped; the tick catches a landing without the event", function()
