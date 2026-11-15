@@ -313,7 +313,7 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w7"><div class="ph"><h2>XP sources by level</h2></div><p class="hint">Quests, kills and exploring, per level.</p><div class="chart"><canvas id="xpLevelChart"></canvas></div></article>
       <article class="panel w7"><div class="ph"><h2>Professions</h2></div><p class="hint">Skill over played time.</p><div class="chart"><canvas id="profChart"></canvas></div></article>
       <article class="panel w5"><div class="ph"><h2>Made, cooked and gathered</h2></div><div class="scroll"><table id="craftedTable"></table></div></article>
-      <article class="panel w5"><div class="ph"><h2>How you spend your time</h2></div><p class="hint">From Logbook's activity counters (and MuddyBoots' before it).</p><div class="chart"><canvas id="activityChart"></canvas></div></article>
+      <article class="panel w5"><div class="ph"><h2>How you spend your time</h2></div><p class="hint">From Logbook's activity counters.</p><div class="chart"><canvas id="activityChart"></canvas></div></article>
       <article class="panel w7"><div class="ph"><h2>Zones</h2></div><p class="hint">Time per zone; gaps over 10 minutes count as offline.</p><div id="zoneBars" class="bars"></div></article>
       <article class="panel w7"><div class="ph"><h2>Flight routes</h2></div><p class="hint" id="flightHint"></p><div class="scroll"><table id="routeTable"></table></div></article>
       <article class="panel w5"><div class="ph"><h2>Recent flights</h2></div><div class="scroll"><table id="flightTable"></table></div></article>
@@ -508,8 +508,7 @@ tr.flash td { animation: flash .8s ease-out; }
           <dt>Included</dt><dd>Logbook (your journey), Ledger Link (live combat log, Neutral prices), Make or Buy (recipes),
             Stockpile (what you hold), Haul (farming sessions), DropLab (drop rates).</dd>
           <dt>Others it reads</dt><dd><a href="https://www.curseforge.com/wow/addons/auctionator" target="_blank" rel="noopener">Auctionator</a> (prices),
-            <a href="https://www.curseforge.com/wow/addons/questie" target="_blank" rel="noopener">Questie</a>'s item names, and
-            <a href="https://www.curseforge.com/wow/addons/muddy-boots" target="_blank" rel="noopener">MuddyBoots</a> for your history from before Logbook.</dd>
+            and <a href="https://www.curseforge.com/wow/addons/questie" target="_blank" rel="noopener">Questie</a>'s item names.</dd>
           <dt>Privacy</dt><dd>Your data stays on your computer: the page only reads your saved files and sends nothing anywhere.
             It loads Chart.js and two fonts (Google Fonts) from the internet, asks GitHub for the newest version of each of
             our addons (at most every 6 hours), and the live server downloads zone map art from Wowhead once per zone.</dd>
@@ -1315,7 +1314,7 @@ function renderAhTrades(ah) {
     ? `From the auction and mailbox log: sold <span class="pos">+${money(t.sold, { short: true })}</span> (${t.soldCount} items) · bought <span class="neg">−${money(t.bought, { short: true })}</span> (${t.boughtCount} items)`
       + (t.deposits ? ` · deposits −${money(t.deposits, { short: true })} (${t.postCount} posted${t.expiredCount ? `, ${t.expiredCount} expired` : ""})` : "")
       + ` · net <span class="${t.net >= 0 ? "pos" : "neg"}">${t.net >= 0 ? "+" : ""}${money(t.net, { short: true })}</span>.`
-    : "Purchases, sales, deposits and mail invoices from Logbook (or MuddyBoots).";
+    : "Purchases, sales, deposits and mail invoices from Logbook.";
   const modes = [
     ["trades", `All activity (${trades.length})`],
     ["items", `By item (${items.length})`],
@@ -1406,7 +1405,7 @@ function modRoster() {
     kpi("Items", money(t.items, { short: true }), "bags, bank and mail at faction AH prices"),
     kpi("Net worth", money(t.netWorth, { short: true }), "gold plus items"),
   ].join("");
-  el("charsHint").textContent = "From Logbook or MuddyBoots (level, gold, played) and Stockpile (items). Click a name to open that character."
+  el("charsHint").textContent = "From Logbook (level, gold, played) and Stockpile (items). Click a name to open that character."
     + (rows.some(r => !r.detailed) ? " \"No log\": no detailed history yet; log in with that character once." : "");
   table("charsTable", [{ t: "Character" }, { t: "Level", n: 1 }, { t: "Class" }, { t: "Ruleset" }, { t: "Played", n: 1 }, { t: "Gold", n: 1 }, { t: "Items", n: 1 }, { t: "Net worth", n: 1 }, { t: "Last played", n: 1 }],
     rows.map(r => [
@@ -1801,7 +1800,7 @@ const GH_RAW = "https://raw.githubusercontent.com/Azhariel/adventure-ledger/main
 const LATEST_KEY = "adventureLedger.latest", LATEST_TTL = 6 * 3600;
 const CURSEFORGE = "https://www.curseforge.com/wow/addons/";
 const ADDON_INFO = {
-  Logbook: { text: "Your journey: XP and levels, gold by source, kills, quests, deaths, zones, dungeons, professions, play sessions, where you've walked, your damage from the game's damage meter, and your flights. It replaces MuddyBoots.",
+  Logbook: { text: "Your journey: XP and levels, gold by source, kills, quests, deaths, zones, dungeons, professions, play sessions, where you've walked, your damage from the game's damage meter, and your flights. It can copy your older history from MuddyBoots.",
     feeds: ["overview", "progress", "gold", "combat", "trades", "live"] },
   LedgerLink: { text: "The page's in-game half: keeps the combat log on for the Live view, and keeps the Neutral auction house's prices apart from your faction's.",
     feeds: ["live", "neutral"] },
@@ -1817,8 +1816,6 @@ const ADDON_INFO = {
     feeds: ["signals", "stockpile", "browse", "movers", "crafting"], get: "auctionator", needed: true },
   Questie: { label: "Questie", text: "Item names, from the QuestieDB addon that comes with Questie.",
     feeds: ["inventory"], get: "questie", needed: true },
-  MuddyBoots: { label: "MuddyBoots", text: "Optional: your history from before Logbook's first login. After one login with both, Logbook keeps its own copy of that history: you can remove MuddyBoots and its saved files.",
-    feeds: ["overview"], get: "muddy-boots" },
 };
 
 let latest = (() => { try { const c = JSON.parse(store.get(LATEST_KEY) || "null"); return c && c.versions ? c : null; } catch (e) { return null; } })();
@@ -2257,7 +2254,7 @@ function drawLiveMap(L) {
   const here = me && me.x != null ? [me.x, me.y] : null;
   el("mapHint").textContent = !me ? "Waiting for your position." : !here
     ? "This map's edges aren't in the log yet (they come with each zone change)."
-    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (Logbook, MuddyBoots). Line: this session. Hover a dot for who it is.";
+    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (Logbook). Line: this session. Hover a dot for who it is.";
   el("mapZoom").hidden = !here;
   el("mapZoom").textContent = mapZoom ? "Whole zone" : "Zoom to you";
   // View: the whole zone (it has the canvas' 3:2 shape), or a window centred on you

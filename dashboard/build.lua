@@ -121,7 +121,6 @@ Build.OTHER_ADDONS = {
     { key = "Auctionator" },
     { key = "Questie", tocs = { "Questie_Forever", "Questie" } },
     { key = "QuestieDB", tocs = { "QuestieDB_Forever", "QuestieDB" } },
-    { key = "MuddyBoots" },
 }
 
 local function exists(path)
