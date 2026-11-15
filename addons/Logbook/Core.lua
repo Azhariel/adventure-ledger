@@ -513,6 +513,19 @@ function L.FlushMoney()
         L.Log("mn", m.delta, source, detail)
         local counts = ns.db.counts
         if source == "repair" then J.Count(counts.character, "repairCopper", -m.delta, lvl) end
+        if hint and hint.sold then
+            -- this letter's retries are spent: a later letter for the same item brings its own hints
+            for _, h in ipairs(st.money.hints) do
+                if h.sold and not h.used and h.amount == hint.amount and h.detail == hint.detail
+                    and (h.at or 0) < m.at then
+                    h.used = true
+                end
+            end
+            L.Log("ma", "invoice", hint.sold.player or "?", m.delta, detail)
+            L.Log("ah", "sold", m.delta, detail)
+            J.Count(counts.auction, "sold")
+            J.Count(counts.auction, "soldCopper", m.delta)
+        end
         if hint and hint.ah then
             -- a post's deposit, a buyout's price: the AH line carries what the money paid
             L.Log("ah", hint.ah, math.abs(m.delta), detail)
@@ -966,13 +979,16 @@ function L.OnTakeMail(index)
     local kind, item, player = invoiceItem(index)
     local _, count = J.ParseMailSubject(subject)
     if kind == "seller" and item then
+        -- The mailbox's open-all calls this again and again until the gold arrives, and the buyer's name can
+        -- appear only on a later call. The sale is logged once, when its gold comes in (FlushMoney).
         local what = J.ItemQty(item, count)
         if money > 0 then
-            L.Log("ma", "invoice", player or "?", money, what)
-            L.Log("ah", "sold", money, what)
-            J.Count(ns.db.counts.auction, "sold")
-            J.Count(ns.db.counts.auction, "soldCopper", money)
-            L.MoneyHint({ source = "auction", amount = money, detail = what })
+            for _, h in ipairs(st.money.hints) do
+                if h.sold and not h.used and h.amount == money and h.detail == what and not h.sold.player then
+                    h.sold.player = player
+                end
+            end
+            L.MoneyHint({ source = "auction", amount = money, detail = what, sold = { player = player } })
         end
     elseif kind == "buyer" and item then
         st.mailBought = ns.Clock()

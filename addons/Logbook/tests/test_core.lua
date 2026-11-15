@@ -185,6 +185,33 @@ return function(H)
         eq(LogbookCharDB.counts.auction.post, 1); eq(LogbookCharDB.counts.auction.sold, 1)
     end)
 
+    test("open-all on AH sale letters: each sale logged once, when its gold arrives, with the buyer", function()
+        local _, st = boot()
+        W.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 17)
+        st.inbox[1] = { sender = "Horde Auction House", subject = "Auction successful: Shredder Operating Manual - Page 9",
+            money = 290, invoice = { kind = "seller", item = "Shredder Operating Manual - Page 9" } }
+        st.inbox[2] = { sender = "Horde Auction House", subject = "Auction successful: Shredder Operating Manual - Page 9",
+            money = 290, invoice = { kind = "seller", item = "Shredder Operating Manual - Page 9", player = "Ark Strider" } }
+        TakeInboxMoney(1); TakeInboxMoney(1) -- retried before the gold came: no name yet
+        st.inbox[1].invoice.player = "Aiv Windmend"
+        TakeInboxMoney(1)                     -- the name has loaded now
+        st.clock = st.clock + 0.2
+        st.money = st.money + 290; W.fire("PLAYER_MONEY")
+        st.clock = st.clock + 0.2
+        table.remove(st.inbox, 1)
+        TakeInboxMoney(1)                     -- the next letter, before the first one's flush
+        W.runTimers()
+        TakeInboxMoney(1)
+        st.clock = st.clock + 0.2
+        st.money = st.money + 290; W.fire("PLAYER_MONEY"); W.runTimers()
+        local ma, ah = W.rows("ma"), W.rows("ah")
+        eq(#ma, 2); eq(#ah, 2)
+        eq(ma[1].args[2], "Aiv Windmend"); eq(ma[1].args[3], "290"); eq(ma[2].args[2], "Ark Strider")
+        eq(ah[1].args[1], "sold"); eq(#W.rows("mn"), 2); eq(W.rows("mn")[2].args[2], "auction")
+        local c = LogbookCharDB.counts.auction
+        eq(c.sold, 2); eq(c.soldCopper, 580)
+    end)
+
     test("loot: picked up, made (with the profession), from mail, gathered", function()
         local _, st = boot()
         local bow = W.link(4576, "Light Bow", "1eff00")
