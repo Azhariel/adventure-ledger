@@ -19,7 +19,8 @@ Two parts:
    its own) and, for the live view, Python 3.
 2. Double-click **`install.bat`**. It finds WoW Forever (or asks), copies the addons into `Interface\AddOns`,
    writes `ledger.cfg`, and says which of the other addons below you still need. Run it again after updating
-   to replace the old copies; replaced folders are backed up to `data\addon-backups`. Your saved data (the WTF
+   to replace the old copies (the page's ~/about/addons says when an update is out); replaced folders are backed
+   up to `data\addon-backups`. Your saved data (the WTF
    folder) is never touched. Another WoW folder: `install.bat -Wow "D:\Games\World of Warcraft\_forever_"`.
 3. Optional: put a `wowstats.bat` on your PATH containing `@call "<repo>\bin\wowstats.bat" %*`.
 
@@ -66,6 +67,10 @@ A plain `install.bat` leaves those links alone (`-Copy` replaces them with copie
 `ledger.cfg.example`); git ignores it and `data/`, where the page, your price logs and the zone maps go, since
 they hold your characters' data.
 
+When you change an addon, raise the `## Version` in its `.toc` in the same push (patch for a fix, minor for
+something new). The page's Addons module compares that line with the one on GitHub's `main` to tell players an
+update is out; an unchanged version means no warning.
+
 ## Use
 
 1. Log out of WoW (or `/reload`). WoW only writes SavedVariables then; no addon can save in between.
@@ -75,8 +80,9 @@ they hold your characters' data.
 
 A menu on the left holds every module, grouped as `~/character` (Overview, Progress, Gold, Combat & quests: the
 character picked above the menu), `~/account` (Characters, Inventory, Mail to alts, Drop rates), `~/market`
-(Signals, Stockpile, Browse, Movers, Faction vs Neutral, Your trades, Crafting), `~/live` and `~/about` (what each
-module shows, for new users). The address bar
+(Signals, Stockpile, Browse, Movers, Faction vs Neutral, Your trades, Crafting), `~/live` and `~/about` (About:
+what each module shows, for new users; Addons: each addon the page reads, its version in WoW, in your copy and
+on GitHub, and what to do when one is out of date, switched off or missing). The address bar
 remembers the module (`dashboard.html#/stockpile`). Colours are Dracula, with fixed roles: **cyan = Faction AH,
 orange = Neutral AH, pink dashes and band = a forecast**.
 
@@ -197,7 +203,9 @@ Also on the page:
 - **Sortable tables & live search**: click any table column header to sort ascending/descending, and filter your full
   character/account inventory, quests, drop tables, and market databases with the search boxes.
 
-Charts load Chart.js from cdnjs, so they need an internet connection; everything else works offline.
+Charts load Chart.js from cdnjs, so they need an internet connection; everything else works offline. The page also
+reads each of our addons' `.toc` from GitHub (at most every 6 hours) to say when an update is out; offline, the
+Addons module still compares WoW's copy with yours.
 
 From any terminal: `wowstats` (or `wowstats -n` to build without opening the browser). Or directly:
 `lua dashboard/build.lua [wow folder] [output file]` (defaults: `wow =` in `ledger.cfg`, `data/dashboard.html`).
