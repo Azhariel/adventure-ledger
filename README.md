@@ -49,8 +49,8 @@ The page builds with whatever is there; a module without its addon says what it'
 
 **Moving from MuddyBoots to Logbook.** Keep MuddyBoots enabled for one more login with Logbook installed. That
 login copies MuddyBoots' lifetime counters into Logbook, once. Then you can disable it. The page keeps MuddyBoots'
-log from before Logbook's first login and uses Logbook from then on, so nothing is counted twice. Leave
-MuddyBoots' saved file in `WTF` if you want the older history to stay on the page.
+log from before Logbook's first login and uses Logbook from then on, so nothing is counted twice. That login also copies MuddyBoots'
+older history into Logbook's own saved file, so after it you can remove MuddyBoots and its saved files too.
 
 ## Develop
 

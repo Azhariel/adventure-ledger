@@ -11,8 +11,10 @@ It replaces what the dashboard used to take from MuddyBoots. MuddyBoots is optio
   by source and level, time by activity, fights, deaths, distance, crafts) into `LogbookCharDB.baseline`, once.
 - The dashboard keeps MuddyBoots' log, sessions and trail from **before** Logbook's first login and uses Logbook's
   from then on. Counters are the baseline plus Logbook's own. Nothing is counted twice, even with both enabled.
-- After that first login you can disable MuddyBoots. Leave its saved file in `WTF` if you want your older
-  history to stay on the page.
+- At any login with MuddyBoots loaded, Logbook also copies that older history (log lines, play sessions, trail,
+  level snapshots) into `LogbookCharDB.history`, once, and MuddyBoots' account rows for characters it hasn't
+  seen into `LogbookDB`. The dashboard reads the copy when MuddyBoots' file is gone. `/logbook` says when it has it.
+- After one login with both, you can remove MuddyBoots and its saved files.
 
 Nothing to set up. `/logbook` says how much it has recorded, and whether the damage meter is available.
 
