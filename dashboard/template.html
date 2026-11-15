@@ -187,6 +187,11 @@ footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: va
 .prose dl.cols > div { break-inside: avoid; padding-top: 1px; }
 .prose .steps li { line-height: 1.5; }
 .prose .links { font-weight: 500; }
+.addon .ph h2 small { font: 12px var(--mono); color: var(--dim); margin-left: 8px; }
+.addon .vers { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 10px 0 0; font: 12px var(--mono); }
+.addon .vers dt { margin: 0; font-weight: 400; color: var(--dim); }
+.addon .vers dd { margin: 0; color: var(--fg); }
+.addon .fix { color: var(--fg); }
 .k-faction { color: var(--faction); } .k-neutral { color: var(--neutral); } .k-forecast { color: var(--forecast); }
 
 /* ------------------------------------------------------------- live */
@@ -494,6 +499,8 @@ tr.flash td { animation: flash .8s ease-out; }
           <li>Click a column header to sort; the search boxes filter as you type.</li>
           <li>Item, creature and quest names open on Wowhead; player names open on the WoW Forever armory.</li>
           <li>A module with nothing to show says which addon it's waiting for.</li>
+          <li><a href="#/addons" data-module="addons">Addons</a> describes each addon the page reads and says when one needs
+            an update; its number in the menu counts the ones that need you.</li>
         </ul></article>
 
       <article class="panel w6 prose"><div class="ph"><h2>Where the data comes from</h2></div>
@@ -504,8 +511,8 @@ tr.flash td { animation: flash .8s ease-out; }
             <a href="https://www.curseforge.com/wow/addons/questie" target="_blank" rel="noopener">Questie</a>'s item names, and
             <a href="https://www.curseforge.com/wow/addons/muddy-boots" target="_blank" rel="noopener">MuddyBoots</a> for your history from before Logbook.</dd>
           <dt>Privacy</dt><dd>Your data stays on your computer: the page only reads your saved files and sends nothing anywhere.
-            It loads Chart.js and two fonts (Google Fonts) from the internet, and the live server downloads zone map art from
-            Wowhead once per zone.</dd>
+            It loads Chart.js and two fonts (Google Fonts) from the internet, asks GitHub for the newest version of each of
+            our addons (at most every 6 hours), and the live server downloads zone map art from Wowhead once per zone.</dd>
         </dl></article>
 
       <article class="panel w12 prose"><div class="ph"><h2>Made by Azhariel</h2></div>
@@ -515,6 +522,19 @@ tr.flash td { animation: flash .8s ease-out; }
           <a href="https://github.com/Azhariel" target="_blank" rel="noopener">Azhariel on GitHub</a> · <a href="https://ko-fi.com/azhariel" target="_blank" rel="noopener">Support it on Ko-fi</a></p>
         <p class="hint">Charts by Chart.js. Map art and links: Wowhead. Colours: the Dracula theme. Fonts: IBM Plex Sans and
           JetBrains Mono.</p></article>
+    </section>
+
+    <!-- addons: the top panel is static; one card per addon is drawn after it -->
+    <section class="mod addons" data-mod="addons" hidden>
+      <article class="panel w12 prose" id="addonsTop"><div class="ph"><h2>Updates</h2><span id="addonsCheck" class="hint"></span></div>
+        <p id="addonsSummary"></p>
+        <ol class="steps">
+          <li>Get the new version: <code>git pull</code> in the Adventure Ledger folder, or download it again from
+            <a href="https://github.com/Azhariel/adventure-ledger" target="_blank" rel="noopener">GitHub</a>.</li>
+          <li>Run <code>install.bat</code>. It replaces the old copies in WoW (a <code>-Dev</code> setup is already linked).</li>
+          <li>Restart WoW: it reads an addon's version only at startup. Then run <code>wowstats</code> again.</li>
+        </ol>
+        <p class="hint">The other addons come from CurseForge: update them with the CurseForge app or from each one's page.</p></article>
     </section>
 
     <footer id="foot"></footer>
@@ -897,6 +917,7 @@ const MODULES = [
   { group: "market", key: "crafting", label: "Crafting", char: true },
   { group: "live", key: "live", label: "Live", served: true },
   { group: "about", key: "about", label: "About" },
+  { group: "about", key: "addons", label: "Addons" },
 ];
 const GROUPS = { character: "~/character", account: "~/account", market: "~/market", live: "~/live", about: "~/about" };
 const ROUTE_KEY = "adventureLedger.route", CHAR_KEY = "adventureLedger.view", HOUSE_KEY = "adventureLedger.house";
@@ -927,6 +948,7 @@ function badge(m) {
     case "roster": return DATA.account ? DATA.account.characters.length : "";
     case "drops": return DATA.drops ? DATA.drops.tracked : "";
     case "alts": return (DATA.transfers || []).length || "";
+    case "addons": return addonRows().filter(a => a.status.act).length || "";
     default: return "";
   }
 }
@@ -1750,13 +1772,12 @@ function modLive() {
 
 const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, combat: modCombat, roster: modRoster, inventory: modInventory,
   alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral,
-  trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout };
+  trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout, addons: modAddons };
 
-// About: static text; the lede says when this page was built. Module names link to their module; one this page
-// can't open (Live without the live server, character modules without a character) shows as plain text.
-function modAbout() {
-  el("who").textContent = `Built ${date(DATA.generated)}${chars().length ? ` from ${chars().length} character${chars().length > 1 ? "s" : ""}` : ""}.`;
-  document.querySelectorAll('section.mod[data-mod="about"] a[data-module]').forEach(a => {
+// Module names link to their module; one this page can't open (Live without the live server, character modules
+// without a character) shows as plain text
+function linkModules(root) {
+  root.querySelectorAll("a[data-module]").forEach(a => {
     const m = MODULES.find(x => x.key === a.dataset.module);
     if (m && available(m)) return;
     const span = document.createElement("span");
@@ -1764,6 +1785,140 @@ function modAbout() {
     span.title = m && m.served ? "Open the page with wowstats live to use this" : "Needs a character's saved data";
     a.replaceWith(span);
   });
+}
+const modLink = key => { const m = MODULES.find(x => x.key === key); return `<a href="#/${key}" data-module="${key}">${esc(m ? m.label : key)}</a>`; };
+
+// About: static text; the lede says when this page was built
+function modAbout() {
+  el("who").textContent = `Built ${date(DATA.generated)}${chars().length ? ` from ${chars().length} character${chars().length > 1 ? "s" : ""}` : ""}.`;
+  linkModules(document.querySelector('section.mod[data-mod="about"]'));
+}
+
+// ------------------------------------------------------------------ Addons and updates
+// The build reads each addon's version in this copy of the repo and in WoW; the page asks GitHub for the newest
+// version of ours (each .toc on main), at most every 6 hours. Nothing about you is sent: they're plain file reads.
+const GH_RAW = "https://raw.githubusercontent.com/Azhariel/adventure-ledger/main/addons/";
+const LATEST_KEY = "adventureLedger.latest", LATEST_TTL = 6 * 3600;
+const CURSEFORGE = "https://www.curseforge.com/wow/addons/";
+const ADDON_INFO = {
+  Logbook: { text: "Your journey: XP and levels, gold by source, kills, quests, deaths, zones, dungeons, professions, play sessions, where you've walked, your damage from the game's damage meter, and your flights. It replaces MuddyBoots.",
+    feeds: ["overview", "progress", "gold", "combat", "trades", "live"] },
+  LedgerLink: { text: "The page's in-game half: keeps the combat log on for the Live view, and keeps the Neutral auction house's prices apart from your faction's.",
+    feeds: ["live", "neutral"] },
+  MakeOrBuy: { text: "Your recipes, what each craft costs and makes, and your restock list. In game: craft cost and profit that counts crafting your own reagents, and skill-up routes.",
+    feeds: ["crafting", "alts"] },
+  Stockpile: { text: "What each character holds in bags, bank and mail. In game: those counts on item tooltips.",
+    feeds: ["inventory", "roster", "stockpile", "signals", "alts"] },
+  Haul: { text: "Your farming sessions: coin, quest money and loot valued at AH or vendor price, with gold and XP per hour.",
+    feeds: ["gold"] },
+  DropLab: { text: "Drop rates from your own kills, with how sure they are, and what each kill is worth.",
+    feeds: ["drops"] },
+  Auctionator: { text: "Every auction house price the page shows: the market modules, net worth and craft profits.",
+    feeds: ["signals", "stockpile", "browse", "movers", "crafting"], get: "auctionator", needed: true },
+  Questie: { label: "Questie", text: "Item names, from the QuestieDB addon that comes with Questie.",
+    feeds: ["inventory"], get: "questie", needed: true },
+  MuddyBoots: { label: "MuddyBoots", text: "Optional: your history from before Logbook's first login. Once Logbook has run on a character, you can switch it off.",
+    feeds: ["overview"], get: "muddy-boots" },
+};
+
+let latest = (() => { try { const c = JSON.parse(store.get(LATEST_KEY) || "null"); return c && c.versions ? c : null; } catch (e) { return null; } })();
+let latestPending = false;
+
+// "0.10.1" > "0.9"; anything that isn't a number counts as 0
+const verParts = v => String(v || "").split(/[.\-]/).map(n => parseInt(n, 10) || 0);
+function newer(a, b) {
+  if (!a || !b) return false;
+  const x = verParts(a), y = verParts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+}
+
+async function checkLatest(force) {
+  if (latestPending || !(DATA.addons || []).length) return;
+  if (!force && latest && nowSec() - latest.at < LATEST_TTL) return;
+  latestPending = true;
+  if (route === "addons") modAddons();
+  const ours = DATA.addons.filter(a => a.ours);
+  const got = await Promise.all(ours.map(a => fetch(GH_RAW + a.key + "/" + a.key + ".toc", { cache: "no-store" })
+    .then(r => r.ok ? r.text() : null).catch(() => null)));
+  latestPending = false;
+  const versions = {};
+  got.forEach((text, i) => { const m = text && text.match(/^##\s*Version:\s*(\S+)/m); if (m) versions[ours[i].key] = m[1]; });
+  if (Object.keys(versions).length) {
+    latest = { at: nowSec(), versions };
+    store.set(LATEST_KEY, JSON.stringify(latest));
+  } else if (!latest) {
+    latest = { at: 0, versions: {}, failed: true }; // not saved: the next page load tries again
+  }
+  drawNav();
+  if (route === "addons") modAddons();
+}
+
+// What an addon needs from you, if anything: { cls, text, fix, act }
+function addonStatus(a, qdb) {
+  const info = ADDON_INFO[a.key] || {};
+  const gh = latest && latest.versions[a.key];
+  const off = a.disabledOn || [];
+  if (!a.present) {
+    if (a.ours) return { cls: "death", text: "not installed", fix: "Run install.bat, then restart WoW.", act: true };
+    return info.needed ? { cls: "death", text: "not installed", fix: `Get it from <a href="${CURSEFORGE + info.get}" target="_blank" rel="noopener">CurseForge</a>.`, act: true }
+      : { cls: "", text: "not installed" };
+  }
+  if (a.ours && newer(gh, a.repo)) return { cls: "fight", text: `${gh} is out`, fix: `Version ${esc(gh)} is on GitHub: update your copy, run install.bat, then restart WoW.`, act: true };
+  if (a.ours && newer(a.repo, a.installed)) return { cls: "fight", text: "install pending", fix: `Your copy has ${esc(a.repo)} but WoW runs ${esc(a.installed || "an older one")}: run install.bat, then restart WoW.`, act: true };
+  if (off.length && (a.ours || info.needed)) return { cls: "fight", text: "switched off", fix: `Switched off on ${esc(off.join(", "))}: turn it on in the AddOns list on the character screen.`, act: true };
+  if (a.key === "Questie" && qdb && !qdb.present) return { cls: "fight", text: "no item names", fix: "QuestieDB is missing: reinstall Questie, which brings it.", act: true };
+  if (a.ours && !a.saved) return { cls: "info", text: "no data yet", fix: "Installed but nothing saved yet: log in with it on, then /reload or log out." };
+  if (a.ours && gh) return { cls: "kill", text: "up to date" };
+  return { cls: "kill", text: "installed" };
+}
+
+// The addons with their status (QuestieDB is shown on Questie's card)
+function addonRows() {
+  const list = (DATA && DATA.addons) || [];
+  const qdb = list.find(a => a.key === "QuestieDB");
+  return list.filter(a => a.key !== "QuestieDB").map(a => Object.assign({}, a, { status: addonStatus(a, qdb), qdb: a.key === "Questie" ? qdb : null }));
+}
+
+function modAddons() {
+  const sec = document.querySelector('section.mod[data-mod="addons"]');
+  sec.querySelectorAll(".addon").forEach(n => n.remove());
+  const rows = addonRows();
+  if (!rows.length) {
+    el("addonsSummary").textContent = "This page was built by an older wowstats: run it again to see your addons.";
+    el("addonsCheck").textContent = "";
+    return;
+  }
+  const ours = rows.filter(a => a.ours), act = rows.filter(a => a.status.act);
+  el("who").textContent = `${ours.filter(a => a.present).length} of ${ours.length} of ours installed, ${rows.length - ours.length} others checked.`;
+  el("addonsSummary").innerHTML = act.length
+    ? `<b class="k-neutral">${act.length} addon${act.length > 1 ? "s need" : " needs"} you:</b> ${act.map(a => esc(ADDON_INFO[a.key] && ADDON_INFO[a.key].label || a.title)).join(", ")}. Each card below says what to do.`
+    : "Every addon is installed and up to date with what this page knows.";
+  el("addonsCheck").innerHTML = latestPending ? "checking GitHub…"
+    : latest && !latest.failed ? `GitHub checked ${clock(latest.at)} · <button type="button" class="link" id="addonsRecheck">check again</button>`
+    : `couldn't reach GitHub · <button type="button" class="link" id="addonsRecheck">try again</button>`;
+  const re = el("addonsRecheck");
+  if (re) re.addEventListener("click", () => checkLatest(true));
+  const vers = a => {
+    const gh = a.ours && latest && latest.versions[a.key];
+    const pairs = [["In WoW", a.present ? esc(a.installed || "no version") : "not installed"]];
+    if (a.ours) pairs.push(["This copy", esc(a.repo || "?")], ["On GitHub", gh ? esc(gh) : latestPending ? "checking…" : "unknown"]);
+    if (a.qdb) pairs.push(["QuestieDB", a.qdb.present ? esc(a.qdb.installed || "installed") : "missing"]);
+    if ((a.disabledOn || []).length) pairs.push(["Off on", esc(a.disabledOn.join(", "))]);
+    return `<dl class="vers">${pairs.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  };
+  const cards = rows.map(a => {
+    const info = ADDON_INFO[a.key] || {}, s = a.status;
+    const name = info.label || a.title || a.key;
+    const get = !a.ours && info.get ? ` · <a href="${CURSEFORGE + info.get}" target="_blank" rel="noopener">CurseForge</a>` : "";
+    return `<article class="panel w6 prose addon"><div class="ph"><h2>${esc(name)}<small>${a.ours ? "ours" : "third-party"}</small></h2><span class="pill ${s.cls}">${esc(s.text)}</span></div>
+      <p>${esc(info.text || a.notes || "")}</p>
+      ${s.fix ? `<p class="fix">${s.fix}</p>` : ""}
+      ${vers(a)}
+      <p class="hint">Feeds ${(info.feeds || []).map(modLink).join(" · ") || "the page"}${get}</p></article>`;
+  }).join("");
+  sec.insertAdjacentHTML("beforeend", cards);
+  linkModules(sec);
 }
 
 // ------------------------------------------------------------------ The item inspector (both houses on one chart)
@@ -2241,6 +2396,7 @@ function start() {
   if (SERVED) setupLive();
   const fromHash = location.hash.replace(/^#\/?/, "");
   go(fromHash || store.get(ROUTE_KEY) || "overview");
+  checkLatest();
   try {
     const y = sessionStorage.getItem(SCROLL_KEY);
     if (y) { sessionStorage.removeItem(SCROLL_KEY); window.scrollTo(0, Number(y)); }
