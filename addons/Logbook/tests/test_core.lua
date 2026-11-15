@@ -291,6 +291,19 @@ return function(H)
         eq(c.deaths["revive.corpse"], 1)
     end)
 
+    test("level and gold: never lowered by a logout that reports level 1 and no gold", function()
+        local saved = { schema = 1, char = { level = 1, guid = "Player-6800-00A90C3E" }, log = {}, counts = {},
+            sessions = {}, snap = { [4] = { t = 1 }, [5] = { t = 2 } } }
+        local _, st = boot({ charDB = saved, level = 5, money = 267 })
+        eq(LogbookCharDB.char.level, 5, "repaired from the levels reached")
+        st.money = 300; W.fire("PLAYER_MONEY"); W.runTimers()
+        st.level, st.money = 1, 0 -- what the client reports while logging out to the character list
+        W.fire("PLAYER_LOGOUT")
+        eq(LogbookCharDB.char.level, 5)
+        local row = LogbookDB.chars["Player-6800-00A90C3E"]
+        eq(row.level, 5); eq(row.money, 300)
+    end)
+
     test("the tick: activity per level, distance, trail; logout closes the session", function()
         local _, st = boot()
         st.ticker()

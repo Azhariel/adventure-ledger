@@ -127,6 +127,20 @@ local function level()
     return number(call(UnitLevel, "player"))
 end
 
+-- Your level as far as Logbook knows: the client's, the saved one or the highest level reached, whichever is
+-- higher. Levels never go down, and at a logout to the character list the client can report level 1.
+function L.KnownLevel()
+    local db = ns.db
+    local best = level() or 0
+    if db then
+        best = math.max(best, db.char.level or 0)
+        for lvl in pairs(db.snap or {}) do
+            if type(lvl) == "number" and lvl > best then best = lvl end
+        end
+    end
+    return best > 0 and best or nil
+end
+
 -- Where you are: uiMapID and x, y in ten-thousandths (nil inside instances and where the client hides it)
 function L.Position()
     local map = C_Map and number(call(C_Map.GetBestMapForUnit, "player"))
@@ -162,7 +176,7 @@ function L.Identity()
     c.race = str(raceToken) or c.race
     c.faction = str(call(UnitFactionGroup, "player")) or c.faction
     c.sex = number(call(UnitSex, "player")) or c.sex
-    c.level = level() or c.level
+    c.level = L.KnownLevel() or c.level
     c.zone = zoneName() or c.zone
     if not c.first then c.first = { t = ns.Now(), level = c.level } end
     return c
@@ -176,7 +190,8 @@ function L.UpdateAccount()
     ns.account.chars[c.guid] = row
     row.name, row.realm, row.guid, row.class, row.race = c.name, c.realm, c.guid, c.class, c.race
     row.faction, row.sex, row.level = c.faction, c.sex, c.level
-    row.money = number(call(GetMoney)) or row.money
+    -- the gold Logbook has tracked: at a logout to the character list the client can report 0
+    row.money = st.lastMoney or number(call(GetMoney)) or row.money
     row.played = L.Played() or row.played
     row.lastSeen = ns.Now()
     row.zone = c.zone
@@ -293,7 +308,7 @@ function L.OnLogout()
     L.FlushMoney(true)
     L.Log("out")
     J.TouchSession(st.session, ns.Now(), L.Played())
-    ns.db.char.level = level() or ns.db.char.level
+    ns.db.char.level = L.KnownLevel() or ns.db.char.level
     L.UpdateAccount()
     J.TrailForSave(ns.db.trail)
 end
