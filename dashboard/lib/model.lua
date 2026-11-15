@@ -469,6 +469,9 @@ function M.fights(events, counts, limit)
     }
 end
 
+-- A death's fi line (Logbook, from the damage meter) comes within this many seconds of its de line
+M.DEATH_METER_SECONDS = 20
+
 function M.deaths(events)
     local zoneAt, levelNow, out = zoneTracker(events), nil, {}
     for i, e in ipairs(events) do
@@ -483,9 +486,50 @@ function M.deaths(events)
                 spell = e.args[3] ~= "" and e.args[3] or nil, env = e.args[4] ~= "" and e.args[4] or nil,
                 place = e.args[5] ~= "world" and e.args[5] ~= "" and e.args[5] or nil,
                 byPlayer = e.args[10] == "1", zone = zoneAt[i], level = levelNow }
+        elseif e.kind == "fi" and (e.args[8] or "") ~= "" then
+            -- the meter's killing blow replaces the guess (your last target) when it names someone else
+            local d = out[#out]
+            if d and d.t and e.t and e.t - d.t >= 0 and e.t - d.t <= M.DEATH_METER_SECONDS and not d.meter then
+                if d.killer ~= e.args[8] then d.killer, d.npc, d.killerLevel, d.byPlayer = e.args[8], nil, nil, false end
+                d.spell = (e.args[9] or "") ~= "" and e.args[9] or d.spell
+                d.meter = true
+            end
         end
     end
     return out
+end
+
+-- Damage from Logbook's damage-meter counters: totals, DPS, per level, your spells, what hurts you
+function M.damage(counts, limit)
+    local d = counts.damage
+    if type(d) ~= "table" or num(d.fights) == 0 then return nil end
+    local function list(t)
+        local out, total = {}, 0
+        for k, v in pairs(t or {}) do
+            if type(v) == "number" then out[#out + 1] = { name = k, amount = v }; total = total + v end
+        end
+        table.sort(out, function(a, b) return a.amount > b.amount or (a.amount == b.amount and a.name < b.name) end)
+        for _, r in ipairs(out) do r.share = total > 0 and r.amount / total or 0 end
+        while #out > (limit or 15) do table.remove(out) end
+        return out
+    end
+    local byLevel = {}
+    for k, v in pairs(d) do
+        local lvl = type(k) == "string" and tonumber(k:match("^fights:(%d+)$"))
+        if lvl and v > 0 then
+            local sec = num(d["sec:" .. lvl])
+            byLevel[#byLevel + 1] = { level = lvl, fights = v, seconds = sec, done = num(d["done:" .. lvl]),
+                taken = num(d["taken:" .. lvl]), healed = num(d["healed:" .. lvl]),
+                dps = sec > 0 and num(d["done:" .. lvl]) / sec or nil }
+        end
+    end
+    table.sort(byLevel, function(a, b) return a.level < b.level end)
+    local sec = num(d.sec)
+    return {
+        fights = num(d.fights), seconds = sec, done = num(d.done), taken = num(d.taken), healed = num(d.healed),
+        dps = sec > 0 and num(d.done) / sec or nil, bestDps = d.bestDps, biggest = d.biggest,
+        byLevel = byLevel, spells = list(counts.damageBy), from = list(counts.damageFrom),
+    }
 end
 
 function M.quests(events)
@@ -738,6 +782,7 @@ function M.character(data)
         fights = M.fights(events, counts.fights),
         deaths = M.deaths(events),
         deathCounts = counts.deaths,
+        damage = M.damage(counts),
         quests = M.quests(events),
         professions = M.professions(events),
         crafted = M.crafted(counts.prof),

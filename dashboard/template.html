@@ -308,6 +308,9 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w5"><div class="ph"><h2>Most fought</h2></div><p class="hint" id="fightHint"></p><div class="scroll"><table id="mobTable"></table></div></article>
       <article class="panel w7"><div class="toolbar"><div><h2>Quests</h2><p class="hint" id="questHint"></p></div><input type="search" class="search" data-table="questTable" placeholder="Filter quest or zone"></div><div class="scroll"><table id="questTable"></table></div></article>
       <article class="panel w12"><div class="ph"><h2>Deaths and close calls</h2></div><p class="hint" id="deathHint"></p><div class="scroll"><table id="deathTable"></table></div></article>
+      <article class="panel w4"><div class="ph"><h2>Your damage by spell</h2></div><p class="hint" id="dmgHint"></p><div class="scroll"><table id="dmgSpellTable"></table></div></article>
+      <article class="panel w4"><div class="ph"><h2>What hurts you</h2></div><p class="hint">Damage taken by attacker, from the damage meter.</p><div class="scroll"><table id="dmgFromTable"></table></div></article>
+      <article class="panel w4"><div class="ph"><h2>Damage by level</h2></div><p class="hint">Per fight, at the level you were then.</p><div class="scroll"><table id="dmgLevelTable"></table></div></article>
     </section>
 
     <!-- account -->
@@ -1074,13 +1077,24 @@ function modGold() {
 function modCombat() {
   const c = curChar(); if (!c) return;
   charHeader(c);
-  const f = c.fights || {}, q = (c.quests || []).slice().reverse(), dc = c.deathCounts || {};
+  const f = c.fights || {}, q = (c.quests || []).slice().reverse(), dc = c.deathCounts || {}, dm = c.damage;
   el("kpis").innerHTML = [
     kpi("Fights", short(f.fights || 0), f.combatSeconds ? `${dur(f.combatSeconds)} in combat` : ""),
     kpi("Longest fight", f.longest ? `${f.longest}s` : "?", ""),
     kpi("Quests", q.length, q.length ? `${short(q.reduce((a, r) => a + r.xp, 0))} XP` : ""),
     kpi("Deaths", (c.deaths || []).length, `${dc.closeCalls || 0} close calls`),
+    dm ? kpi("Damage per second", dm.dps ? Math.round(dm.dps) : "?", dm.bestDps ? `best ${short(dm.bestDps)}` : "") : "",
   ].join("");
+  const share = x => `${Math.round(x * 100)}%`;
+  el("dmgHint").textContent = dm ? `${short(dm.done)} damage over ${short(dm.fights)} fights the damage meter saw, ${short(dm.taken)} taken, ${short(dm.healed)} healed.`
+    : "From Logbook's damage meter readings. Nothing yet: it starts with your next fight.";
+  table("dmgSpellTable", [{ t: "Spell" }, { t: "Damage", n: 1 }, { t: "Share", n: 1 }],
+    (dm ? dm.spells : []).map(r => [esc(r.name), short(r.amount), share(r.share)]), "No damage recorded yet.");
+  table("dmgFromTable", [{ t: "Attacker" }, { t: "Damage", n: 1 }, { t: "Share", n: 1 }],
+    (dm ? dm.from : []).map(r => [esc(r.name), short(r.amount), share(r.share)]), "No damage taken recorded yet.");
+  table("dmgLevelTable", [{ t: "Level", n: 1 }, { t: "Fights", n: 1 }, { t: "DPS", n: 1 }, { t: "Taken / fight", n: 1 }, { t: "Healed / fight", n: 1 }],
+    (dm ? dm.byLevel : []).slice().reverse().map(r => [r.level, short(r.fights), r.dps ? Math.round(r.dps) : "",
+      short(r.taken / r.fights), short(r.healed / r.fights)]), "No fights recorded yet.");
   el("fightHint").textContent = f.fights ? `${f.fights} fights, ${dur(f.combatSeconds)} in combat, longest ${f.longest}s.` : "";
   table("mobTable", [{ t: "Mob" }, { t: "Level", n: 1 }, { t: "Kills", n: 1 }, { t: "XP", n: 1 }],
     (f.top || []).map(m => [whNpc(m.name, m.npc) + (m.type ? ` <span class="pill">${esc(m.type)}</span>` : ""), m.level || "", m.kills, short(m.xp)]), "No kills logged yet.");
@@ -1091,7 +1105,8 @@ function modCombat() {
   table("deathTable", [{ t: "When", n: 1 }, { t: "Killed by" }, { t: "Their level", n: 1 }, { t: "Your level", n: 1 }, { t: "Zone" }],
     (c.deaths || []).slice().reverse().map(d => [`<span data-sort="${d.t || 0}">${date(d.t)}</span>`,
       (d.byPlayer ? playerLink(d.killer) : d.killer !== "?" ? whNpc(d.killer, d.npc) : d.env ? esc(d.env[0].toUpperCase() + d.env.slice(1)) : "Unknown")
-        + (d.spell ? ` <span class="pill">${esc(d.spell)}</span>` : "") + (d.byPlayer ? ' <span class="pill">player</span>' : ""),
+        + (d.spell ? ` <span class="pill">${esc(d.spell)}</span>` : "") + (d.byPlayer ? ' <span class="pill">player</span>' : "")
+        + (d.meter ? ' <span class="pill" title="Killing blow from the damage meter">confirmed</span>' : ""),
       d.killerLevel || "", d.level || "", esc(d.place || d.zone || "")]),
     "No deaths. Nice.");
 }

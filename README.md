@@ -198,6 +198,7 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 | Section | Source |
 | --- | --- |
 | Leveling, XP sources, time per level, gold earned/spent, zones, professions, fights, quests, deaths | Logbook's event log and counters (per character), with MuddyBoots' from before Logbook started |
+| Damage per second, damage by spell, what hurts you, killing blows | Logbook's readings of the game's damage meter (`C_DamageMeter`), from Logbook's first fight on |
 | Gold on hand | Logbook or MuddyBoots (account file) |
 | Inventory | Stockpile (bags, bank, mail) |
 | Prices, price trends, net worth | Auctionator's price database (today's AH minimum; trend = lowest price per scan day) |

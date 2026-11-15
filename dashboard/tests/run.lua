@@ -214,6 +214,36 @@ test("deaths: killer, killer level, environment cause, zone and level at the tim
     eq(d[2].killer, "?"); eq(d[2].env, "falling"); eq(d[2].zone, "Silverpine"); eq(d[2].level, 12)
 end)
 
+test("deaths: the damage meter's killing blow replaces the last-target guess", function()
+    local d = M.deaths(ev({
+        "100|||||de|Razormane Hunter|3265||||world||14|normal|",
+        "101|||||fi|12|360|200|0|2|Razormane Mystic|150|Razormane Mystic|Lightning Bolt",
+        "200|||||de|Boar|3098||||world||10|normal|",
+        "240|||||fi|5|10|20|0|1|Boar|20|Boar|Melee",
+        "300|||||de|Kobold|1||||world||5|normal|",
+        "301|||||fi|5|10|20|0|1|Kobold|20||",
+    }))
+    eq(d[1].killer, "Razormane Mystic"); eq(d[1].npc, nil); eq(d[1].spell, "Lightning Bolt"); truthy(d[1].meter)
+    eq(d[2].killer, "Boar"); eq(d[2].meter, nil, "a fight line too long after the death isn't joined")
+    eq(d[3].killer, "Kobold"); eq(d[3].npc, 1); eq(d[3].meter, nil, "no killer named: the guess stays")
+end)
+
+test("damage: totals, DPS, per level, spells and attackers by share", function()
+    local dm = M.damage({
+        damage = { fights = 3, sec = 40, done = 1200, taken = 300, healed = 60, bestDps = 45, biggest = 700,
+            ["fights:20"] = 2, ["sec:20"] = 30, ["done:20"] = 900, ["taken:20"] = 200, ["healed:20"] = 60,
+            ["fights:21"] = 1, ["sec:21"] = 10, ["done:21"] = 300, ["taken:21"] = 100 },
+        damageBy = { Smite = 900, Melee = 300 }, damageFrom = { Boar = 100, Shaman = 200 },
+    })
+    eq(dm.fights, 3); eq(dm.dps, 30); eq(dm.bestDps, 45)
+    eq(#dm.byLevel, 2); eq(dm.byLevel[1].level, 20); eq(dm.byLevel[1].dps, 30); eq(dm.byLevel[2].healed, 0)
+    eq(dm.spells[1].name, "Smite"); eq(dm.spells[1].share, 0.75); eq(dm.from[1].name, "Shaman")
+    eq(M.damage({ damage = {} }), nil); eq(M.damage({}), nil)
+    local merged = S.mergeJournal({ since = 1, counts = { damage = { bestDps = 40, done = 5 } },
+        baseline = { counts = { damage = { bestDps = 50, done = 7 } } } }, nil)
+    eq(merged.counts.damage.bestDps, 50, "best DPS is a record, not a sum"); eq(merged.counts.damage.done, 12)
+end)
+
 test("professions: only real professions, one point per change, dropped skills kept as 0", function()
     local p = M.professions(ev({
         "1|0|1|1|1|sk|Tailoring|1|75", "2|36|1|1|1|sk|Tailoring|1|75", "3|72|1|1|1|sk|Tailoring|2|75",

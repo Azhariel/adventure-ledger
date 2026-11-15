@@ -135,7 +135,7 @@ end
 -- { char, counts, log, sessions, snap, trail }). Logbook takes over at lb.since: MuddyBoots' lines, sessions and
 -- trail from before then are kept, the rest comes from Logbook. Counters are Logbook's plus the MuddyBoots
 -- baseline it copied at its first login (records such as the longest fight take the larger). Either may be nil.
-S.MAX_COUNTERS = { longest = true, hardest = true }
+S.MAX_COUNTERS = { longest = true, hardest = true, bestDps = true, biggest = true }
 
 local function lineTime(line)
     return type(line) == "string" and tonumber(line:match("^(%d+)")) or nil
