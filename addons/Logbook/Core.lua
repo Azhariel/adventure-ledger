@@ -903,14 +903,13 @@ function L.ReadMeter()
             local function source(kind)
                 return guid and clean(call(DM.GetCombatSessionSourceFromID, s.id, kind, guid)) or nil
             end
-            local done, hits = session(DONE), source(TAKEN)
+            local done = session(DONE)
             local f = J.MeterFight({
                 seconds = s.seconds or (done and number(done.durationSeconds)),
                 done = done, taken = session(TAKEN), healed = session(HEALED), enemies = session(ENEMIES),
-                spells = source(DONE), hits = hits, spellName = spellName,
+                spells = source(DONE), hits = source(TAKEN), spellName = spellName,
             })
-            -- the last fight's raw damage-taken breakdown, to see which fields this client fills in
-            db.meterSample = hits
+            db.meterSample = nil -- left by an earlier version
             st.meterLast = s.id
             if f then
                 f.seconds = f.seconds and floor(f.seconds + 0.5) or nil
