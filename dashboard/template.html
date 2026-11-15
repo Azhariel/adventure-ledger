@@ -172,6 +172,17 @@ details.session .body p { margin: 0; }
 .steps li { margin: 3px 0; }
 code { font: 12.5px var(--mono); color: var(--pink); background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 footer { color: var(--dim); font: 12px var(--mono); margin-top: 22px; }
+.prose a { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.prose a:hover { color: var(--purple); text-decoration-color: var(--purple); }
+.prose p { margin: 6px 0 10px; max-width: 80ch; line-height: 1.55; }
+.prose dl { margin: 8px 0 4px; }
+.prose dt { font-weight: 600; color: var(--fg); margin-top: 10px; }
+.prose dd { margin: 2px 0 0; color: var(--muted); line-height: 1.5; max-width: 80ch; }
+.prose dl.cols { columns: 2 320px; column-gap: 32px; }
+.prose dl.cols > div { break-inside: avoid; padding-top: 1px; }
+.prose .steps li { line-height: 1.5; }
+.prose .links { font-weight: 500; }
+.k-faction { color: var(--faction); } .k-neutral { color: var(--neutral); } .k-forecast { color: var(--forecast); }
 
 /* ------------------------------------------------------------- live */
 .status { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; color: var(--muted); font: 12px var(--mono); margin: 0 0 12px; }
@@ -407,6 +418,98 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w4"><div class="ph"><h2>Damage by spell</h2></div><p class="hint" id="spellHint"></p><div id="spellBars" class="bars"></div><h3>Healing by spell</h3><div id="healBars" class="bars"></div></article>
       <article class="panel w4"><div class="ph"><h2>Kills this session</h2></div><div class="scroll"><table id="killsTable"></table></div></article>
       <article class="panel w4 shot"><div class="ph"><h2>Latest screenshot</h2></div><p class="hint" id="shotHint"></p><div id="shotBox"></div></article>
+    </section>
+
+    <!-- about -->
+    <section class="mod about" data-mod="about" hidden>
+      <article class="panel w12 prose"><div class="ph"><h2>What this is</h2></div>
+        <p>Adventure Ledger turns what your WoW Forever addons already save into one page: how you level, where your gold
+          comes from and goes, what you fight, what you own across every character, and what the auction house is doing,
+          with forecasts where there's enough history. Nothing here comes from a server: every number is read from the
+          SavedVariables files on your own computer.</p>
+        <ol class="steps">
+          <li>Play with the addons on. WoW writes their files when you <code>/reload</code> or log out, never in between.</li>
+          <li>Run <code>wowstats</code> to rebuild this page, or <code>wowstats live</code> for a page that rebuilds itself
+            every time WoW saves, with a Live view for a second monitor.</li>
+          <li>Pick a character above the menu and open any module. The address bar remembers where you were.</li>
+        </ol></article>
+
+      <article class="panel w6 prose"><div class="ph"><h2>~/character</h2></div>
+        <p class="hint">The character picked above the menu.</p>
+        <dl>
+          <dt>Overview</dt><dd>XP over played time with a forecast to your next level, hours spent in each level with a curve
+            carried to 60, and a diary of your play sessions.</dd>
+          <dt>Progress</dt><dd>Where your XP comes from (quests, kills, dungeons, exploring), profession skill over time, what
+            you made and gathered, how you spend your time, time per zone, and your flights: routes, fares and time in the air.</dd>
+          <dt>Gold</dt><dd>Gold on hand over played time with its trend, where gold comes from and goes, net worth (gold plus
+            what your items would sell for), and your last farming session from Haul.</dd>
+          <dt>Combat &amp; quests</dt><dd>The mobs you fight most, every quest turned in, deaths and close calls, and from the
+            game's damage meter: damage per second, damage by spell, what hurts you, and damage at each level.</dd>
+        </dl></article>
+
+      <article class="panel w6 prose"><div class="ph"><h2>~/account</h2></div>
+        <p class="hint">Every character together.</p>
+        <dl>
+          <dt>Characters</dt><dd>Your alts side by side: level, class, played time, gold, items and net worth, last played.</dd>
+          <dt>Inventory</dt><dd>Everything you own in bags, bank and mail, with who holds it and what it's worth.</dd>
+          <dt>Mail to alts</dt><dd>Items one character holds that another crafts with or needs to restock.</dd>
+          <dt>Drop rates</dt><dd>What each kind of mob drops for you, how often, and gold per hour at your pace (DropLab).</dd>
+        </dl>
+        <h3>~/live</h3>
+        <dl>
+          <dt>Live</dt><dd>Only with <code>wowstats live</code>. Follows the combat log while you play: XP to level, your
+            position on the zone map, fights, kills, players around you and your newest screenshot. WoW writes the log every
+            5 minutes, so it runs a little behind.</dd>
+        </dl></article>
+
+      <article class="panel w12 prose"><div class="ph"><h2>~/market</h2></div>
+        <p class="hint">From your Auctionator scans: each scan day keeps the lowest and highest price and how many were
+          listed. The Faction / Neutral switch at the top picks which auction house the first four modules use.</p>
+        <dl class="cols">
+          <div><dt>Signals</dt><dd>Your stockpile's value per scan day with a forecast, your best sellers, and deals: items far under
+            their usual price, and items you own far over it.</dd></div>
+          <div><dt>Stockpile</dt><dd>What you hold, against its launch low, peak and current supply, with a signal when it's a good
+            time to sell.</dd></div>
+          <div><dt>Browse</dt><dd>The whole price database, or one family of trade goods, with search.</dd></div>
+          <div><dt>Movers</dt><dd>What's rising fastest and what has fallen furthest.</dd></div>
+          <div><dt>Faction vs Neutral</dt><dd>Items priced at both houses, the gap between them, and what a flip makes after each
+            house's cut.</dd></div>
+          <div><dt>Your trades</dt><dd>Your auction house ledger: buys, sales, deposits and buyers, in total and per item.</dd></div>
+          <div><dt>Crafting</dt><dd>Your recipes ranked by profit at today's prices, with each one's full reagent tree, and your
+            restock list (Make or Buy).</dd></div>
+        </dl>
+        <p class="hint">Click any item row to open the item inspector: both houses' prices on one chart, the forecast, and how
+          many were listed.</p></article>
+
+      <article class="panel w6 prose"><div class="ph"><h2>Reading the page</h2></div>
+        <ul class="steps">
+          <li>Colours have fixed roles: <b class="k-faction">cyan</b> is your faction's auction house, <b class="k-neutral">orange</b>
+            the Neutral one, and <b class="k-forecast">pink dashes</b> and bands are forecasts.</li>
+          <li>The number beside a menu entry counts what's in it.</li>
+          <li>Click a column header to sort; the search boxes filter as you type.</li>
+          <li>Item, creature and quest names open on Wowhead; player names open on the WoW Forever armory.</li>
+          <li>A module with nothing to show says which addon it's waiting for.</li>
+        </ul></article>
+
+      <article class="panel w6 prose"><div class="ph"><h2>Where the data comes from</h2></div>
+        <dl>
+          <dt>Included</dt><dd>Logbook (your journey), Ledger Link (live combat log, Neutral prices), Make or Buy (recipes),
+            Stockpile (what you hold), Haul (farming sessions), DropLab (drop rates).</dd>
+          <dt>Others it reads</dt><dd><a href="https://www.curseforge.com/wow/addons/auctionator" target="_blank" rel="noopener">Auctionator</a> (prices),
+            <a href="https://www.curseforge.com/wow/addons/questie" target="_blank" rel="noopener">Questie</a>'s item names, and
+            <a href="https://www.curseforge.com/wow/addons/muddy-boots" target="_blank" rel="noopener">MuddyBoots</a> for your history from before Logbook.</dd>
+          <dt>Privacy</dt><dd>Your data stays on your computer: the page only reads your saved files and sends nothing anywhere.
+            It loads Chart.js and two fonts (Google Fonts) from the internet, and the live server downloads zone map art from
+            Wowhead once per zone.</dd>
+        </dl></article>
+
+      <article class="panel w12 prose"><div class="ph"><h2>Made by Azhariel</h2></div>
+        <p>Adventure Ledger is a hobby project. The code, the addons and the instructions are on GitHub; ideas and bug reports
+          are welcome there.</p>
+        <p class="links"><a href="https://github.com/Azhariel/adventure-ledger" target="_blank" rel="noopener">Adventure Ledger on GitHub</a> · <a href="https://github.com/Azhariel/adventure-ledger/issues" target="_blank" rel="noopener">Report a bug or suggest an idea</a> ·
+          <a href="https://github.com/Azhariel" target="_blank" rel="noopener">Azhariel on GitHub</a> · <a href="https://ko-fi.com/azhariel" target="_blank" rel="noopener">Support it on Ko-fi</a></p>
+        <p class="hint">Charts by Chart.js. Map art and links: Wowhead. Colours: the Dracula theme. Fonts: IBM Plex Sans and
+          JetBrains Mono.</p></article>
     </section>
 
     <footer id="foot"></footer>
@@ -788,8 +891,9 @@ const MODULES = [
   { group: "market", key: "trades", label: "Your trades", char: true },
   { group: "market", key: "crafting", label: "Crafting", char: true },
   { group: "live", key: "live", label: "Live", served: true },
+  { group: "about", key: "about", label: "About" },
 ];
-const GROUPS = { character: "~/character", account: "~/account", market: "~/market", live: "~/live" };
+const GROUPS = { character: "~/character", account: "~/account", market: "~/market", live: "~/live", about: "~/about" };
 const ROUTE_KEY = "adventureLedger.route", CHAR_KEY = "adventureLedger.view", HOUSE_KEY = "adventureLedger.house";
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -1640,7 +1744,12 @@ function modLive() {
 
 const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, combat: modCombat, roster: modRoster, inventory: modInventory,
   alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral,
-  trades: modTrades, crafting: modCrafting, live: modLive };
+  trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout };
+
+// About: static text; the lede says when this page was built
+function modAbout() {
+  el("who").textContent = `Built ${date(DATA.generated)}${chars().length ? ` from ${chars().length} character${chars().length > 1 ? "s" : ""}` : ""}.`;
+}
 
 // ------------------------------------------------------------------ The item inspector (both houses on one chart)
 const inspCharts = [];
