@@ -149,12 +149,13 @@ return function(H)
                 { spellID = 589, totalAmount = 0 } } },
             hits = { combatSpells = { { spellID = 0, totalAmount = 90, creatureName = "Boar" },
                 { spellID = 12, totalAmount = 60, creatureName = "Shaman", isDeadly = true },
-                { spellID = 0, totalAmount = 10, creatureName = "Shaman" } } },
+                { spellID = 0, totalAmount = 10, creatureName = "Shaman" },
+                { spellID = 0, totalAmount = 5, creatureName = "", combatSpellDetails = { unitName = "Wolf" } } } },
             spellName = function(id) return id == 585 and "Smite" or nil end,
         })
         eq(f.done, 400); eq(f.taken, 150); eq(f.healed, 0); eq(f.enemies, 2)
         eq(f.spells.Smite, 300); eq(f.spells.Melee, 100); eq(f.spells["spell 589"], nil)
-        eq(f.from.Boar, 90); eq(f.from.Shaman, 70); eq(f.worst, "Boar"); eq(f.worstAmount, 90)
+        eq(f.from.Boar, 90); eq(f.from.Shaman, 70); eq(f.from.Wolf, 5); eq(f.worst, "Boar"); eq(f.worstAmount, 90)
         eq(f.killer, "Shaman"); eq(f.killSpell, "spell 12")
         eq(J.MeterFight({ seconds = 3, done = me(0), taken = {}, healed = nil }), nil)
 

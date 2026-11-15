@@ -366,7 +366,9 @@ function J.MeterFight(m)
     end
     for _, sp in ipairs(type(m.hits) == "table" and m.hits.combatSpells or {}) do
         local n = amount(sp.totalAmount)
-        local mob = type(sp.creatureName) == "string" and sp.creatureName ~= "" and sp.creatureName or nil
+        local unit = type(sp.combatSpellDetails) == "table" and sp.combatSpellDetails.unitName
+        local mob = (type(sp.creatureName) == "string" and sp.creatureName ~= "" and sp.creatureName)
+            or (type(unit) == "string" and unit ~= "" and unit) or nil
         if n > 0 and mob then
             f.from[mob] = (f.from[mob] or 0) + n
             if not f.worst or f.from[mob] > f.worstAmount then f.worst, f.worstAmount = mob, f.from[mob] end
