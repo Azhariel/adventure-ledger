@@ -149,6 +149,9 @@ function S.mergeJournal(lb, mb)
         since = lb.since, source = mb.log and "Logbook + MuddyBoots" or "Logbook" }
     for k, v in pairs(mb.char or {}) do out.char[k] = v end
     for k, v in pairs(lb.char or {}) do out.char[k] = v end
+    -- levels never go down: an older Logbook could save level 1 from a logout to the character list
+    out.char.level = math.max(tonumber(lb.char and lb.char.level) or 0, tonumber(mb.char and mb.char.level) or 0)
+    if out.char.level == 0 then out.char.level = nil end
     out.char.first = (mb.char and mb.char.first) or (lb.baseline and lb.baseline.first) or (lb.char and lb.char.first)
     for _, line in ipairs(mb.log or {}) do
         local t = lineTime(line)
@@ -197,6 +200,7 @@ function S.mergeAccountChars(lbDB, mbDB)
     for guid, c in pairs(lbDB and lbDB.chars or {}) do
         if type(c) == "table" then
             local old = out[guid]
+            local level = math.max(tonumber(c.level) or 0, tonumber(old and old.level) or 0)
             if old and (old.lastSeen or 0) > (c.lastSeen or 0) then
                 local row = {}
                 for k, v in pairs(c) do row[k] = v end
@@ -208,6 +212,7 @@ function S.mergeAccountChars(lbDB, mbDB)
                 for k, v in pairs(c) do row[k] = v end
                 out[guid] = row
             end
+            if level > 0 then out[guid].level = level end
         end
     end
     return next(out) and out or nil

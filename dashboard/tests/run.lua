@@ -791,6 +791,16 @@ test("mergeAccountChars: the newer row wins, field by field", function()
     eq(S.mergeAccountChars(nil, nil), nil)
 end)
 
+test("level: the highest any source knows, never a newer row's stale level 1", function()
+    local rows = S.mergeAccountChars({ chars = { d = { name = "Des", level = 1, money = 0, lastSeen = 300 } } },
+        { chars = { d = { name = "Des", level = 5, money = 267, lastSeen = 200 } } })
+    eq(rows.d.level, 5); eq(rows.d.money, 0, "other fields: the newer row still wins")
+    local mb = S.mergeJournal({ since = 1, char = { level = 1 } }, { char = { level = 5 } })
+    eq(mb.char.level, 5)
+    local c = M.character({ muddy = { char = { level = 1 }, log = { "10|100|1|1|1|lv|4", "20|200|1|1|1|lv|5" } } })
+    eq(c.profile.level, 5, "from the last level-up logged")
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

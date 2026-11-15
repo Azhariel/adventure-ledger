@@ -728,7 +728,10 @@ function M.character(data)
     local xpSeries, levels = M.xpSeries(events)
     local xpTotals, xpByLevel = M.xpBySource(counts.xp)
     local moneyFlow, earned, spent = M.money(events)
-    local level = char.level or acc.level
+    -- the highest level any source knows: the journal, the account row, or the last level-up logged
+    local level = math.max(tonumber(char.level) or 0, tonumber(acc.level) or 0,
+        levels[#levels] and levels[#levels].level or 0)
+    if level == 0 then level = nil end
     local money = acc.money
     local inv = M.inventory(data.stock, data.market, nameOf)
 
