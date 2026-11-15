@@ -758,6 +758,7 @@ function L.OnSkillLine(text)
     rank = tonumber(rank)
     if not (name and rank) then return end
     local max = tonumber((ns.db.skills[name] or ""):match("/(%d+)$"))
+    if max == 0 then max = nil end -- "rank/0": the max was never known
     for _, s in ipairs(J.SkillChanges(ns.db.skills, { { name = name, rank = rank, max = max } })) do
         L.Log("sk", s.name, s.rank, s.max)
     end
