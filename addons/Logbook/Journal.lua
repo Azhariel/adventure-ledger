@@ -26,7 +26,7 @@ J.TRAIL_STEP = 12      -- ten-thousandths of the map a point must move from the 
 J.HINT_SECONDS = 2     -- how long a hint (chat line, hook) can explain an XP or money change
 
 J.COUNT_GROUPS = { "xp", "activity", "fights", "deaths", "distance", "prof", "auction", "quests", "spells",
-    "dungeons", "character", "damage", "damageBy", "damageFrom" }
+    "dungeons", "character", "damage", "damageBy", "damageFrom", "flights" }
 -- counters that hold a record, not a sum
 J.MAX_KEYS = { longest = true, hardest = true, bestDps = true, biggest = true }
 J.DPS_MIN_SECONDS = 10 -- best DPS only counts fights at least this long

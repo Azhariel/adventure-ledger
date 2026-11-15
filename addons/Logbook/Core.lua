@@ -86,7 +86,7 @@ function L.Reset()
     st.turnedIn = {}
     st.ahAction, st.xpFlushing, st.moneyFlushing, st.wasDead = nil, nil, nil, nil
     st.meterLast, st.meterReading, st.mailBought, st.abandoning = nil, nil, nil, nil
-    st.abandonTarget, st.flight = nil, nil
+    st.abandonTarget = nil
 end
 L.Reset()
 
@@ -328,6 +328,7 @@ end
 function L.Tick()
     local db = ns.db
     if not db then return end
+    L.CheckFlight()
     local now = ns.Now()
     local last = st.lastTick or now
     st.lastTick = now
@@ -976,6 +977,61 @@ function L.ReadMeter()
 end
 
 ----------------------------------------------------------------------------------------------------
+-- Flights
+-- Picking a destination at the flight master notes the route and fare; the flight starts when you're on the
+-- taxi and ends when you're off it (PLAYER_CONTROL_LOST / _GAINED, and the 5-second tick as a fallback).
+-- The flight in progress is kept in the saved data, so a /reload in the air doesn't lose it.
+-- "fl|from|to|copper|seconds"
+
+L.TAKEOFF_SECONDS = 15 -- a route picked this long ago without taking off was cancelled
+
+function L.CurrentTaxiNode()
+    for i = 1, number(call(NumTaxiNodes)) or 0 do
+        if call(TaxiNodeGetType, i) == "CURRENT" then return str(call(TaxiNodeName, i)) end
+    end
+    return nil
+end
+
+function L.OnTakeTaxi(i)
+    local to = str(call(TaxiNodeName, i))
+    L.MoneyHint({ source = "flight", sign = -1, detail = to })
+    if ns.db then
+        ns.db.flying = { from = L.CurrentTaxiNode(), to = to, cost = number(call(TaxiNodeCost, i)), asked = ns.Now() }
+    end
+end
+
+function L.CheckFlight()
+    local db = ns.db
+    local f = db and db.flying
+    if not f then return end
+    local onTaxi = call(UnitOnTaxi, "player") and true or false
+    local now = ns.Now()
+    if not f.start then
+        if onTaxi then
+            f.start = now
+        elseif now - (f.asked or now) > L.TAKEOFF_SECONDS then
+            db.flying = nil
+        end
+        return
+    end
+    if onTaxi then return end
+    db.flying = nil
+    local sec = math.max(0, now - f.start)
+    L.Log("fl", f.from, f.to, f.cost, sec)
+    local c, lvl = db.counts.flights, level()
+    J.Count(c, "n", 1, lvl)
+    J.Count(c, "sec", sec, lvl)
+    if f.cost then J.Count(c, "copper", f.cost, lvl) end
+    J.Max(c, "longest", sec)
+end
+
+-- At login: a flight you're still on carries on; one that ended while the game was closed is dropped
+function L.ResumeFlight()
+    local db = ns.db
+    if db and db.flying and not call(UnitOnTaxi, "player") then db.flying = nil end
+end
+
+----------------------------------------------------------------------------------------------------
 -- Auction house and mail
 
 -- An AH action waiting for its money change: { act = "post" | "buyout" | "bid", detail = "Item xN" }
@@ -1134,9 +1190,7 @@ function L.Hook()
     end
     local function safely(fn) return function(...) pcall(fn, ...) end end
     hook(nil, "RepairAllItems", safely(function() L.MoneyHint({ source = "repair", sign = -1 }) end))
-    hook(nil, "TakeTaxiNode", safely(function(i)
-        L.MoneyHint({ source = "flight", sign = -1, detail = str(call(TaxiNodeName, i)) })
-    end))
+    hook(nil, "TakeTaxiNode", safely(L.OnTakeTaxi))
     hook(nil, "ConfirmTalentWipe", safely(function()
         L.MoneyHint({ source = "respec", sign = -1 })
         J.Count(ns.db.counts.character, "respecs")
@@ -1194,6 +1248,7 @@ function L.OnLogin()
     L.InitDB()
     L.Identity()
     L.ImportBaseline()
+    L.ResumeFlight()
     st.lastMoney = number(call(GetMoney))
     st.lastXP, st.lastXPMax, st.xpLevel = number(call(UnitXP, "player")), number(call(UnitXPMax, "player")), level()
     L.Hook()
@@ -1253,6 +1308,8 @@ local handlers = {
     TRADE_SKILL_UPDATE = function() L.OnTradeSkill() end,
     CRAFT_SHOW = function() L.OnTradeSkill() end,
     DAMAGE_METER_RESET = function() st.meterLast = 0 end,
+    PLAYER_CONTROL_LOST = function() L.CheckFlight() end,
+    PLAYER_CONTROL_GAINED = function() L.CheckFlight() end,
     PLAYER_INTERACTION_MANAGER_FRAME_SHOW = function(kind) L.OnInteraction(true, kind) end,
     PLAYER_INTERACTION_MANAGER_FRAME_HIDE = function(kind) L.OnInteraction(false, kind) end,
 }

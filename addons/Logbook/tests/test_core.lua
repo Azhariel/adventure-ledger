@@ -324,6 +324,35 @@ return function(H)
         eq(row.level, 5); eq(row.money, 300)
     end)
 
+    test("a flight: route, fare and time in the air, even across a /reload", function()
+        local _, st = boot()
+        st.taxiHere = 2
+        W.fire("TAXIMAP_OPENED"); TakeTaxiNode(4); W.fire("TAXIMAP_CLOSED")
+        st.money = st.money - 400; W.fire("PLAYER_MONEY"); W.runTimers()
+        st.taxi = true; W.fire("PLAYER_CONTROL_LOST")
+        st.now = st.now + 100
+        local saved = LogbookCharDB -- /reload while in the air
+        local _, st2 = boot({ charDB = saved, reload = true, taxi = true, now = st.now })
+        st2.now = st2.now + 120
+        st2.taxi = false; W.fire("PLAYER_CONTROL_GAINED")
+        local fl = W.rows("fl")
+        eq(#fl, 1); eq(fl[1].args[1], "Node2"); eq(fl[1].args[2], "Node4"); eq(fl[1].args[3], "400"); eq(fl[1].args[4], "220")
+        local c = LogbookCharDB.counts.flights
+        eq(c.n, 1); eq(c.copper, 400); eq(c.sec, 220); eq(c.longest, 220); eq(c["sec:20"], 220)
+        eq(W.rows("mn")[1].args[2], "flight")
+        W.fire("PLAYER_CONTROL_GAINED"); eq(#W.rows("fl"), 1, "one landing, one line")
+    end)
+
+    test("a flight picked but never taken is dropped; the tick catches a landing without the event", function()
+        local _, st = boot()
+        TakeTaxiNode(3)
+        st.now = st.now + 20; st.ticker()
+        eq(LogbookCharDB.flying, nil, "cancelled")
+        TakeTaxiNode(3); st.taxi = true; st.ticker()
+        st.now = st.now + 60; st.taxi = false; st.ticker()
+        eq(W.rows("fl")[1].args[4], "60")
+    end)
+
     test("the tick: activity per level, distance, trail; logout closes the session", function()
         local _, st = boot()
         st.ticker()

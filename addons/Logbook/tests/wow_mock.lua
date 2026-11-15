@@ -9,7 +9,7 @@ function M.install(opts)
         now = opts.now or 1794000000, clock = 100, money = opts.money or 1000, level = opts.level or 20,
         xp = opts.xp or 500, xpMax = opts.xpMax or 10000, zone = opts.zone or "The Barrens", map = opts.map or 1413,
         x = 0.5, y = 0.4, world = { 100, 200 }, speed = 0, afk = false, combat = false, dead = false, ghost = false,
-        resting = false, taxi = false, instance = false, instanceType = "none", instanceName = nil,
+        resting = false, taxi = opts.taxi or false, instance = false, instanceType = "none", instanceName = nil,
         target = nil, units = {}, skills = opts.skills or {}, inbox = {}, sendItems = {}, secrets = {},
         quests = {}, spells = {}, timers = {}, printed = {}, played = opts.played or 50000,
     }
@@ -114,6 +114,9 @@ function M.install(opts)
     RepairAllItems = function() end
     TakeTaxiNode = function() end
     TaxiNodeName = function(i) return "Node" .. i end
+    NumTaxiNodes = function() return 5 end
+    TaxiNodeGetType = function(i) return i == (st.taxiHere or 1) and "CURRENT" or "REACHABLE" end
+    TaxiNodeCost = function(i) return i * 100 end
     BuyMerchantItem = function() end
     GetMerchantItemInfo = function(i) return "Merchant item " .. i end
     C_Container = {
