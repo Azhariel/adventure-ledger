@@ -4,6 +4,9 @@ A dashboard for WoW Forever built from what your addons already save: leveling, 
 best crafts, net worth, the auction house (your faction's and the Neutral one, kept apart), fights and damage,
 quests, deaths and flights, with forecasts. Plus a live view from the combat log while you play.
 
+Made by Azhariel: [GitHub](https://github.com/Azhariel) · [Ko-fi](https://ko-fi.com/azhariel). Bug reports and ideas are welcome in the
+[issues](https://github.com/Azhariel/adventure-ledger/issues).
+
 Two parts:
 
 - **`addons/`**: the in-game half, six addons that record what the dashboard shows.
@@ -72,7 +75,8 @@ they hold your characters' data.
 
 A menu on the left holds every module, grouped as `~/character` (Overview, Progress, Gold, Combat & quests: the
 character picked above the menu), `~/account` (Characters, Inventory, Mail to alts, Drop rates), `~/market`
-(Signals, Stockpile, Browse, Movers, Faction vs Neutral, Your trades, Crafting) and `~/live`. The address bar
+(Signals, Stockpile, Browse, Movers, Faction vs Neutral, Your trades, Crafting), `~/live` and `~/about` (what each
+module shows, for new users). The address bar
 remembers the module (`dashboard.html#/stockpile`). Colours are Dracula, with fixed roles: **cyan = Faction AH,
 orange = Neutral AH, pink dashes and band = a forecast**.
 
