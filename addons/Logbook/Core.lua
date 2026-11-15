@@ -85,7 +85,8 @@ function L.Reset()
     st.tradeSkill, st.gather, st.lootKind, st.questTitle, st.questTitles = nil, nil, nil, nil, {}
     st.turnedIn = {}
     st.ahAction, st.xpFlushing, st.moneyFlushing, st.wasDead = nil, nil, nil, nil
-    st.meterLast, st.meterReading, st.mailBought = nil, nil, nil
+    st.meterLast, st.meterReading, st.mailBought, st.abandoning = nil, nil, nil, nil
+    st.abandonTarget, st.flight = nil, nil
 end
 L.Reset()
 
@@ -654,6 +655,26 @@ end
 
 -- A quest leaving the log without being turned in was abandoned. QUEST_REMOVED and QUEST_TURNED_IN can come
 -- in either order, so the check waits a moment.
+L.ABANDON_SECONDS = 10 -- an abandon click this recent explains a quest leaving the log
+
+-- The abandon dialog names its quest first (SetAbandonQuest); the confirmation (AbandonQuest) may clear it
+function L.OnSetAbandon()
+    local Q = rawget(_G, "C_QuestLog")
+    local id = Q and number(call(Q.GetAbandonQuest))
+    if id and id > 0 then st.abandonTarget = id end
+end
+
+-- You confirmed "Abandon": remember which quest (retail names it by id, Classic by title)
+function L.OnAbandon()
+    local Q = rawget(_G, "C_QuestLog")
+    local id = Q and number(call(Q.GetAbandonQuest))
+    if not id or id <= 0 then id = st.abandonTarget end
+    local title = str(call(GetAbandonQuestName)) or (id and questTitle(id))
+    st.abandoning, st.abandonTarget = { id = id, title = title, at = ns.Clock() }, nil
+end
+
+-- A quest left the log. Only one you chose to abandon is logged as abandoned: a quest can also leave without a
+-- turn-in when it fails or the game removes it.
 function L.OnQuestRemoved(id)
     id = number(id)
     if not id then return end
@@ -661,6 +682,11 @@ function L.OnQuestRemoved(id)
         if st.turnedIn[id] then st.turnedIn[id] = nil return end
         local title = st.questTitles[id] or questTitle(id)
         st.questTitles[id] = nil
+        local a = st.abandoning
+        if not a or ns.Clock() - a.at > L.ABANDON_SECONDS then return end
+        if a.id and a.id ~= id then return end
+        if not a.id and a.title and title and a.title ~= title then return end
+        st.abandoning = nil
         L.Log("qx", id, title)
         J.Count(ns.db.counts.quests, "abandoned", 1, level())
     end)
@@ -1116,6 +1142,12 @@ function L.Hook()
         J.Count(ns.db.counts.character, "respecs")
     end))
     hook(nil, "BuyMerchantItem", safely(L.OnBuyMerchant))
+    if C_QuestLog and type(C_QuestLog.AbandonQuest) == "function" then
+        hook(C_QuestLog, "SetAbandonQuest", safely(L.OnSetAbandon))
+        hook(C_QuestLog, "AbandonQuest", safely(L.OnAbandon))
+    else
+        hook(nil, "AbandonQuest", safely(L.OnAbandon))
+    end
     hook(nil, "TakeInboxMoney", safely(L.OnTakeMail))
     hook(nil, "AutoLootMailItem", safely(L.OnTakeMail))
     hook(nil, "TakeInboxItem", safely(L.OnTakeMailItem))

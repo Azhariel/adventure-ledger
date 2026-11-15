@@ -32,7 +32,7 @@ is guarded, so a hidden value leaves a field empty rather than breaking anything
 | `mn` | gold change: delta, source, what | `PLAYER_MONEY`, explained by hooks (repair, flight, vendor sale or buy, mail, AH, respec, postage), the loot line, a quest reward, or the open window |
 | `ah` | auction post (deposit), buyout, sale, expiry | AH post / purchase hooks, mail invoices, the expiry system line |
 | `ma` | mail: AH invoice (buyer, copper, item), item taken, item sent | `TakeInboxMoney`, `AutoLootMailItem`, `TakeInboxItem`, `SendMail` hooks |
-| `qa`, `qt`, `qx` | quest accepted (id, title, level), turned in (id, XP, copper, title), abandoned | `QUEST_ACCEPTED`, `QUEST_TURNED_IN`, `QUEST_REMOVED` without a turn-in |
+| `qa`, `qt`, `qx` | quest accepted (id, title, level), turned in (id, XP, copper, title), abandoned | `QUEST_ACCEPTED`, `QUEST_TURNED_IN`, `QUEST_REMOVED` right after you confirm Abandon (a failed or removed quest isn't an abandon) |
 | `de` | death: likely killer, npc, environment, place, killer level and class, by a player | `PLAYER_DEAD`, your last hostile target in that fight, breath / fatigue timers |
 | `fi` | fight from the damage meter: seconds, damage, taken, healed, enemies hit, who hurt you most (and how much), killing blow (attacker, spell) | `C_DamageMeter`, each finished session read once after `PLAYER_REGEN_ENABLED` |
 | `sk` | skill rank: name, rank, max | `GetProfessions`, `CHAT_MSG_SKILL` (weapon skills) |

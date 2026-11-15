@@ -94,8 +94,28 @@ return function(H)
         eq(#W.rows("qx"), 0, "turned in, not abandoned")
         st.quests[4] = { "Wanted: Lok'Tar", 25 }
         W.fire("QUEST_ACCEPTED", 4, 900)
+        W.fire("QUEST_REMOVED", 6504); W.runTimers()
+        eq(#W.rows("qx"), 0, "a hidden quest the game removed on its own isn't an abandon")
+        st.abandon = "Wanted: Lok'Tar"; AbandonQuest()
         W.fire("QUEST_REMOVED", 900); W.runTimers()
         eq(W.rows("qx")[1].args[2], "Wanted: Lok'Tar"); eq(LogbookCharDB.counts.quests.abandoned, 1)
+    end)
+
+    test("retail abandon: C_QuestLog names the quest by id", function()
+        local _, st = boot()
+        local target = 0
+        C_QuestLog = { GetAbandonQuest = function() return target end,
+            SetAbandonQuest = function() target = 1095 end,
+            AbandonQuest = function() target = 0 end, -- the confirmation clears the target before our hook runs
+            GetTitleForQuestID = function(id) return id == 1095 and "Further Instructions" or nil end }
+        -- the hook is installed at login: log in again with this API
+        local ns2 = {}
+        for _, f in ipairs({ "Journal.lua", "Core.lua" }) do assert(loadfile(H.root .. f))("Logbook", ns2) end
+        W.fire("PLAYER_LOGIN"); W.fire("PLAYER_ENTERING_WORLD", false, true)
+        C_QuestLog.SetAbandonQuest(); C_QuestLog.AbandonQuest()
+        W.fire("QUEST_REMOVED", 6504); W.fire("QUEST_REMOVED", 1095); W.runTimers()
+        local qx = W.rows("qx")
+        eq(#qx, 1); eq(qx[1].args[1], "1095"); eq(qx[1].args[2], "Further Instructions")
     end)
 
     test("retail quest and profession API: quest ID only, GetProfessions with gaps", function()
