@@ -85,7 +85,7 @@ function L.Reset()
     st.tradeSkill, st.gather, st.lootKind, st.questTitle, st.questTitles = nil, nil, nil, nil, {}
     st.turnedIn = {}
     st.ahAction, st.xpFlushing, st.moneyFlushing, st.wasDead = nil, nil, nil, nil
-    st.meterLast, st.meterReading = nil, nil
+    st.meterLast, st.meterReading, st.mailBought = nil, nil, nil
 end
 L.Reset()
 
@@ -543,10 +543,36 @@ L.WINDOWS = {
     QUEST_COMPLETE = { "quest", true }, QUEST_FINISHED = { "quest", false },
 }
 
+-- The retail client opens NPC windows through the player interaction manager; its old *_CLOSED events don't
+-- always fire (the mailbox stayed "open" through a whole vendor visit). Enum.PlayerInteractionType values:
+L.INTERACTIONS = { [1] = "trade", [3] = "gossip", [5] = "merchant", [6] = "taxi", [7] = "trainer", [8] = "bank",
+    [12] = "merchant", [17] = "mail", [21] = "auction" }
+-- You talk to one NPC at a time: opening one of these windows closes the others
+L.NPC_WINDOWS = { merchant = true, mail = true, auction = true, bank = true, trainer = true, taxi = true,
+    gossip = true }
+
+function L.SetWindow(name, isOpen)
+    if isOpen then
+        if L.NPC_WINDOWS[name] then
+            for other in pairs(L.NPC_WINDOWS) do
+                if other ~= name then st.frames[other] = nil end -- closed for good: no grace
+            end
+        end
+        st.frames[name] = true
+    elseif st.frames[name] == true then
+        st.frames[name] = ns.Clock()
+    end
+end
+
 function L.OnWindow(event)
     local w = L.WINDOWS[event]
     if not w then return end
-    st.frames[w[1]] = w[2] or ns.Clock()
+    L.SetWindow(w[1], w[2])
+end
+
+function L.OnInteraction(isOpen, kind)
+    local name = L.INTERACTIONS[number(kind) or -1]
+    if name then L.SetWindow(name, isOpen) end
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -657,7 +683,9 @@ local function lootHow(how)
     if how == "created" then return "made" end
     if how == "won" then return "roll" end
     if how == "loot" then return "loot" end
-    if open("mail") then return "mail" end
+    if open("mail") then
+        return (st.mailBought and ns.Clock() - st.mailBought <= 3) and "bought" or "mail"
+    end
     if open("merchant") then return "bought" end
     if open("trade") then return "trade" end
     if open("quest") or (st.questHintAt and ns.Clock() - st.questHintAt <= 3) then return "quest" end
@@ -945,6 +973,7 @@ function L.OnTakeMail(index)
             L.MoneyHint({ source = "auction", amount = money, detail = what })
         end
     elseif kind == "buyer" and item then
+        st.mailBought = ns.Clock()
         L.Log("ma", "invoice", player or "?", nil, J.ItemQty(item, count))
     elseif money > 0 then
         L.MoneyHint({ source = "mail", amount = money, detail = sender })
@@ -960,9 +989,17 @@ end
 
 function L.OnTakeMailItem(index, attachment)
     if not ns.db then return end
+    -- an item you won or bought on the AH arrives with a "buyer" invoice: it was bought, not sent to you
+    local kind, _, seller = invoiceItem(index)
+    st.mailBought = kind == "buyer" and ns.Clock() or nil
     local _, _, sender = call(GetInboxHeaderInfo, index)
     local name, _, _, n = call(GetInboxItem, index, attachment)
-    if str(name) then L.Log("ma", "take", str(sender), nil, J.ItemQty(name, number(n))) end
+    if not str(name) then return end
+    if kind == "buyer" then
+        L.Log("ma", "invoice", seller or "?", nil, J.ItemQty(name, number(n)))
+    else
+        L.Log("ma", "take", str(sender), nil, J.ItemQty(name, number(n)))
+    end
 end
 
 function L.OnSendMail(to)
@@ -996,9 +1033,22 @@ function L.OnUseContainerItem(bag, slot)
     if name then L.MoneyHint({ source = "vendor", sign = 1, detail = J.ItemQty(name, count) }) end
 end
 
+-- The item's name at a merchant slot: C_MerchantFrame.GetItemInfo (retail 11+), the old GetMerchantItemInfo, or
+-- the slot's link
+function L.MerchantItemName(index)
+    local info = C_MerchantFrame and call(C_MerchantFrame.GetItemInfo, index)
+    local name = type(info) == "table" and str(info.name)
+    if not name then name = str(call(GetMerchantItemInfo, index)) end
+    if not name then
+        local link = str(call(GetMerchantItemLink, index))
+        name = link and select(2, J.ParseItemLink(link))
+    end
+    return name
+end
+
 function L.OnBuyMerchant(index, qty)
-    local name = str(call(GetMerchantItemInfo, index))
-    if name then L.MoneyHint({ source = "vendor", sign = -1, detail = J.ItemQty(name, number(qty)) }) end
+    local name = L.MerchantItemName(index)
+    L.MoneyHint({ source = "vendor", sign = -1, detail = name and J.ItemQty(name, number(qty)) or nil })
 end
 
 local function itemNameByID(id)
@@ -1132,6 +1182,8 @@ local handlers = {
     TRADE_SKILL_UPDATE = function() L.OnTradeSkill() end,
     CRAFT_SHOW = function() L.OnTradeSkill() end,
     DAMAGE_METER_RESET = function() st.meterLast = 0 end,
+    PLAYER_INTERACTION_MANAGER_FRAME_SHOW = function(kind) L.OnInteraction(true, kind) end,
+    PLAYER_INTERACTION_MANAGER_FRAME_HIDE = function(kind) L.OnInteraction(false, kind) end,
 }
 for event in pairs(L.WINDOWS) do
     if not handlers[event] then handlers[event] = function() L.OnWindow(event) end end

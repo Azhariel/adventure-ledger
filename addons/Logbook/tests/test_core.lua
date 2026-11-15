@@ -113,6 +113,33 @@ return function(H)
         C_QuestLog, GetProfessions, GetProfessionInfo = nil, nil, nil
     end)
 
+    test("retail windows: AH item from mail is bought; a vendor after the mailbox is vendor, even without MAIL_CLOSED", function()
+        local _, st = boot()
+        GetMerchantItemInfo = nil
+        C_MerchantFrame = { GetItemInfo = function(i) return { name = "Fine Thread", price = 100 } end }
+        W.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 17)
+        st.inbox[1] = { sender = "Horde Auction House", subject = "Auction won: Cerulean Dye (2)",
+            invoice = { kind = "buyer", item = "Cerulean Dye", player = "Kazuh Spellweaver" },
+            items = { { "Cerulean Dye", 2 } } }
+        TakeInboxItem(1, 1)
+        W.fire("CHAT_MSG_LOOT", "You receive item: " .. W.link(249409, "Cerulean Dye", "1eff00") .. "x2.")
+        eq(W.rows("ma")[1].args[1], "invoice"); eq(W.rows("ma")[1].args[2], "Kazuh Spellweaver")
+        eq(W.rows("lo")[1].args[4], "bought")
+        st.clock = st.clock + 30
+        W.fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 5) -- the merchant; no MAIL_CLOSED ever came
+        BuyMerchantItem(3, 1)
+        st.money = st.money - 100; W.fire("PLAYER_MONEY")
+        W.fire("CHAT_MSG_LOOT", "You receive item: " .. W.link(2321, "Fine Thread") .. ".")
+        W.runTimers()
+        local mn = W.rows("mn")
+        eq(mn[1].args[2], "vendor"); eq(mn[1].args[3], "Fine Thread")
+        eq(W.rows("lo")[2].args[4], "bought")
+        W.fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 5)
+        st.clock = st.clock + 30
+        st.money = st.money - 50; W.fire("PLAYER_MONEY"); W.runTimers()
+        eq(W.rows("mn")[2].args[2], "other", "nothing open any more")
+    end)
+
     test("money by source: loot line, vendor sale with the item, flight, repair", function()
         local _, st = boot()
         st.money = st.money + 25; W.fire("PLAYER_MONEY"); W.fire("CHAT_MSG_MONEY", "You loot 25 Copper"); W.runTimers()
