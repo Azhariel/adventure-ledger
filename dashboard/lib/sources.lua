@@ -144,6 +144,8 @@ end
 function S.mergeJournal(lb, mb)
     if type(lb) ~= "table" then return mb end
     local since = tonumber(lb.since) or math.huge
+    -- without MuddyBoots' file, the copy of its older history Logbook keeps (LogbookCharDB.history)
+    if type(mb) ~= "table" and type(lb.history) == "table" then mb = lb.history end
     mb = type(mb) == "table" and mb or {}
     local out = { char = {}, counts = {}, log = {}, sessions = {}, snap = {}, trail = { v = 1, chunks = {} },
         since = lb.since, source = mb.log and "Logbook + MuddyBoots" or "Logbook" }

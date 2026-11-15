@@ -866,6 +866,19 @@ test("AH trades: open-all retries logged by an older Logbook count as one sale",
     eq(ah.totals.soldCount, 2); eq(ah.totals.sold, 14180)
 end)
 
+test("journal: Logbook's copy of MuddyBoots' history stands in for MuddyBoots' file", function()
+    local old = { char = { name = "Hero", first = { t = 5, level = 1 } }, log = { "10|1|1|1|1|zo|Elwynn", "150|4|1|1|1|tx|A|B|50" },
+        sessions = { { start = 10, last = 20 } }, trail = { v = 1, chunks = { { m = 1, t = 10, d = "0,1,1" } } }, snap = { [2] = { t = 12 } } }
+    local lb = { since = 100, char = { name = "Hero", level = 3 }, log = { "200|9|1|1|1|zo|Westfall" },
+        sessions = { { start = 200, last = 300 } }, trail = { v = 1, chunks = {} }, snap = {}, counts = {} }
+    local withFile = S.mergeJournal(lb, old)
+    lb.history = old
+    local withCopy = S.mergeJournal(lb, nil)
+    eq(#withCopy.log, #withFile.log); eq(withCopy.log[1], "10|1|1|1|1|zo|Elwynn"); eq(withCopy.log[3], "200|9|1|1|1|zo|Westfall")
+    eq(#withCopy.sessions, 2); eq(#withCopy.trail.chunks, 1); eq(withCopy.snap[2].t, 12); eq(withCopy.char.first.t, 5)
+    eq(S.mergeJournal(lb, { log = { "11|1|1|1|1|zo|Duskwood" } }).log[1], "11|1|1|1|1|zo|Duskwood", "MuddyBoots' file wins")
+end)
+
 test("level: the highest any source knows, never a newer row's stale level 1", function()
     local rows = S.mergeAccountChars({ chars = { d = { name = "Des", level = 1, money = 0, lastSeen = 300 } } },
         { chars = { d = { name = "Des", level = 5, money = 267, lastSeen = 200 } } })
