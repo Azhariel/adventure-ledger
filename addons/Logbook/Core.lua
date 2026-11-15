@@ -1017,21 +1017,27 @@ end
 -- Selling to a vendor: the item is still in the slot (locked) when the hook runs
 function L.OnUseContainerItem(bag, slot)
     if not open("merchant") then return end
-    local name, count
+    local name, count, link
     if C_Container and C_Container.GetContainerItemInfo then
         local info = call(C_Container.GetContainerItemInfo, bag, slot)
         if type(info) == "table" then
             count = number(info.stackCount)
-            local _, iname = J.ParseItemLink(str(info.hyperlink))
+            link = str(info.hyperlink)
+            local _, iname = J.ParseItemLink(link)
             name = iname
         end
     else
-        local _, n, _, _, _, _, link = call(GetContainerItemInfo, bag, slot)
-        count = number(n)
-        local _, iname = J.ParseItemLink(str(link))
+        local _, n, _, _, _, _, l = call(GetContainerItemInfo, bag, slot)
+        count, link = number(n), str(l)
+        local _, iname = J.ParseItemLink(link)
         name = iname
     end
-    if name then L.MoneyHint({ source = "vendor", sign = 1, detail = J.ItemQty(name, count) }) end
+    if not name then return end
+    -- with the item's sell price the hint names its exact amount, so a fast run of sales can't swap names
+    local price = number(select(11, call((C_Item and C_Item.GetItemInfo) or GetItemInfo, link)))
+    if price == 0 then return end -- can't be sold: no money is coming
+    L.MoneyHint({ source = "vendor", sign = 1, amount = price and price * (count or 1) or nil,
+        detail = J.ItemQty(name, count) })
 end
 
 -- The item's name at a merchant slot: C_MerchantFrame.GetItemInfo (retail 11+), the old GetMerchantItemInfo, or

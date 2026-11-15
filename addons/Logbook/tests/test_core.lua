@@ -221,6 +221,27 @@ return function(H)
         eq(W.rows("sk")[4].args[2], "3"); eq(W.rows("sk")[4].args[3], nil, "an unknown max stays empty, not 0")
     end)
 
+    test("a fast run of vendor sales: each sale named by its exact price, a duplicate hint can't take another's", function()
+        local _, st = boot()
+        local prices = { [4865] = 5, [7098] = 6, [2210] = 3 }
+        C_Item.GetItemInfo = function(link)
+            local id = tonumber(link:match("item:(%d+)"))
+            return "x", link, 0, 1, 1, "Junk", "Junk", 1, "", 0, prices[id]
+        end
+        st.bags = { ["0:1"] = { count = 4, link = W.link(4865, "Ruined Pelt", "9d9d9d") },
+            ["0:2"] = { count = 4, link = W.link(7098, "Splintered Tusk", "9d9d9d") },
+            ["0:3"] = { count = 1, link = W.link(2210, "Battered Buckler", "9d9d9d") },
+            ["0:4"] = { count = 1, link = W.link(6948, "Hearthstone") } }
+        W.fire("MERCHANT_SHOW")
+        C_Container.UseContainerItem(0, 1); C_Container.UseContainerItem(0, 1) -- clicked twice
+        C_Container.UseContainerItem(0, 2); C_Container.UseContainerItem(0, 3)
+        C_Container.UseContainerItem(0, 4) -- no sell price: no hint
+        for _, d in ipairs({ 20, 24, 3 }) do st.money = st.money + d; W.fire("PLAYER_MONEY") end
+        W.runTimers()
+        local mn = W.rows("mn")
+        eq(mn[1].args[3], "Ruined Pelt x4"); eq(mn[2].args[3], "Splintered Tusk x4"); eq(mn[3].args[3], "Battered Buckler")
+    end)
+
     test("a fight, a death to your target, and the run back", function()
         local _, st = boot()
         st.units.target = { name = "Dalaran Conjuror", guid = "Creature-0-1-2-3-1915-0000", hostile = true, level = 17,
