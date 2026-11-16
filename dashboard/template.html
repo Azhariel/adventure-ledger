@@ -1569,17 +1569,17 @@ function renderMarket(m) {
     el("marketBox").innerHTML = empty(`Needs at least 3 days of AH scans to know an item's usual price; you have ${m.scanDays}. Run a full Auctionator scan once a day and this fills in.`);
     return;
   }
-  el("marketHint").textContent = `Usual price = median of the lowest price on each earlier scan day (${m.scanDays} scan days so far). Cheap = 30% or more under usual; high = 25% or more over.`;
+  el("marketHint").textContent = `Usual price = median of the lowest price on each earlier scan day (${m.scanDays} scan days so far). Cheap = 30% or more under usual; high = 25% or more over. Click a row for its price history.`;
   const buy = `<h3 class="sub2">Cheap right now</h3><div class="scroll"><table id="buyTable"></table></div>`;
   const sell = `<h3 class="sub2">You own it and it's high</h3><div class="scroll"><table id="sellTable"></table></div>`;
   el("marketBox").innerHTML = buy + sell;
   table("buyTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Under", n: 1 }, { t: "Listed", n: 1 }],
-    m.buy.map(b => [whItem(b.id, b.name), money(b.now), money(b.usual), `<span class="pos" data-sort="${b.pct}">${pct(b.pct)}</span>`, b.available ?? ""]),
-    "Nothing well under its usual price in the last scan.");
+    m.buy.map(b => rowId(b.id, [whItem(b.id, b.name), money(b.now), money(b.usual), `<span class="pos" data-sort="${b.pct}">${pct(b.pct)}</span>`, b.available ?? ""])),
+    "Nothing well under its usual price in the last scan.", { onRender: () => pickRows(mktItem) });
   table("sellTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Over", n: 1 }, { t: "You have", n: 1 }, { t: "Extra", n: 1 }],
-    m.sell.map(x => [whItem(x.id, x.name), money(x.now), money(x.usual), `<span class="pos" data-sort="${x.pct}">+${pct(x.pct)}</span>`,
-      `<span data-sort="${x.count}" title="${esc(x.holders.join(", "))}">${x.count}</span>`, money(x.extra)]),
-    "Nothing you own is well above its usual price.");
+    m.sell.map(x => rowId(x.id, [whItem(x.id, x.name), money(x.now), money(x.usual), `<span class="pos" data-sort="${x.pct}">+${pct(x.pct)}</span>`,
+      `<span data-sort="${x.count}" title="${esc(x.holders.join(", "))}">${x.count}</span>`, money(x.extra)])),
+    "Nothing you own is well above its usual price.", { onRender: () => pickRows(mktItem) });
 }
 
 function renderMail(list, people) {
@@ -1684,6 +1684,9 @@ function modSignals() {
     "Nothing you hold is above its launch low.");
   // Buy low / sell high (faction prices, from the build)
   renderMarket(DATA.market);
+  // The price history below opens on the item picked last, else your top seller, else the first deal
+  const mk = DATA.market || {}, first = [(mk.sell || [])[0], best[0], (mk.buy || [])[0]].find(Boolean);
+  inspect(mktItem && M.items[String(mktItem)] ? mktItem : first && first.id);
 }
 
 function modStockpile() {
@@ -2417,7 +2420,7 @@ function inspect(id) {
   inspCharts.splice(0).forEach(ch => ch.destroy());
   const F = DATA.marketTab && DATA.marketTab.items[String(id)], N = DATA.neutralTab && DATA.neutralTab.items[String(id)];
   const it = F || N;
-  if (!it) { el("itemTitle").textContent = "Price history"; el("itemHint").textContent = "Click an item in a table below."; el("itemLegend").innerHTML = ""; el("itemMethod").textContent = ""; return; }
+  if (!it) { el("itemTitle").textContent = "Price history"; el("itemHint").textContent = "Click an item row to see its price history here."; el("itemLegend").innerHTML = ""; el("itemMethod").textContent = ""; return; }
   mktItem = it.id; saveMkt(); pickRows(it.id);
   const active = house === "neutral" && N ? N : F || N, activeName = active === N ? "Neutral" : "Faction";
   el("itemTitle").innerHTML = whItem(it.id, it.name);
