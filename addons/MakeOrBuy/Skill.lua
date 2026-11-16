@@ -62,6 +62,23 @@ function Skill.Observe(bounds, s, difficulty, retried)
     return bounds
 end
 
+-- True when bounds hold an observation made at a skill above `cap`, the profession's skill cap. Caps only go up,
+-- so that can't be a real colour: it was seen while another profession's skill was read (a scan racing a
+-- profession switch). Each observation at skill s leaves s + 1 as a lower bound or s as an upper bound.
+function Skill.Impossible(bounds, cap)
+    if type(bounds) ~= "table" or type(cap) ~= "number" or cap <= 0 then
+        return false
+    end
+    for _, key in ipairs({ "y", "g", "r" }) do
+        local v = bounds[key]
+        if type(v) == "table" then
+            if type(v[1]) == "number" and v[1] - 1 > cap then return true end
+            if type(v[2]) == "number" and v[2] < INF and v[2] > cap then return true end
+        end
+    end
+    return false
+end
+
 local function clamp(v, lo, hi)
     if v < lo then v = lo end
     if v > hi then v = hi end

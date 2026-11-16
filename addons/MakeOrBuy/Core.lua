@@ -207,7 +207,7 @@ end
 
 -- Current skill of a profession: level, max
 function ns.CurrentSkill(profession)
-    local level, maxLevel = ns.Scanner.SkillLevel()
+    local level, maxLevel = ns.Scanner.SkillLevel(profession)
     if level then
         return level, maxLevel
     end

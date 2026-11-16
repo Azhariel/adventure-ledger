@@ -207,4 +207,34 @@ return function(H)
         C_TradeSkillUI.GetChildProfessionInfo = function() return { skillLevel = 12, maxSkillLevel = 75 } end
         H.eq(ns.Scanner.SkillLevel(), 12)
     end)
+
+    H.test("SkillLevel(profession) skips a child still describing the previous profession (switch race)", function()
+        local ns = fresh(tailoring)
+        -- First Aid's window (base 129, cap 75) while the child info is still Tailoring's 78/150
+        C_TradeSkillUI.GetBaseProfessionInfo = function() return { professionID = 129, skillLevel = 21, maxSkillLevel = 75 } end
+        C_TradeSkillUI.GetChildProfessionInfo = function() return { professionID = 2540, parentProfessionID = 197, skillLevel = 78, maxSkillLevel = 150 } end
+        H.eq(ns.Scanner.SkillLevel(129), 21, "another parent: the base reading")
+        C_TradeSkillUI.GetChildProfessionInfo = function() return { skillLevel = 78, maxSkillLevel = 150 } end
+        H.eq(ns.Scanner.SkillLevel(129), 21, "no parent field, but above the base cap of 75")
+        C_TradeSkillUI.GetChildProfessionInfo = function() return { professionID = 2541, parentProfessionID = 129, skillLevel = 22, maxSkillLevel = 75 } end
+        H.eq(ns.Scanner.SkillLevel(129), 22, "First Aid's own child")
+        C_TradeSkillUI.GetBaseProfessionInfo = function() return { professionID = 197, skillLevel = 78, maxSkillLevel = 150 } end
+        C_TradeSkillUI.GetChildProfessionInfo = function() return nil end
+        H.eq(ns.Scanner.SkillLevel(129), nil, "the window is another profession: no reading")
+        H.eq(ns.Scanner.SkillLevel(), 78, "no profession asked: as before")
+    end)
+
+    H.test("Repair forgets skill-up colours seen above the profession's cap", function()
+        local ns = fresh(tailoring)
+        ns.RecipeData = { [129] = { [3275] = { 1, 0, "" }, [3276] = { 40, 0, "t" } } }
+        ns.Scanner.ResetCache()
+        local db = {
+            recipes = { [3275] = { profession = 129 }, [3276] = { profession = 129 } },
+            skill = { [129] = { level = 21, max = 75 } },
+            bounds = { [3275] = { y = { 79, 100000 }, g = { 0, 100000 }, r = { 0, 100000 } }, -- orange at 78 > cap 75
+                       [3276] = { y = { 0, 60 }, g = { 61, 100000 }, r = { 0, 100000 } } },   -- yellow at 60: fine
+        }
+        H.eq(ns.Scanner.Repair(db), 1)
+        H.eq(db.bounds[3275], nil); H.truthy(db.bounds[3276])
+    end)
 end

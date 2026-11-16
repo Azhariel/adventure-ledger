@@ -74,13 +74,23 @@ function Scanner.ReadRecipe(recipeID)
     }
 end
 
--- Current and maximum skill of the open profession: level, max (nil if unknown)
-function Scanner.SkillLevel()
+-- Current and maximum skill of the open profession: level, max (nil if unknown).
+-- `profession` (optional, a ProfessionKey): only a reading of that profession counts. While switching
+-- professions the child info can still describe the previous one, so a child that names another parent is
+-- skipped, and so is a level above the base info's cap (the base info is what names the profession).
+function Scanner.SkillLevel(profession)
     local ui = C_TradeSkillUI
+    local base = safe(ui.GetBaseProfessionInfo)
+    local baseIsIt = base and (profession == nil or base.professionID == nil or base.professionID == profession)
+    local cap = baseIsIt and type(base.maxSkillLevel) == "number" and base.maxSkillLevel > 0 and base.maxSkillLevel or nil
     -- Not ipairs: a missing first function (nil) would end the loop before the second
     for _, name in ipairs({ "GetChildProfessionInfo", "GetBaseProfessionInfo" }) do
-        local info = safe(ui[name])
-        if info and type(info.skillLevel) == "number" and info.skillLevel > 0 then
+        local info = name == "GetBaseProfessionInfo" and base or safe(ui[name])
+        local other = profession ~= nil and info and (
+            (name == "GetBaseProfessionInfo" and not baseIsIt)
+            or (info.parentProfessionID ~= nil and info.parentProfessionID ~= profession and info.professionID ~= profession))
+        if info and not other and type(info.skillLevel) == "number" and info.skillLevel > 0
+            and not (cap and info.skillLevel > cap) then
             return info.skillLevel, info.maxSkillLevel
         end
     end
@@ -147,7 +157,9 @@ function Scanner.ResetCache()
 end
 
 -- Moves recipes saved under the wrong profession (by an earlier scan that raced a profession switch) to the
--- right one, and drops unlearned copies of recipes that are learned. Returns the number of recipes fixed.
+-- right one, drops unlearned copies of recipes that are learned, and forgets skill-up colours seen at a skill
+-- above the recipe's profession cap (the same race, reading another profession's skill). Returns the number of
+-- recipes fixed.
 function Scanner.Repair(db)
     local fixed = 0
     for _, store in ipairs({ db.recipes or {}, db.unlearned or {} }) do
@@ -162,6 +174,16 @@ function Scanner.Repair(db)
     for recipeID in pairs(db.recipes or {}) do
         if db.unlearned and db.unlearned[recipeID] then
             db.unlearned[recipeID] = nil
+        end
+    end
+    if ns.Skill and ns.Skill.Impossible then
+        for recipeID, bounds in pairs(db.bounds or {}) do
+            local recipe = (db.recipes or {})[recipeID]
+            local skill = recipe and db.skill and db.skill[recipe.profession]
+            if skill and ns.Skill.Impossible(bounds, tonumber(skill.max)) then
+                db.bounds[recipeID] = nil
+                fixed = fixed + 1
+            end
         end
     end
     return fixed
@@ -203,7 +225,7 @@ function Scanner.ScanOpenProfession(db)
         return nil, "mismatch"
     end
 
-    local level, maxLevel = Scanner.SkillLevel()
+    local level, maxLevel = Scanner.SkillLevel(profession)
     db.unlearned = db.unlearned or {}
     db.bounds = db.bounds or {}
     db.skill = db.skill or {}
