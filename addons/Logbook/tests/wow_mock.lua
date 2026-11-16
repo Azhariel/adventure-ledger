@@ -53,8 +53,20 @@ function M.install(opts)
         return d and d.guid
     end
     GetRealmName = function() return "CAMWOW US2 Realm 2 PvP" end
-    UnitClass = function() return "Priest", "PRIEST" end
-    UnitRace = function() return "Undead", "Scourge" end
+    UnitClass = function(u)
+        local d = u ~= "player" and st.units[u]
+        if d then return d.classToken, d.classToken end
+        return "Priest", "PRIEST"
+    end
+    UnitRace = function(u)
+        local d = u ~= "player" and st.units[u]
+        if d then return d.race, d.race end
+        return "Undead", "Scourge"
+    end
+    UnitIsUnit = function(a, b) return a == b end
+    GetGuildInfo = function(u) local d = st.units[u] return d and d.guild end
+    GetNumGroupMembers = function() return st.group or 0 end
+    IsInRaid = function() return false end
     UnitFactionGroup = function() return "Horde" end
     UnitSex = function() return 2 end
     UnitLevel = function(u)

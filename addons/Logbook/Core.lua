@@ -87,6 +87,7 @@ function L.Reset()
     st.ahAction, st.xpFlushing, st.moneyFlushing, st.wasDead = nil, nil, nil, nil
     st.meterLast, st.meterReading, st.mailBought, st.abandoning = nil, nil, nil, nil
     st.abandonTarget = nil
+    st.players, st.playerCount, st.met, st.sent = {}, 0, {}, {}
 end
 L.Reset()
 
@@ -712,8 +713,86 @@ L.GATHER = { ["Herb Gathering"] = "Herbalism", ["Herbalism"] = "Herbalism", ["Mi
     ["Fishing"] = "Fishing", ["Disenchant"] = "Enchanting" }
 
 
-function L.OnSpellcast(unit, _, spellID)
+----------------------------------------------------------------------------------------------------
+-- Players you meet: "pl|name|realm|level|class|race|guild|how|spell", at most once per player, way and spell
+-- every L.PLAYER_EVERY seconds. how: target (you targeted them), enemy (an enemy player you targeted or whose
+-- nameplate showed), buff (a spell you cast on them), attack (a spell you cast on an enemy player), group.
+-- A player you only mouse over is remembered, not logged: UNIT_SPELLCAST_SENT names a spell's target by name
+-- only, so a buff cast on someone you moused over can still say who it was.
+L.PLAYER_EVERY = 900
+L.PLAYERS_MAX = 300
+L.SENT_SECONDS = 30
+
+function L.PlayerInfo(unit)
+    if not call(UnitIsPlayer, unit) or call(UnitIsUnit, unit, "player") then return nil end
+    local name, realm = call(UnitName, unit)
+    name = str(name)
+    if not name then return nil end
+    local _, class = call(UnitClass, unit)
+    local _, race = call(UnitRace, unit)
+    return { name = name, realm = str(realm), level = number(call(UnitLevel, unit)), class = str(class),
+        race = str(race), guild = str((call(GetGuildInfo, unit))), hostile = call(UnitCanAttack, "player", unit) and true or false }
+end
+
+-- Remembers the player on unit (target, mouseover, a nameplate, a group member); returns what it learned
+function L.SeePlayer(unit)
+    local p = L.PlayerInfo(unit)
+    if not p then return nil end
+    if not st.players[p.name] then
+        st.playerCount = st.playerCount + 1
+        if st.playerCount > L.PLAYERS_MAX then st.players, st.playerCount = {}, 1 end
+    end
+    st.players[p.name] = p
+    return p
+end
+
+function L.MetPlayer(p, how, spell)
+    if not (p and ns.db) then return end
+    local key = p.name .. "|" .. how .. "|" .. (spell or "")
+    local now = ns.Clock()
+    if st.met[key] and now - st.met[key] < L.PLAYER_EVERY then return end
+    st.met[key] = now
+    L.Log("pl", p.name, p.realm, p.level, p.class, p.race, p.guild, how, spell)
+    J.Count(ns.db.counts.players, how, 1, level())
+end
+
+function L.OnTargetPlayer()
+    local p = L.SeePlayer("target")
+    if p then L.MetPlayer(p, p.hostile and "enemy" or "target") end
+end
+
+function L.OnNameplate(unit)
+    local p = L.SeePlayer(unit)
+    if p and p.hostile then L.MetPlayer(p, "enemy") end
+end
+
+function L.OnGroup()
+    local n = number(call(GetNumGroupMembers)) or 0
+    local raid = call(IsInRaid)
+    for i = 1, n do
+        local p = L.SeePlayer((raid and "raid" or "party") .. i)
+        if p then L.MetPlayer(p, "group") end
+    end
+end
+
+-- UNIT_SPELLCAST_SENT: unit, target name, cast GUID, spell
+function L.OnSpellSent(unit, target, castGUID, spellID)
     if unit ~= "player" then return end
+    target, castGUID = str(target), str(castGUID)
+    if not (target and castGUID) then return end
+    local now = ns.Clock()
+    for k, s in pairs(st.sent) do if now - s.at > L.SENT_SECONDS then st.sent[k] = nil end end
+    st.sent[castGUID] = { name = target:match("^([^%-]+)") or target, spell = number(spellID), at = now }
+end
+
+function L.OnSpellcast(unit, castGUID, spellID)
+    if unit ~= "player" then return end
+    local sent = str(castGUID) and st.sent[castGUID]
+    if sent then
+        st.sent[castGUID] = nil
+        local p = st.players[sent.name]
+        if p then L.MetPlayer(p, p.hostile and "attack" or "buff", spellName(number(spellID) or sent.spell)) end
+    end
     local name = spellName(number(spellID))
     if not name or name:match("^%u+$") then return end -- LOGINEFFECT and other internal casts
     J.Count(ns.db.counts.spells, name)
@@ -1319,9 +1398,11 @@ local handlers = {
     PLAYER_REGEN_DISABLED = L.OnCombatStart,
     PLAYER_REGEN_ENABLED = L.OnCombatEnd,
     UNIT_HEALTH = L.OnHealth,
-    PLAYER_TARGET_CHANGED = function() L.Learn("target") end,
-    UPDATE_MOUSEOVER_UNIT = function() L.Learn("mouseover") end,
-    NAME_PLATE_UNIT_ADDED = function(unit) L.Learn(unit) end,
+    PLAYER_TARGET_CHANGED = function() L.Learn("target"); L.OnTargetPlayer() end,
+    UPDATE_MOUSEOVER_UNIT = function() L.Learn("mouseover"); L.SeePlayer("mouseover") end,
+    NAME_PLATE_UNIT_ADDED = function(unit) L.Learn(unit); L.OnNameplate(unit) end,
+    GROUP_ROSTER_UPDATE = L.OnGroup,
+    UNIT_SPELLCAST_SENT = L.OnSpellSent,
     PLAYER_DEAD = L.OnDead,
     PLAYER_ALIVE = L.OnAlive,
     PLAYER_UNGHOST = L.OnUnghost,

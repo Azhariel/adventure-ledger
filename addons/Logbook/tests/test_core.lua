@@ -34,6 +34,39 @@ return function(H)
         eq(LogbookCharDB.baseline.counts.xp.all, 900, "not copied again")
     end)
 
+    test("players: a buff on someone you moused over, a target, an enemy nameplate, a group; once per 15 minutes", function()
+        local _, st = boot()
+        st.spells[1245] = "Power Word: Fortitude"
+        st.units.mouseover = { name = "Soren", player = true, level = 22, classToken = "SHAMAN", race = "Tauren", guild = "Totem Pole" }
+        W.fire("UPDATE_MOUSEOVER_UNIT")
+        eq(#W.rows("pl"), 0, "a mouseover is only remembered")
+        W.fire("UNIT_SPELLCAST_SENT", "player", "Soren-Dawnsworn", "Cast-1", 1245)
+        W.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 1245)
+        local pl = W.rows("pl")
+        eq(#pl, 1); eq(table.concat(pl[1].args, "|"), "Soren||22|SHAMAN|Tauren|Totem Pole|buff|Power Word: Fortitude")
+        W.fire("UNIT_SPELLCAST_SENT", "player", "Soren", "Cast-2", 1245)
+        W.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-2", 1245)
+        eq(#W.rows("pl"), 1, "the same buff again within 15 minutes")
+        W.fire("UNIT_SPELLCAST_SENT", "player", "Azhariel", "Cast-3", 1245)
+        W.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-3", 1245)
+        eq(#W.rows("pl"), 1, "a buff on yourself")
+        st.units.target = { name = "Grim", player = true, hostile = true, level = 30, classToken = "ROGUE", race = "Human" }
+        W.fire("PLAYER_TARGET_CHANGED")
+        eq(W.rows("pl")[2].args[7], "enemy")
+        st.units.nameplate1 = { name = "Bob", player = false, hostile = true }
+        W.fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+        eq(#W.rows("pl"), 2, "a mob's nameplate isn't a player")
+        st.units.party1 = { name = "Dank", player = true, level = 21, classToken = "SHAMAN", race = "Orc" }
+        st.group = 2
+        W.fire("GROUP_ROSTER_UPDATE")
+        eq(W.rows("pl")[3].args[1], "Dank"); eq(W.rows("pl")[3].args[7], "group")
+        eq(LogbookCharDB.counts.players.buff, 1); eq(LogbookCharDB.counts.players.enemy, 1)
+        st.now, st.clock = st.now + 901, st.clock + 901
+        W.fire("UNIT_SPELLCAST_SENT", "player", "Soren", "Cast-4", 1245)
+        W.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-4", 1245)
+        eq(#W.rows("pl"), 4, "logged again after 15 minutes")
+    end)
+
     test("login copies MuddyBoots' older history once, and its rows for alts Logbook hasn't seen", function()
         local muddy = { char = { name = "Azhariel" }, log = { "5|1|1|1|1|zo|Durotar", "6|2|1|1|1|xp|5|kill|Boar" },
             sessions = { { start = 5, last = 6 } } }
