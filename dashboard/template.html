@@ -1982,17 +1982,18 @@ const RP_SPEEDS = [10, 60, 300, 1200];
 const RP_ZOOM_MAX = 12;
 const MAP_IMAGE = { width: 1022, height: 668, left: 10, mapWidth: 1002, mapHeight: 668 }; // zones.py IMAGE
 const MAP_CDN = "https://wow.zamimg.com/images/wow/classic/maps/enus/original/";
-// Kinds of moment: glyph, colour token, and the filter chip it belongs to
+// Kinds of moment: glyph (the quest-giver marks: ? accepted, ! done), colour token, the filter chip it belongs
+// to, and what it means (the glyph's tooltip)
 const RP_KINDS = {
-  lv: { g: "★", c: "--gold", f: "progress" }, qt: { g: "!", c: "--yellow", f: "progress" },
-  qa: { g: "?", c: "--muted", f: "progress" }, qx: { g: "–", c: "--muted", f: "progress" },
-  de: { g: "✕", c: "--red", f: "deaths" },
-  zo: { g: "◇", c: "--cyan", f: "travel" }, fl: { g: "➶", c: "--cyan", f: "travel" },
-  ie: { g: "⌂", c: "--purple", f: "travel" }, il: { g: "⌂", c: "--dim", f: "travel" },
-  in: { g: "●", c: "--green", f: "travel" }, out: { g: "○", c: "--dim", f: "travel" },
-  ga: { g: "✿", c: "--green", f: "loot" }, lo: { g: "◆", c: "--cyan", f: "loot" }, ah: { g: "$", c: "--gold", f: "loot" },
-  sk: { g: "↑", c: "--purple", f: "skills" }, ki: { g: "†", c: "--orange", f: "kills" },
-  pl: { g: "☺", c: "--green", f: "players" }, pe: { g: "⚔", c: "--red", f: "players" },
+  lv: { g: "★", c: "--gold", f: "progress", l: "Level up" }, qt: { g: "!", c: "--yellow", f: "progress", l: "Quest done" },
+  qa: { g: "?", c: "--muted", f: "progress", l: "Quest accepted" }, qx: { g: "–", c: "--muted", f: "progress", l: "Quest abandoned" },
+  de: { g: "✕", c: "--red", f: "deaths", l: "Death" },
+  zo: { g: "◇", c: "--cyan", f: "travel", l: "New zone" }, fl: { g: "➶", c: "--cyan", f: "travel", l: "Flight" },
+  ie: { g: "⌂", c: "--purple", f: "travel", l: "Entered a dungeon" }, il: { g: "⌂", c: "--dim", f: "travel", l: "Left a dungeon" },
+  in: { g: "●", c: "--green", f: "travel", l: "Logged in" }, out: { g: "○", c: "--dim", f: "travel", l: "Logged out" },
+  ga: { g: "✿", c: "--green", f: "loot", l: "Gathered" }, lo: { g: "◆", c: "--cyan", f: "loot", l: "Rare loot" }, ah: { g: "$", c: "--gold", f: "loot", l: "Auction sold" },
+  sk: { g: "↑", c: "--purple", f: "skills", l: "Skill up" }, ki: { g: "†", c: "--orange", f: "kills", l: "Kill" },
+  pl: { g: "☺", c: "--green", f: "players", l: "Player you met" }, pe: { g: "⚔", c: "--red", f: "players", l: "Enemy player" },
 };
 const RP_FILTERS = [["progress", "Levels & quests"], ["deaths", "Deaths"], ["travel", "Travel"], ["players", "Players"],
   ["loot", "Loot & sales"], ["skills", "Skill-ups"], ["kills", "Kills"]];
@@ -2237,7 +2238,7 @@ function rpList() {
   const shown = RP.shown = rpShown(), ch = curChar(), base = ch && ch.replay ? ch.replay.base : 0;
   el("rpCount").textContent = `${shown.length} of ${RP.moments.length}`;
   el("rpList").innerHTML = shown.length ? shown.map((m, i) => `<li data-i="${i}"><span class="t">${clock(base + m.t)}</span>`
-    + `<span class="k" style="color:var(${RP_KINDS[m.k].c})">${RP_KINDS[m.k].g}</span>`
+    + `<span class="k" style="color:var(${RP_KINDS[m.k].c})" title="${RP_KINDS[m.k].l}">${RP_KINDS[m.k].g}</span>`
     + `<span class="x">${esc(m.text)}${m.sub ? `<span class="s">${esc(m.sub)}</span>` : ""}</span></li>`).join("")
     : '<li class="none">Nothing of these kinds in this session. Turn on more above.</li>';
   RP.active = -2; rpActive();

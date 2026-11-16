@@ -1081,9 +1081,9 @@ local function replayMoment(e)
     local k = e.kind
     if k == "lv" then return "lv", "Level " .. (a[1] or "?") end
     if k == "de" then return "de", a[1] and a[1] ~= "" and ("Died to " .. a[1]) or "Died" end
-    if k == "qt" then return "qt", a[4] or ("Quest " .. (a[1] or "")), (num(a[2]) > 0 and (a[2] .. " XP") or nil) end
-    if k == "qa" then return "qa", a[2] or ("Quest " .. (a[1] or "")) end
-    if k == "qx" then return "qx", a[2] or ("Quest " .. (a[1] or "")) end
+    if k == "qt" then return "qt", a[4] or ("Quest " .. (a[1] or "")), "Quest done" .. (num(a[2]) > 0 and (", " .. a[2] .. " XP") or "") end
+    if k == "qa" then return "qa", a[2] or ("Quest " .. (a[1] or "")), "Quest accepted" end
+    if k == "qx" then return "qx", a[2] or ("Quest " .. (a[1] or "")), "Quest abandoned" end
     if k == "zo" and a[1] and a[1] ~= "" then return "zo", a[1] end
     if k == "ie" then return "ie", a[1] or "Dungeon", a[3] end
     if k == "il" then return "il", a[1] or "Dungeon", a[2] and (a[2] .. " s inside") end

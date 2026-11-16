@@ -696,7 +696,9 @@ test("replay: timed points with their state, and the moments worth showing with 
     eq(table.concat(r.pts, ","), "0,2,30,40,2,50,1,10,20,0,55,1,11,21,1", "time order; flight and ghost flags; off-map dropped")
     eq(#r.moments, 5, "before base, XP lines and common loot left out")
     eq(r.moments[1][2], "de"); eq(r.moments[1][6], "Died to Hogger"); eq(r.moments[1][1], 10); eq(r.moments[1][3], 2)
-    eq(r.moments[2][6], "Westfall Stew"); eq(r.moments[2][7], "450 XP")
+    eq(r.moments[2][6], "Westfall Stew"); eq(r.moments[2][7], "Quest done, 450 XP")
+    local q = M.replay(trail, S.parseLog({ "60|1|1|5|5|qa|7|Ordanus|27", "61|1|1|5|5|qx|8|Blueleaf Tubers", "62|1|1|5|5|qt|9|0|0|Talk" })).moments
+    eq(q[1][7], "Quest accepted"); eq(q[2][7], "Quest abandoned"); eq(q[3][7], "Quest done", "no XP: no XP figure")
     eq(r.moments[3][6], "Blue Thing"); eq(r.moments[4][2], "ki"); eq(r.moments[4][7], "")
     eq(r.moments[5][2], "out"); eq(r.moments[5][3], 0, "no position: map 0"); eq(r.moments[5][4], -1)
     eq(#M.replay(nil, nil).pts, 0)
