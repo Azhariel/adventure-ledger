@@ -376,10 +376,11 @@ class LiveState:
         if me is not None:
             me["zone"] = self.zone
             me["mapName"] = self.maps.get(cur_map, {}).get("name")
+        # flat (t, x, y) triples on the current map: the page joins them onto Logbook's saved trail by time
         trail = []
-        for _, m, x, y in self.trail:
+        for t, m, x, y in self.trail:
             if m == cur_map:
-                trail.extend((x, y))
+                trail.extend((round(t, 1), x, y))
         players = []
         for o in self.others.values():
             if now - o.get("t", 0) <= OTHERS_TTL:

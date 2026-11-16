@@ -76,6 +76,14 @@ class YouAndTheMap(unittest.TestCase):
         self.assertAlmostEqual(my, (1666.666626 + 514.47) / (1666.666626 + 1133.333252), places=6)
         self.assertNotEqual((x, y), (x2, y2))
 
+    def test_trail_is_time_x_y_triples_on_the_current_map(self):
+        s = state(MAP, ZONE, BEAR_LANDED)
+        snap = s.snapshot(0)
+        trail, me = snap["trail"], snap["me"]
+        self.assertEqual(len(trail), 3)
+        self.assertEqual(trail[0], round(me["at"], 1))
+        self.assertEqual((trail[1], trail[2]), (round(me["x"], 4), round(me["y"], 4)))
+
     def test_no_position_until_the_map_edges_are_known(self):
         s = state(BEAR_LANDED)
         self.assertIsNone(s.snapshot(0)["me"]["x"])

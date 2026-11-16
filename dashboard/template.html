@@ -2230,6 +2230,25 @@ function zoneArt(L, id) {
 }
 let mapZoom = false, mapMarks = [];
 const MAP_ZOOM = 0.28; // share of the zone's width shown when zoomed in on you
+const LINE_JUMP = 0.06; // a step longer than this share of the map has no position logged in between: drawn dashed
+const PLAY_GAP = 1800;  // seconds: pieces of play closer than this are one session (the build's I.SESSION_GAP)
+
+// This session's line on map mapId as [x, y] points (0..1), oldest first: Logbook's saved trail (a point every
+// 5 seconds while you move, up to the last /reload or logout), then the combat log's points after it (the log has
+// your position only when something happens to you, so on its own it leaves long gaps). The session starts at
+// the newest play session Logbook saved, when the log carries straight on from it, or else at the log's first point.
+function sessionLine(L, ch, mapId) {
+  const live = [], saved = [];
+  const T = (L && L.trail) || [];
+  for (let i = 0; i + 2 < T.length; i += 3) live.push([T[i], T[i + 1], T[i + 2]]);
+  const rec = ch && ch.recentTrail ? ch.recentTrail.find(t => t.map === mapId) : null;
+  if (rec) for (let i = 0; i + 2 < rec.pts.length; i += 3) saved.push([rec.pts[i], rec.pts[i + 1] / 10000, rec.pts[i + 2] / 10000]);
+  const firstLive = live.length ? live[0][0] : Infinity;
+  const play = ch && ch.recaps && ch.recaps[0];
+  const start = play && play.finish >= Math.min(firstLive, nowSec()) - PLAY_GAP ? play.start : firstLive;
+  const lastSaved = saved.length ? saved[saved.length - 1][0] : -Infinity;
+  return saved.filter(p => p[0] >= start).concat(live.filter(p => p[0] > lastSaved)).map(p => [p[1], p[2]]);
+}
 
 function drawLiveMap(L) {
   const canvas = el("liveMap"), me = L && L.me;
@@ -2249,12 +2268,11 @@ function drawLiveMap(L) {
   const art = zoneArt(L, mapId), spec = L && L.mapImage;
   const pts = [];
   if (past) for (let i = 0; i < past.pts.length; i += 2) pts.push([past.pts[i] / 1000, past.pts[i + 1] / 1000]);
-  const trail = [];
-  for (let i = 0; i + 1 < (L && L.trail ? L.trail.length : 0); i += 2) trail.push([L.trail[i], L.trail[i + 1]]);
+  const trail = sessionLine(L, ch, mapId);
   const here = me && me.x != null ? [me.x, me.y] : null;
   el("mapHint").textContent = !me ? "Waiting for your position." : !here
     ? "This map's edges aren't in the log yet (they come with each zone change)."
-    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (Logbook). Line: this session. Hover a dot for who it is.";
+    : (art ? "" : "No map art for this zone. ") + "Faint dots: where you've walked before (Logbook). Line: this session (dashed where no position was logged; your last /reload fills it in). Hover a dot for who it is.";
   el("mapZoom").hidden = !here;
   el("mapZoom").textContent = mapZoom ? "Whole zone" : "Zoom to you";
   // View: the whole zone (it has the canvas' 3:2 shape), or a window centred on you
@@ -2286,17 +2304,21 @@ function drawLiveMap(L) {
   g.fillStyle = art ? "rgba(40, 25, 10, .55)" : css("--muted"); g.globalAlpha = art ? 1 : 0.45;
   for (const p of pts) g.fillRect(X(p[0]) - 1, Y(p[1]) - 1, 2, 2);
   g.globalAlpha = 1;
-  // This session: a light halo under the line so it reads on the parchment
-  const path = () => {
+  // This session: a light halo under the line so it reads on the parchment. A stretch with no position logged
+  // (a long jump) is a thin dashed line: you went that way, but not necessarily straight.
+  const path = gaps => {
     g.beginPath();
     trail.forEach((p, i) => {
-      const jump = i && Math.hypot(p[0] - trail[i - 1][0], p[1] - trail[i - 1][1]) > 0.06;
+      const jump = i && Math.hypot(p[0] - trail[i - 1][0], p[1] - trail[i - 1][1]) > LINE_JUMP;
+      if (gaps) { if (jump) { g.moveTo(X(trail[i - 1][0]), Y(trail[i - 1][1])); g.lineTo(X(p[0]), Y(p[1])); } return; }
       if (!i || jump) g.moveTo(X(p[0]), Y(p[1])); else g.lineTo(X(p[0]), Y(p[1]));
     });
   };
   g.lineJoin = "round"; g.lineCap = "round";
-  if (art) { g.strokeStyle = "rgba(255, 250, 235, .85)"; g.lineWidth = 5; path(); g.stroke(); }
-  g.strokeStyle = art ? "#8c2a1c" : css("--accent"); g.lineWidth = 2.4; path(); g.stroke();
+  if (art) { g.strokeStyle = "rgba(255, 250, 235, .85)"; g.lineWidth = 5; path(false); g.stroke(); }
+  g.strokeStyle = art ? "#8c2a1c" : css("--accent"); g.lineWidth = 2.4; path(false); g.stroke();
+  g.setLineDash([4, 5]); g.lineWidth = 1.4; g.globalAlpha = 0.7; path(true); g.stroke();
+  g.setLineDash([]); g.globalAlpha = 1;
   // Things you can hover: deaths, players, you
   mapMarks = [];
   const ago = t => agoText(nowSec() - t);
