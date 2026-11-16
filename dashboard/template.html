@@ -64,7 +64,7 @@ nav.menu { display: flex; flex-direction: column; gap: 14px; }
 .crumb { font: 12.5px var(--mono); color: var(--dim); }
 .crumb b { color: var(--purple); font-weight: 400; }
 h1 { font: 600 26px/1.15 var(--sans); margin: 2px 0 0; letter-spacing: -.2px; }
-.lede { color: var(--muted); margin: 4px 0 16px; max-width: 90ch; }
+.lede { color: var(--muted); margin: 4px 0 16px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
 .seg button { background: none; border: 0; color: var(--muted); font: 500 13px var(--sans); padding: 6px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
 .seg button + button { border-left: 1px solid var(--line); }
@@ -94,9 +94,11 @@ h1 { font: 600 26px/1.15 var(--sans); margin: 2px 0 0; letter-spacing: -.2px; }
 h2 { font: 600 15px/1.35 var(--sans); margin: 0; }
 h3, .sub2 { font: 600 13.5px/1.35 var(--sans); margin: 14px 0 4px; color: var(--fg); }
 .meta { font: 12px var(--mono); color: var(--dim); }
-.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; max-width: 95ch; }
+/* hints run to the panel's edge: a cap shorter than a wide panel reads as a stray line break */
+.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; }
 .toolbar .chips, .toolbar .hint { margin: 0; }
+.toolbar > div:first-child { flex: 1 1 320px; min-width: 0; } /* the heading and hint share the row with the search box */
 .chart { position: relative; height: 250px; }
 .chart.tall { height: 310px; } .chart.short { height: 130px; }
 .scroll { max-height: 380px; overflow: auto; }
@@ -185,7 +187,6 @@ footer .byline { margin-top: 6px; }
 footer a, .prose a { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: var(--purple); }
 .prose p { margin: 6px 0 10px; line-height: 1.55; }
-.prose .hint { max-width: none; } /* the About panels set their own width: text runs to the panel's edge */
 .prose dl { margin: 8px 0 4px; }
 .prose dt { font-weight: 600; color: var(--fg); margin-top: 10px; }
 .prose dt a { color: var(--fg); text-decoration-color: var(--line); }
