@@ -1465,8 +1465,10 @@ function modCombat() {
 function renderCrafts(c) {
   const list = c.crafts || [];
   if (!list.some(r => r.id === selectedCraft)) selectedCraft = list[0] ? list[0].id : null;
+  // the cash still needed, and which of the character's own reagents that counts on
   const pay = r => r.pay == null ? '<span class="muted">–</span>'
-    : `<span data-sort="${r.pay}" title="${r.owned ? `Cash for one craft after using ${plural(r.owned, "item")} you hold` : "You hold none of its reagents"}">${money(r.pay)}${r.owned ? ` <span class="pill">${r.owned} held</span>` : ""}</span>`;
+    : `<span data-sort="${r.pay}">${money(r.pay)}</span>` + (r.used && r.used.length
+      ? `<span class="s muted" style="display:block;font:11.5px var(--sans)">uses ${r.used.map(u => `${u.count} ${esc(u.name)}`).join(", ")} of yours</span>` : "");
   // Will it sell: listings, days listed, Make or Buy's warnings (Market.Reasons' wording), your own sales
   const scanDays = ((DATA.marketTab && DATA.marketTab.days) || []).length;
   const sells = r => {
@@ -1524,6 +1526,13 @@ function renderCraftPlan(c) {
   document.querySelectorAll("#craftsTable tr.pick").forEach(tr => tr.classList.toggle("sel", r && Number(tr.dataset.id) === r.id));
   if (!r || !r.reagents || !r.reagents.length) { box.innerHTML = ""; return; }
   const n = craftBatch || 1;
+  // how many of each reagent this character holds, and where
+  const inv = Object.fromEntries(((c.inventory && c.inventory.items) || []).map(it => [it.id, it]));
+  const holds = id => {
+    const it = inv[id]; if (!it) return "";
+    const where = [["bags", "bags"], ["bank", "bank"], ["mail", "mail"]].filter(([k]) => it[k] > 0).map(([k, l]) => `${it[k]} in ${l}`).join(", ");
+    return ` <span class="pill" title="${esc(where)}">you hold ${it.count}${it.bank && !it.bags ? " (bank)" : ""}</span>`;
+  };
   const chips = [1, 5, 10].map(k => `<button type="button" class="chip" data-craft-batch="${k}" aria-pressed="${k === n}">${k}×</button>`).join("");
   const rows = r.reagents.map(l => {
     const qty = l.qty * n, tot = l.total * n;
@@ -1531,7 +1540,7 @@ function renderCraftPlan(c) {
     const badge = l.method === "craft" ? '<span class="pill kill">craft</span>' : l.source === "vendor" ? '<span class="pill">vendor</span>' : '<span class="pill info">AH</span>';
     const each = qty > 1 && l.unit > 0 ? ` <span class="muted">@ ${money(l.unit)}</span>` : "";
     const vsAh = l.buyTotal ? ` <span class="muted">(AH ${money(l.buyTotal * n)})</span>` : "";
-    return `<tr><td>${indent}${qty}× ${whItem(l.id, l.name)} ${badge}${each}</td><td class="n">${money(tot)}${vsAh}</td></tr>`;
+    return `<tr><td>${indent}${qty}× ${whItem(l.id, l.name)} ${badge}${each}${holds(l.id)}</td><td class="n">${money(tot)}${vsAh}</td></tr>`;
   }).join("");
   const gross = (r.gross != null ? r.gross : r.sale) * n, sale = r.sale * n, cut = Math.max(0, gross - sale);
   const cost = r.cost * n, naive = (r.naiveCost || r.cost) * n, profit = r.profit * n;

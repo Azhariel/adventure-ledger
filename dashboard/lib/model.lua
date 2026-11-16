@@ -797,7 +797,8 @@ end
 -- Top crafts by profit at saved prices, using Make or Buy's own planner (`P` = its Planner module).
 -- Sale value is the AH price after the 5% cut (vendor sell prices aren't saved offline).
 -- opts.have = { [itemID] = n } held: each craft also gets `pay`, the cash one craft still costs once what you
--- hold is used (Make or Buy's own Expand, at any depth), and `owned`, how many held items it uses.
+-- hold is used (Make or Buy's own Expand, at any depth), `owned`, how many held items it uses, and `used`,
+-- which: { { id, name, count } }.
 -- opts.Market (Make or Buy's Market module) and opts.today (scan day): each craft gets `check` (M.saleCheck).
 -- opts.sold = { [itemID] = { count, avg, last } }: your own AH sales of the item, as `sold`.
 function M.crafts(P, recipes, market, nameOf, limit, opts)
@@ -837,13 +838,18 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
             end
             local cost = math.floor(plan.total)
             local naiveCost = math.floor(plan.naiveTotal or plan.total)
-            local pay, owned
+            local pay, owned, used
             if opts.have and P.Expand then
                 local have = {}
                 for id, n in pairs(opts.have) do have[id] = n end
                 local lines, _, _, cash = P.Expand(plan, 1, have)
-                pay, owned = math.floor(cash + 0.5), 0
-                for _, l in ipairs(lines) do owned = owned + (l.owned or 0) end
+                pay, owned, used = math.floor(cash + 0.5), 0, {}
+                for _, l in ipairs(lines) do
+                    if (l.owned or 0) > 0 then
+                        owned = owned + l.owned
+                        used[#used + 1] = { id = l.itemID, name = nameOf(l.itemID), count = l.owned }
+                    end
+                end
             end
             out[#out + 1] = {
                 id = recipe.outputItemID,
@@ -853,6 +859,7 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
                 naiveCost = naiveCost,
                 pay = pay,
                 owned = owned,
+                used = used,
                 check = M.saleCheck(market, recipe.outputItemID, opts.Market, opts.today),
                 sold = opts.sold and opts.sold[recipe.outputItemID] or nil,
                 gross = ahUnit and math.floor(ahUnit * plan.outputQty) or nil,

@@ -323,6 +323,7 @@ test("crafts use Make or Buy's real planner: crafting bolts beats buying them, a
     local mine
     for _, r in ipairs(M.crafts(P, recipes, market, tostring, nil, { have = held })) do if r.name == "Woolen Bag" then mine = r end end
     eq(mine.owned, 5); eq(mine.pay, 2 * 51 + 100); eq(mine.cost, 559, "cost stays the market cost")
+    eq(#mine.used, 2); eq(mine.used[1].id, 2997); eq(mine.used[1].count, 1); eq(mine.used[2].id, 2592); eq(mine.used[2].count, 4)
     eq(held[2592], 4, "the caller's holdings aren't used up")
 end)
 
