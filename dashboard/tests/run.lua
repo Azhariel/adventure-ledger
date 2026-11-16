@@ -373,6 +373,12 @@ test("skill routes with Make or Buy's real Skill: cheapest recipe per stretch, a
     eq(r.crafts, 25); eq(r.cost, 1000 + 750); eq(r.net, 1750, "nothing sells: net = cost")
     eq(#r.next, 1, "only the learnable recipe gives a point at 50"); eq(r.next[1].name, "Pricey"); eq(r.next[1].chance, 1)
     eq(#M.skillRoutes(nil, mob, market, tostring), 0, "without Make or Buy: nothing")
+    -- "orange at 99" can't be right with a cap of 75: ignored, so recipe 1 goes yellow at 65 as its learn skill says
+    mob.bounds = { [1] = { y = { 100, real.Skill.UNBOUNDED } } }
+    local fixed = M.skillRoutes(lib, mob, market, tostring)[1]
+    eq(fixed.segments[1].crafts, 10, "still orange from 50 to 60")
+    mob.bounds[1] = { y = { 0, 55 } } -- seen yellow at 55: real, so it costs more crafts per point
+    truthy(M.skillRoutes(lib, mob, market, tostring)[1].segments[1].crafts > 10)
 end)
 
 test("held: bags, bank and mail together, string ids made numbers, zero counts dropped", function()

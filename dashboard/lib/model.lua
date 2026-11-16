@@ -909,7 +909,11 @@ function M.skillRoutes(lib, mob, market, nameOf)
             for id, recipe in pairs(mob.recipes) do
                 if recipe.profession == prof then
                     local learn = data[id] and data[id][1]
-                    local t = Skill.Thresholds(learn, mob.bounds and mob.bounds[id])
+                    -- colours seen above the cap came from another profession's skill (Make or Buy's Repair
+                    -- forgets them at the next login; until then they're ignored here)
+                    local bounds = mob.bounds and mob.bounds[id]
+                    if Skill.Impossible and Skill.Impossible(bounds, max) then bounds = nil end
+                    local t = Skill.Thresholds(learn, bounds)
                     local plan = P.PlanRecipe(recipe, index, price)
                     if t and plan.complete then
                         local sale = P.SaleValue(marketPrice(market, recipe.outputItemID), nil)
