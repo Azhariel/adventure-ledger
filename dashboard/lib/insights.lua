@@ -150,6 +150,79 @@ function I.playSpans(pieces)
     return out
 end
 
+-- Gold per hour by what you were doing. Haul's sessions have the honest income (coin, quest money, loot at the
+-- better of AH and vendor value) and active time (AFK taken off); Logbook's lines in each session's span say what
+-- it was:
+--   gathering - at least GATHER_MIN nodes gathered, and no fewer than kills
+--   questing  - quest XP at least kill XP, with a quest turned in
+--   grinding  - kill XP over quest XP
+--   other     - none of those (town, the AH, crafting)
+-- Sessions shorter than MIN_SECONDS are left out. haul = HaulCharDB; events = the parsed journal.
+-- Returns nil without Haul history, else { rows = { { activity, sessions, seconds, coin, quest, items, value, xp,
+-- perHour, xpPerHour } } (gathering, questing, grinding, other; empty ones left out), sessions = n used }.
+I.ACTIVITY = { minSeconds = 600, gatherMin = 5 }
+I.ACTIVITIES = { "gathering", "questing", "grinding", "other" }
+function I.activityRates(haul, events, cfg)
+    cfg = cfg or I.ACTIVITY
+    local list = {}
+    for _, h in ipairs(haul and haul.history or {}) do
+        if h.start and num(h.duration) > 0 then
+            list[#list + 1] = { start = h.start, seconds = num(h.duration), coin = num(h.loot), quest = num(h.quest),
+                items = num(h.items), xp = num(h.xp) }
+        end
+    end
+    local cur = haul and haul.current and haul.current.session
+    if cur and cur.start and num(cur.elapsed) > 0 then
+        list[#list + 1] = { start = cur.start, seconds = num(cur.elapsed), coin = num(cur.money and cur.money.loot),
+            quest = num(cur.money and cur.money.quest), items = num(cur.itemValue), xp = num(cur.xp) }
+    end
+    if #list == 0 then return nil end
+    table.sort(list, function(a, b) return a.start < b.start end)
+    local totals, used = {}, 0
+    local idx = 1
+    events = events or {}
+    for _, s in ipairs(list) do
+        if s.seconds >= cfg.minSeconds then
+            -- the span: from the start for as long as Haul's clock ran (its pauses only make the tail shorter)
+            local stop = s.start + s.seconds
+            local gathers, kills, questXP, killXP, turnedIn = 0, 0, 0, 0, 0
+            while events[idx] and events[idx].t < s.start do idx = idx + 1 end
+            local j = idx
+            while events[j] and events[j].t <= stop do
+                local e = events[j]
+                if e.kind == "ga" then gathers = gathers + 1 -- one line per node, whatever it gave
+                elseif e.kind == "ki" then kills = kills + 1
+                elseif e.kind == "qt" then turnedIn = turnedIn + 1
+                elseif e.kind == "xp" then
+                    if e.args[2] == "quest" then questXP = questXP + num(e.args[1])
+                    elseif e.args[2] == "kill" then killXP = killXP + num(e.args[1]) end
+                end
+                j = j + 1
+            end
+            local act = (gathers >= cfg.gatherMin and gathers >= kills) and "gathering"
+                or (turnedIn > 0 and questXP >= killXP and questXP > 0) and "questing"
+                or (killXP > questXP or (kills > 0 and questXP == 0)) and "grinding"
+                or "other"
+            local t = totals[act] or { activity = act, sessions = 0, seconds = 0, coin = 0, quest = 0, items = 0, xp = 0 }
+            totals[act] = t
+            t.sessions, t.seconds = t.sessions + 1, t.seconds + s.seconds
+            t.coin, t.quest, t.items, t.xp = t.coin + s.coin, t.quest + s.quest, t.items + s.items, t.xp + s.xp
+            used = used + 1
+        end
+    end
+    local rows = {}
+    for _, act in ipairs(I.ACTIVITIES) do
+        local t = totals[act]
+        if t then
+            t.value = t.coin + t.quest + t.items
+            t.perHour = math.floor(t.value * 3600 / t.seconds)
+            t.xpPerHour = math.floor(t.xp * 3600 / t.seconds)
+            rows[#rows + 1] = t
+        end
+    end
+    return { rows = rows, sessions = used }
+end
+
 local QUALITY_MIN = 2 -- loot worth naming: green or better, or anything with an AH value
 local LOOT_HOW = { loot = true, roll = true, quest = true } -- found or earned; "made" is listed apart; mail/trade aren't new
 

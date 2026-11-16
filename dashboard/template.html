@@ -359,7 +359,8 @@ tr.flash td { animation: flash .8s ease-out; }
         <h3>How it adds up</h3><div id="goldCheck"></div></article>
       <article class="panel w8"><div class="ph"><h2>Net worth over time</h2><span class="meta" id="worthTimeMeta"></span></div><p class="hint" id="worthTimeHint"></p><div class="chart"><canvas id="worthTimeChart"></canvas></div></article>
       <article class="panel w4"><div class="ph"><h2>Net worth</h2></div><p class="hint" id="worthHint"></p><div class="chart"><canvas id="worthChart"></canvas></div></article>
-      <article class="panel w6"><div class="ph"><h2>Last Haul session</h2></div><div id="haulBox"></div></article>
+      <article class="panel w8"><div class="ph"><h2>Gold per hour by activity</h2></div><p class="hint" id="actHint"></p><div class="scroll"><table id="actTable"></table></div></article>
+      <article class="panel w4"><div class="ph"><h2>Last Haul session</h2></div><div id="haulBox"></div></article>
     </section>
 
     <section class="mod" data-mod="combat" hidden>
@@ -1331,6 +1332,7 @@ function modGold() {
       datasets: [{ data: [p.money || 0, loc.bags || 0, loc.bank || 0, loc.mail || 0], backgroundColor: [css("--gold"), P[0], P[2], P[3]], borderColor: css("--panel"), borderWidth: 2 }] },
     options: { cutout: "64%", plugins: { legend: { position: "right", labels: { boxHeight: 10 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${moneyText(ctx.raw)}` } } } } });
   renderWorthTime(c);
+  renderActivityRates(c.activityRates);
   el("haulBox").innerHTML = c.haul ? `<table>
       <tr><td>Length</td><td class="n">${dur(c.haul.elapsed)}${c.haul.zone ? ` · ${esc(c.haul.zone)}` : ""}</td></tr>
       <tr><td>XP</td><td class="n">${short(c.haul.xp || 0)}</td></tr>
@@ -1359,6 +1361,25 @@ function renderWorthTime(c) {
       { label: "Net worth", data: worth, borderColor: P[0], backgroundColor: P[0], borderWidth: 2, pointRadius: worth.length < 30 ? 3 : 0, stepped: true },
       { label: "Gold on hand", data: gold, borderColor: css("--gold"), backgroundColor: css("--gold"), borderWidth: 2, pointRadius: 3, tension: .2 },
     ] }, options: timeOpts(v => moneyText(v)) });
+}
+
+// Haul's sessions, each labelled by what Logbook saw in it (insights.lua I.activityRates)
+function renderActivityRates(a) {
+  const LABEL = { gathering: "Gathering", questing: "Questing", grinding: "Grinding", other: "Other (town, AH, crafting)" };
+  el("actHint").textContent = a && a.rows.length
+    ? `Your last ${plural(a.sessions, "Haul session")} of 10 minutes or more, each counted as what you did most in it: gathering (5+ nodes, no fewer than kills), questing (quest XP at least kill XP), or grinding (kill XP ahead). Gold = coin, quest money and loot at the better of AH and vendor value, over Haul's active time (AFK taken off).`
+    : "Needs the Haul addon: it times your sessions and values your loot. Play a session of 10 minutes or more and log out.";
+  // under an hour of sessions is too little to call one activity better than another
+  const solid = a ? a.rows.filter(r => r.seconds >= 3600) : [];
+  const best = solid.length > 1 ? Math.max(...solid.map(r => r.perHour)) : null;
+  const tag = r => r.seconds < 3600 ? ` <span class="pill" title="Under an hour of sessions: the rate can swing a lot">little data</span>`
+    : r.perHour === best ? ' <span class="pill kill">best</span>' : "";
+  table("actTable", [{ t: "Activity" }, { t: "Sessions", n: 1 }, { t: "Time", n: 1 }, { t: "Gold per hour", n: 1 }, { t: "Coin", n: 1 }, { t: "Quests", n: 1 }, { t: "Loot", n: 1 }, { t: "XP per hour", n: 1 }],
+    (a ? a.rows : []).map(r => [esc(LABEL[r.activity] || r.activity) + tag(r),
+      r.sessions, `<span data-sort="${r.seconds}">${dur(r.seconds)}</span>`, `<b>${money(r.perHour, { short: true })}</b>`,
+      money(Math.round(r.coin * 3600 / r.seconds), { short: true }), money(Math.round(r.quest * 3600 / r.seconds), { short: true }),
+      money(Math.round(r.items * 3600 / r.seconds), { short: true }), short(r.xpPerHour)]),
+    "No Haul sessions yet.", { defaultCol: 3 });
 }
 
 // Gold you started with + earned − spent, against gold on hand: what the log missed, and between which levels

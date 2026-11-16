@@ -248,6 +248,7 @@ function Build.data(wow, opts)
             local events = muddy and S.parseLog(muddy.log) or {}
             local nameOf, idOf = M.nameBook(names, haul, events, mob)
             model.recaps = muddy and I.recaps(muddy.sessions, events, acct.market, nameOf, 30, M.PROFESSIONS, idOf) or {}
+            model.activityRates = I.activityRates(haul, events)
             model.pace = muddy and I.playPace(muddy.sessions, result.generated) or nil
             model.playSpans = muddy and I.playSpans(muddy.sessions) or {}
             model.xpLive = M.xpState(events, haul)

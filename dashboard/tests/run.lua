@@ -535,6 +535,34 @@ test("play pace: played hours per day over the last 14 days; a younger character
     eq(I.playPace(nil, now), nil)
 end)
 
+test("gold per hour by activity (decision table): each Haul session labelled by what Logbook saw in it", function()
+    local haul = { history = {
+        { start = 1000, duration = 3600, loot = 100, quest = 0, items = 900, xp = 50 },     -- gathering
+        { start = 10000, duration = 1800, loot = 20, quest = 500, items = 80, xp = 3000 },  -- questing
+        { start = 20000, duration = 3600, loot = 400, quest = 0, items = 1600, xp = 9000 }, -- grinding
+        { start = 30000, duration = 599, loot = 999, quest = 0, items = 0, xp = 0 },        -- under 10 minutes
+        { start = 40000, duration = 900, loot = 0, quest = 0, items = 0, xp = 0 },          -- other
+    }, current = { session = { start = 50000, elapsed = 1800, money = { loot = 50, quest = 0 }, itemValue = 950, xp = 10 } } }
+    local lines = {}
+    for i = 1, 6 do lines[#lines + 1] = (1000 + i * 10) .. "|1|1|1|1|ga|Herbalism|765|Silverleaf|1" end
+    lines[#lines + 1] = "1100|1|1|1|1|ki|Boar|1|Beast|normal|20|5"
+    lines[#lines + 1] = "4700|1|1|1|1|ga|Herbalism|765|Silverleaf|1" -- after the first session's span: not counted
+    lines[#lines + 1] = "10100|1|1|1|1|ki|Wolf|2|Beast|normal|40|8"; lines[#lines + 1] = "10101|1|1|1|1|xp|40|kill|Wolf"
+    lines[#lines + 1] = "10200|1|1|1|1|qt|5|300|500|Stew"; lines[#lines + 1] = "10201|1|1|1|1|xp|300|quest|Stew"
+    lines[#lines + 1] = "20100|1|1|1|1|ki|Wolf|2|Beast|normal|40|8"; lines[#lines + 1] = "20101|1|1|1|1|xp|40|kill|Wolf"
+    lines[#lines + 1] = "20200|1|1|1|1|qt|5|30|0|Talk"; lines[#lines + 1] = "20201|1|1|1|1|xp|30|quest|Talk"
+    for i = 1, 5 do lines[#lines + 1] = (50000 + i) .. "|1|1|1|1|ga|Mining|2770|Copper Ore|2" end
+    local r = I.activityRates(haul, S.parseLog(lines))
+    eq(r.sessions, 5, "the 599-second session is left out")
+    eq(#r.rows, 4); eq(r.rows[1].activity, "gathering"); eq(r.rows[2].activity, "questing")
+    eq(r.rows[3].activity, "grinding"); eq(r.rows[4].activity, "other")
+    eq(r.rows[1].sessions, 2, "the first session and the one in progress"); eq(r.rows[1].seconds, 5400)
+    eq(r.rows[1].value, 100 + 900 + 50 + 950); eq(r.rows[1].perHour, math.floor(2000 * 3600 / 5400))
+    eq(r.rows[2].value, 600); eq(r.rows[2].perHour, 1200); eq(r.rows[2].xpPerHour, 6000)
+    eq(r.rows[3].perHour, 2000, "grinding: 2000 in an hour")
+    eq(I.activityRates(nil, {}), nil); eq(I.activityRates({ history = {} }, {}), nil)
+end)
+
 test("play spans: start to last event per piece, oldest first; pieces without an end left out", function()
     local s = I.playSpans({ { start = 50, last = 80 }, { start = 10, last = 20 }, { start = 90 }, { start = 95, last = 95 } })
     eq(table.concat(s, ","), "10,20,50,80")
