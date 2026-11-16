@@ -1058,6 +1058,67 @@ function M.trails(trail, maxPerMap)
     return out
 end
 
+-- The Replay module's data: every trail point with its time and state, and the moments worth showing, each with
+-- where it happened. { base, pts = { dt, map, x, y, f, ... }, moments = { { t, k, m, x, y, text, sub } } }:
+-- t is seconds after base (the first point), x, y ten-thousandths of the map, f 0 on foot or mounted, 1 dead or a
+-- ghost, 2 on a flight. Moment kinds k: lv level, de death, qt quest done, qa accepted, qx abandoned, zo zone,
+-- ie / il dungeon in / out, fl flight, ga gathered, sk skill up, lo rare loot, ah AH sale, ki kill, in / out login
+-- and logout.
+M.REPLAY_FLAGS = { d = 1, g = 1, t = 2 }
+local function replayMoment(e)
+    local a = e.args
+    local k = e.kind
+    if k == "lv" then return "lv", "Level " .. (a[1] or "?") end
+    if k == "de" then return "de", a[1] and a[1] ~= "" and ("Died to " .. a[1]) or "Died" end
+    if k == "qt" then return "qt", a[4] or ("Quest " .. (a[1] or "")), (num(a[2]) > 0 and (a[2] .. " XP") or nil) end
+    if k == "qa" then return "qa", a[2] or ("Quest " .. (a[1] or "")) end
+    if k == "qx" then return "qx", a[2] or ("Quest " .. (a[1] or "")) end
+    if k == "zo" and a[1] and a[1] ~= "" then return "zo", a[1] end
+    if k == "ie" then return "ie", a[1] or "Dungeon", a[3] end
+    if k == "il" then return "il", a[1] or "Dungeon", a[2] and (a[2] .. " s inside") end
+    if k == "fl" then return "fl", a[2] or "?", a[1] and ("from " .. a[1]) end
+    if k == "tx" then return "fl", a[2] or "?", a[1] and ("from " .. a[1]) end
+    if k == "ga" then return "ga", (a[3] or "?") .. (num(a[4]) > 1 and (" x" .. a[4]) or ""), a[1] end
+    if k == "sk" and a[1] and a[1] ~= "" and a[2] then return "sk", a[1] .. " " .. a[2] end
+    if k == "lo" and num(a[2]) >= 3 then return "lo", a[5] or ("Item " .. (a[1] or "")), a[4] end
+    if k == "ah" and a[1] == "sold" then return "ah", a[3] or "?", a[2] end
+    if k == "ki" and a[1] and a[1] ~= "" then return "ki", a[1], a[4] ~= "normal" and a[4] or nil end
+    if k == "in" then return "in", a[1] == "reload" and "Reload" or "Logged in" end
+    if k == "out" then return "out", "Logged out" end
+    return nil
+end
+
+function M.replay(trail, events)
+    local all = {}
+    for _, c in ipairs(trail and trail.chunks or {}) do
+        local m, t0 = tonumber(c.m), tonumber(c.t)
+        if m and t0 and type(c.d) == "string" then
+            for step in c.d:gmatch("[^;]+") do
+                local dt, x, y, flag = step:match("^(%-?%d+),(%-?%d+),(%-?%d+),?(%a*)")
+                x, y = tonumber(x), tonumber(y)
+                if dt and x >= 0 and x <= 10000 and y >= 0 and y <= 10000 then
+                    all[#all + 1] = { t0 + tonumber(dt), m, x, y, M.REPLAY_FLAGS[flag] or 0 }
+                end
+            end
+        end
+    end
+    table.sort(all, function(a, b) return a[1] < b[1] end)
+    local base = all[1] and all[1][1] or 0
+    local pts = {}
+    for _, p in ipairs(all) do
+        pts[#pts + 1] = p[1] - base; pts[#pts + 1] = p[2]; pts[#pts + 1] = p[3]; pts[#pts + 1] = p[4]; pts[#pts + 1] = p[5]
+    end
+    local moments = {}
+    for _, e in ipairs(events or {}) do
+        local k, text, sub = replayMoment(e)
+        if k and e.t >= base then
+            -- an array with no holes (JSON): a line without a position has map 0, x and y -1
+            moments[#moments + 1] = { e.t - base, k, e.map or 0, e.x or -1, e.y or -1, text, sub or "" }
+        end
+    end
+    return { base = base, pts = pts, moments = moments }
+end
+
 -- The newest stretch of the trail with each point's time, unthinned, for the Live map's line for this session:
 -- the combat log logs your position only when something happens to you, so the line is Logbook's 5-second trail
 -- up to the last save, then the log's points. Points from `since` on, at most `limit` (the newest kept), as

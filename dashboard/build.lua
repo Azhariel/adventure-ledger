@@ -172,6 +172,15 @@ function Build.addons(wow, folders, repoAddons)
     return out
 end
 
+-- uiMapID -> Wowhead zone id, read from zones.py (the live server's table, so there is one list):
+-- the Replay module's map art for a zone the live server hasn't cached yet
+function Build.zones(path)
+    local text = U.readFile(path or (here .. "zones.py")) or ""
+    local out = {}
+    for ui, zone in text:gmatch("(%d+): %((%d+), \"") do out[ui] = tonumber(zone) end
+    return out
+end
+
 -- Returns the dashboard data: { generated, characters = { ... } }
 function Build.data(wow, opts)
     opts = opts or {}
@@ -185,6 +194,7 @@ function Build.data(wow, opts)
     local folders = {}
     local charDirs = Build.characters(wow, opts.listDirs)
     result.addons = Build.addons(wow, charDirs, opts.repoAddons)
+    result.zones = Build.zones()
     for _, c in ipairs(charDirs) do
         local fname, fsurname = c.name:match("^([^-]+)-(.+)$")
         if fname then folders[#folders + 1] = { name = fname, surname = fsurname } end
@@ -239,6 +249,7 @@ function Build.data(wow, opts)
             local nameOf, idOf = M.nameBook(names, haul, events, mob)
             model.recaps = muddy and I.recaps(muddy.sessions, events, acct.market, nameOf, 30, M.PROFESSIONS, idOf) or {}
             model.xpLive = M.xpState(events, haul)
+            model.replay = muddy and M.replay(muddy.trail, events) or nil
             -- What this character crafts with, and what its restock list still needs after what it holds
             local shopping
             if mob and mob.recipes and mob.restock and next(mob.restock) and planner and mobLib.Restock then

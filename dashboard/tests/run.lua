@@ -674,6 +674,32 @@ test("a character folder without any of our addons' files is skipped", function(
 end)
 
 ----------------------------------------------------------------------------------------------------
+test("replay: timed points with their state, and the moments worth showing with where they happened", function()
+    local trail = { chunks = {
+        { m = 1, t = 100, d = "0,10,20,w;5,11,21,d;10,10001,5" },
+        { m = 2, t = 50, d = "0,30,40,t" },
+    } }
+    local events = S.parseLog({
+        "40|1|2|30|40|lv|5", "60|1|2|31|41|de|Hogger|448|||world||10|elite", "70|1|2|1|1|xp|5|kill|Wolf",
+        "80|1|1|5|5|qt|12|450|0|Westfall Stew", "90|1|1|5|5|lo|2|2||loot|Grey Thing|1",
+        "95|1|1|5|5|lo|3|3||loot|Blue Thing|1", "96|1|1|5|5|ki|Wolf|299|Beast|normal|20|5", "97|||||out",
+    })
+    local r = M.replay(trail, events)
+    eq(r.base, 50, "the first point")
+    eq(table.concat(r.pts, ","), "0,2,30,40,2,50,1,10,20,0,55,1,11,21,1", "time order; flight and ghost flags; off-map dropped")
+    eq(#r.moments, 5, "before base, XP lines and common loot left out")
+    eq(r.moments[1][2], "de"); eq(r.moments[1][6], "Died to Hogger"); eq(r.moments[1][1], 10); eq(r.moments[1][3], 2)
+    eq(r.moments[2][6], "Westfall Stew"); eq(r.moments[2][7], "450 XP")
+    eq(r.moments[3][6], "Blue Thing"); eq(r.moments[4][2], "ki"); eq(r.moments[4][7], "")
+    eq(r.moments[5][2], "out"); eq(r.moments[5][3], 0, "no position: map 0"); eq(r.moments[5][4], -1)
+    eq(#M.replay(nil, nil).pts, 0)
+end)
+
+test("zones for map art: read from the live server's zones.py", function()
+    local z = require("build").zones()
+    eq(z["1442"], 406); eq(z["1413"], 17)
+end)
+
 test("recent trail: timed points from `since` on, per map in time order, newest kept at the cap", function()
     local trail = { chunks = {
         { m = 1, t = 100, d = "0,10,20,w;5,11,21;10,10001,5" },
