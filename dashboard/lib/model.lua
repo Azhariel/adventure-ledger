@@ -1062,8 +1062,8 @@ end
 -- where it happened. { base, pts = { dt, map, x, y, f, ... }, moments = { { t, k, m, x, y, text, sub } } }:
 -- t is seconds after base (the first point), x, y ten-thousandths of the map, f 0 on foot or mounted, 1 dead or a
 -- ghost, 2 on a flight. Moment kinds k: lv level, de death, qt quest done, qa accepted, qx abandoned, zo zone,
--- ie / il dungeon in / out, fl flight, ga gathered, sk skill up, lo rare loot, ah AH sale, ki kill, in / out login
--- and logout.
+-- ie / il dungeon in / out, fl flight, ga gathered, sk skill up, lo rare loot, ah AH sale, ki kill, pl / pe a player
+-- you met / an enemy player, in / out login and logout.
 M.REPLAY_FLAGS = { d = 1, g = 1, t = 2 }
 local function replayMoment(e)
     local a = e.args
@@ -1083,6 +1083,18 @@ local function replayMoment(e)
     if k == "lo" and num(a[2]) >= 3 then return "lo", a[5] or ("Item " .. (a[1] or "")), a[4] end
     if k == "ah" and a[1] == "sold" then return "ah", a[3] or "?", a[2] end
     if k == "ki" and a[1] and a[1] ~= "" then return "ki", a[1], a[4] ~= "normal" and a[4] or nil end
+    if k == "pl" and a[1] and a[1] ~= "" then
+        -- pl|name|realm|level|class|race|guild|how|spell: pe for an enemy player, pl for everyone else
+        local how = a[7]
+        local class = a[4] and a[4] ~= "" and (a[4]:sub(1, 1) .. a[4]:sub(2):lower()) or nil
+        local bits = {}
+        if num(a[3]) > 0 then bits[#bits + 1] = "level " .. a[3] end
+        if class then bits[#bits + 1] = class end
+        if a[6] and a[6] ~= "" then bits[#bits + 1] = "<" .. a[6] .. ">" end
+        if a[8] and a[8] ~= "" then bits[#bits + 1] = a[8] end
+        local verb = ({ buff = "Buffed ", attack = "Attacked ", enemy = "Enemy player ", group = "Grouped with " })[how] or "Met "
+        return (how == "enemy" or how == "attack") and "pe" or "pl", verb .. a[1], table.concat(bits, ", ")
+    end
     if k == "in" then return "in", a[1] == "reload" and "Reload" or "Logged in" end
     if k == "out" then return "out", "Logged out" end
     return nil

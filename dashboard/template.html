@@ -1975,6 +1975,7 @@ function modAddons() {
 // state, and the moments with where they happened. The replay clock is game time with every stand longer than
 // RP_STAND seconds squeezed to RP_STAND, so a long AFK or a vendor visit doesn't stall it; speed multiplies it.
 const RP_STAND = 20;
+const RP_RELOG = 300; // seconds: a logout and login this close are one "Relogged" moment
 const RP_SPEEDS = [10, 60, 300, 1200];
 const RP_ZOOM_MAX = 12;
 const MAP_IMAGE = { width: 1022, height: 668, left: 10, mapWidth: 1002, mapHeight: 668 }; // zones.py IMAGE
@@ -1989,13 +1990,14 @@ const RP_KINDS = {
   in: { g: "●", c: "--green", f: "travel" }, out: { g: "○", c: "--dim", f: "travel" },
   ga: { g: "✿", c: "--green", f: "loot" }, lo: { g: "◆", c: "--cyan", f: "loot" }, ah: { g: "$", c: "--gold", f: "loot" },
   sk: { g: "↑", c: "--purple", f: "skills" }, ki: { g: "†", c: "--orange", f: "kills" },
+  pl: { g: "☺", c: "--green", f: "players" }, pe: { g: "⚔", c: "--red", f: "players" },
 };
-const RP_FILTERS = [["progress", "Levels & quests"], ["deaths", "Deaths"], ["travel", "Travel"], ["loot", "Loot & sales"],
-  ["skills", "Skill-ups"], ["kills", "Kills"]];
+const RP_FILTERS = [["progress", "Levels & quests"], ["deaths", "Deaths"], ["travel", "Travel"], ["players", "Players"],
+  ["loot", "Loot & sales"], ["skills", "Skill-ups"], ["kills", "Kills"]];
 const RP_KEY = "adventureLedger.replay";
 const RP = { char: null, idx: 0, T: [], M: [], X: [], Y: [], F: [], C: [], dur: 0, c: 0, playing: false, speed: 60,
   view: { m: null, cx: 0.5, cy: 0.5, z: 1 }, follow: true, moments: [], shown: [], marks: [], active: -1, ready: false,
-  filters: { progress: true, deaths: true, travel: true, loot: true, skills: false, kills: false } };
+  filters: { progress: true, deaths: true, travel: true, players: true, loot: true, skills: false, kills: false } };
 try { const saved = JSON.parse(store.get(RP_KEY) || "null"); if (saved) { if (saved.filters) Object.assign(RP.filters, saved.filters); if (RP_SPEEDS.includes(saved.speed)) RP.speed = saved.speed; } } catch (e) {}
 const rpSave = () => store.set(RP_KEY, JSON.stringify({ filters: RP.filters, speed: RP.speed }));
 
@@ -2055,13 +2057,16 @@ function rpLoad(ch, idx) {
   for (let i = 0; i < RP.T.length; i++) RP.C.push(i ? RP.C[i - 1] + Math.min(RP.T[i] - RP.T[i - 1], RP_STAND) : 0);
   RP.dur = RP.C.length ? RP.C[RP.C.length - 1] : 0;
   RP.ready = RP.T.length > 1;
-  // a /reload logs "out" then "in|reload" a moment later: neither is a moment, only real logins and logouts are
-  const reloadAt = new Set(r.moments.filter(m => m[1] === "in" && m[5] === "Reload").map(m => m[0]));
-  const reloadSoon = t => { for (let d = 0; d <= 120; d++) if (reloadAt.has(t + d)) return true; return false; };
+  // A /reload logs "out" then "in|reload" a moment later: neither is a moment. A logout to the character screen
+  // and back within RP_RELOG seconds is one "Relogged". Only real logins and logouts are left.
+  const ins = r.moments.filter(m => m[1] === "in");
+  const nextIn = t => ins.find(x => x[0] >= t && x[0] - t <= RP_RELOG);
+  const relogged = new Set();
+  for (const m of r.moments) { const n = m[1] === "out" && nextIn(m[0]); if (n && n[5] !== "Reload") relogged.add(n[0]); }
   for (const m of r.moments) {
     if (m[0] < t0 || m[0] > t1 || !RP_KINDS[m[1]]) continue;
-    if ((m[1] === "in" && m[5] === "Reload") || (m[1] === "out" && reloadSoon(m[0]))) continue;
-    const mo = { t: m[0], k: m[1], text: m[5], sub: m[6], c: rpClockAt(m[0]) };
+    if ((m[1] === "in" && m[5] === "Reload") || (m[1] === "out" && nextIn(m[0]))) continue;
+    const mo = { t: m[0], k: m[1], text: m[1] === "in" && relogged.has(m[0]) ? "Relogged" : m[5], sub: m[6], c: rpClockAt(m[0]) };
     if (m[2] && m[3] >= 0) { mo.m = m[2]; mo.x = m[3] / 10000; mo.y = m[4] / 10000; }
     else if (RP.ready) { const p = rpPos(mo.c); mo.m = p.m; mo.x = p.x; mo.y = p.y; }
     RP.moments.push(mo);

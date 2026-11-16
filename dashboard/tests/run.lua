@@ -693,6 +693,11 @@ test("replay: timed points with their state, and the moments worth showing with 
     eq(r.moments[3][6], "Blue Thing"); eq(r.moments[4][2], "ki"); eq(r.moments[4][7], "")
     eq(r.moments[5][2], "out"); eq(r.moments[5][3], 0, "no position: map 0"); eq(r.moments[5][4], -1)
     eq(#M.replay(nil, nil).pts, 0)
+    local p = M.replay(trail, S.parseLog({ "60|1|1|5|5|pl|Soren||22|SHAMAN|Tauren|Totem Pole|buff|Power Word: Fortitude",
+        "61|1|1|5|5|pl|Grim||30|ROGUE|Human||enemy|", "62|1|1|5|5|pl|Dank||||||group|" })).moments
+    eq(p[1][2], "pl"); eq(p[1][6], "Buffed Soren"); eq(p[1][7], "level 22, Shaman, <Totem Pole>, Power Word: Fortitude")
+    eq(p[2][2], "pe"); eq(p[2][6], "Enemy player Grim"); eq(p[2][7], "level 30, Rogue")
+    eq(p[3][6], "Grouped with Dank"); eq(p[3][7], "")
 end)
 
 test("zones for map art: read from the live server's zones.py", function()
