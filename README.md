@@ -30,7 +30,7 @@ Two parts:
 | --- | --- |
 | Logbook | Your journey: XP, levels, gold by source, kills, quests, deaths, zones, dungeons, professions, sessions, trail, damage (from the game's damage meter), flights |
 | Ledger Link | Keeps the combat log on for the Live view; keeps Neutral auction house prices apart from your faction's |
-| Make or Buy | Your recipes and what to craft or buy (Best crafts, restock list, mail to alts) |
+| Make or Buy | Your recipes and what to craft or buy (Crafting, skill-ups, restock list, mail to alts) |
 | Stockpile | What each character holds in bags, bank and mail |
 | Haul | Your farming session: loot, coin and XP per hour |
 | DropLab | What each kind of mob drops for you |
@@ -98,7 +98,8 @@ while the combat log is fresh. All of it switches off with the system's reduce-m
   smoothing picked by least squares; 7 days ahead with an 80% band. Needs 3 scan days.
 - **Gold on hand**: least squares weighted toward recent play, carried a quarter of your played span ahead.
 - **Next level**: your XP rate over the last few played hours against the XP still needed (Haul).
-- **Level 60**: a power law (hours per level against level, on log scales) fitted to your finished levels.
+- **Level 60**: a power law (hours per level against level, on log scales) fitted to your finished levels, turned
+  into a date by spreading those hours over your played time per day in the last 14 days.
 
 ### Market
 
@@ -109,7 +110,8 @@ for each item whose price changed, so each /reload after an AH scan is another p
 - **Faction / Neutral switch** (top right on Signals, Stockpile, Browse and Movers) picks which house's prices
   those modules use. The **item inspector** (click any row) draws both houses on one chart, with the forecast for
   the house in view and a separate chart of how many were listed.
-- **Signals**: your stockpile's value per scan day with its forecast, your best sellers, buy low / sell high.
+- **Signals**: your stockpile's value per scan day with its forecast, your best sellers, buy low / sell high (with
+  who holds each item worth selling, and how many in their bags, bank and mail). Click any row for its price history.
 - **Stockpile** (all characters): now, launch low (lowest daily low), change against it, peak (highest daily
   low), supply (listed now vs the first scan day; fewer = green), trend, value, and a signal: *selling window*
   (2x the launch low or more and fewer listed), *rising* (+50%), *still cheap* (within 15% of the low).
@@ -118,7 +120,8 @@ for each item whose price changed, so each /reload after an AH scan is another p
 - **Faction vs Neutral**: items priced at both houses, the gap, and what a flip makes after each house's cut (15%
   at Neutral, 5% at Faction). By default only items with 5+ listed at both, since one stray listing sets the price
   in a thin market.
-- **Your trades** and **Crafting** (the picked character): the AH ledger and the best crafts at saved prices.
+- **Your trades** and **Crafting** (the picked character): the AH ledger, and every craft at saved prices with
+  what you'd pay after using what you hold, whether it will sell, and the cheapest skill-up route.
 - Item, creature and quest names link to Wowhead; player names link to the WoW Forever armory.
 
 ### Neutral auction house
@@ -187,9 +190,24 @@ Also on the page:
 - **Play sessions** (each character): a diary of every session, newest first: time, XP and levels, gold earned and
   spent, kills, quests, deaths, zones, profession gains, loot, what you made, and Auction House buys & sales. The log starts a new piece at
   every reload; pieces less than 30 minutes apart are one session.
-- **Best crafts at saved prices** (each character): click any craft row to inspect its full reagent tree (with unit
-  prices, line totals, and sub-craft savings), gross vs net AH sale (after the 5% cut), profit margin, and `1×` / `5×`
-  / `10×` batch scaling.
+- **When you play** (Overview): time logged in as a weekday by hour grid on your own clock, with each weekday's total.
+- **How it adds up** (Gold): gold when tracking began, plus earned, minus spent, against gold on hand. Each level-up
+  saves your gold, so the starting gold is worked out from the first one, and money that changed without a log line
+  is shown with the levels it happened between.
+- **Net worth over time** (Gold): Stockpile only knows what you hold now, so every build appends gold and item value
+  to `data/networth_log.tsv` when either changed; the chart draws that log, with gold on hand from each level-up for
+  the time before it.
+- **Gold per hour by activity** (Gold): Haul's sessions of 10 minutes or more, each labelled by what Logbook saw in
+  it: gathering (5+ nodes, no fewer than kills), questing (quest XP at least kill XP) or grinding (kill XP ahead).
+  Gold is Haul's coin, quest money and loot value over its active time. Under an hour of sessions is marked as little data.
+- **Crafts at saved prices** (each character): every recipe with all its reagents priced. **You pay** is the cash one
+  craft still needs once what the character holds is used (Make or Buy's `Expand`). **Will it sell** gives how many
+  were listed at the last scan, on how many scan days, Make or Buy's price warnings (spike, few listed, old price) and
+  your own sales. Click any craft row to inspect its full reagent tree (with unit prices, line totals, and sub-craft
+  savings), gross vs net AH sale (after the 5% cut), profit margin, and `1×` / `5×` / `10×` batch scaling.
+- **Skill-ups** (Crafting): Make or Buy's own `Skill.Route` on your known recipes, from your skill to the cap: each
+  stretch's craft, crafts needed, cash and cost after selling the result, and the cheapest next point. Thresholds come
+  from Make or Buy's recipe data and the colours it saw in game.
 - **Auction house trades** (each character): reconstructs your AH ledger from the log's `ah`, `ma` (mail invoices)
   and `mn` (money) events — showing total earned, spent on buyouts/bids, posting deposits, net AH balance, chronological
   trades (with buyer/seller names and unit prices), and a **By item** summary (bought, avg buy, sold, avg sell, deposits
@@ -204,7 +222,8 @@ Also on the page:
   the numbers match the game. Drops are valued at the AH price after the 5% cut (vendor prices aren't saved outside
   the game). `*` = only corpses you opened were counted.
 - **Sortable tables & live search**: click any table column header to sort ascending/descending, and filter your full
-  character/account inventory, quests, drop tables, and market databases with the search boxes.
+  character/account inventory, quests, mobs, deaths, drop tables, and market databases with the search boxes. Most
+  fought, Quests and Deaths have a **Show all** link that lets the table run its full length.
 
 Charts load Chart.js from cdnjs, so they need an internet connection; everything else works offline. The page also
 reads each of our addons' `.toc` from GitHub (at most every 6 hours) to say when an update is out; offline, the
@@ -225,7 +244,9 @@ From any terminal: `wowstats` (or `wowstats -n` to build without opening the bro
 | Inventory | Stockpile (bags, bank, mail) |
 | Prices, price trends, net worth | Auctionator's price database (today's AH minimum; trend = lowest price per scan day) |
 | Neutral AH prices | Ledger Link (account file), plus any days listed in `neutral_days.txt` |
-| Best crafts | Make or Buy's saved recipes, priced by Make or Buy's own `Planner.lua` on Auctionator's prices |
+| Crafts, skill-ups | Make or Buy's saved recipes, skill and recipe colours, priced and routed by Make or Buy's own `Planner.lua`, `Market.lua` and `Skill.lua` on Auctionator's prices |
+| Net worth over time | The dashboard's own `networth_log.tsv` (one line per build where gold or items changed) |
+| Gold per hour by activity | Haul's session history, labelled by Logbook's event log |
 | Restock list, Haul session | Make or Buy, Haul |
 | Drop rates | DropLab (account file), with DropLab's `Stats.lua` |
 | Item names | QuestieDB's item data, Haul's loot links, the log's loot lines, recipe names |
@@ -261,7 +282,7 @@ Notes:
 | `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
-| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `neutral_days.txt`, `maps/`, `server.log` |
+| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `server.log` |
 
 ## Tests
 
