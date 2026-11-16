@@ -317,6 +317,18 @@ test("crafts use Make or Buy's real planner: crafting bolts beats buying them, a
     eq(bag.reagents[2].id, 2592); eq(bag.reagents[2].depth, 1); eq(bag.reagents[2].qty, 9); eq(bag.reagents[2].unit, 51); eq(bag.reagents[2].total, 459)
     eq(bag.reagents[3].id, 2321); eq(bag.reagents[3].source, "vendor"); eq(bag.reagents[3].unit, 100)
     eq(#M.crafts(nil, recipes, market, tostring), 0, "no planner: no crafts")
+    eq(bag.pay, nil, "nothing held given: no pay figure")
+    -- holding 1 bolt and 4 wool cloth: 2 bolts to craft = 6 cloth, 4 held, 2 bought; thread from the vendor
+    local held = { [2997] = 1, [2592] = 4 }
+    local mine
+    for _, r in ipairs(M.crafts(P, recipes, market, tostring, nil, { have = held })) do if r.name == "Woolen Bag" then mine = r end end
+    eq(mine.owned, 5); eq(mine.pay, 2 * 51 + 100); eq(mine.cost, 559, "cost stays the market cost")
+    eq(held[2592], 4, "the caller's holdings aren't used up")
+end)
+
+test("held: bags, bank and mail together, string ids made numbers, zero counts dropped", function()
+    local h = M.held({ bags = { [1] = 2, ["7"] = 1 }, bank = { [1] = 3 }, mail = { [9] = 0 } })
+    eq(h[1], 5); eq(h[7], 1); eq(h[9], nil); eq(next(M.held(nil)), nil)
 end)
 
 test("ahTrades: buyouts paired with money & mail invoices, batch deposits, burst sales merged, per-item ledger", function()

@@ -43,11 +43,12 @@ function Build.dataDir(cfg)
     return d .. "/"
 end
 
--- Loads Make or Buy's pure modules (planner, restock list) so the figures match the addon exactly.
--- Returns its ns ({ Planner, Restock }); a missing or broken file leaves that module out.
+-- Loads Make or Buy's pure modules (recipe data, planner, AH price checks, skill-ups, restock list) so the figures
+-- match the addon exactly. Returns its ns ({ RecipeData, Planner, Market, Skill, Restock }); a missing or broken
+-- file leaves that module out.
 function Build.makeOrBuy(wow)
     local ns = {}
-    for _, file in ipairs({ "Planner.lua", "Restock.lua" }) do
+    for _, file in ipairs({ "Data/RecipeData.lua", "Planner.lua", "Market.lua", "Skill.lua", "Restock.lua" }) do
         local chunk = loadfile(wow .. "/Interface/AddOns/MakeOrBuy/" .. file)
         if chunk then pcall(chunk, "MakeOrBuy", ns) end
     end
@@ -232,7 +233,7 @@ function Build.data(wow, opts)
             local accountChar = char.guid and acct.chars and acct.chars[char.guid]
             local model = M.character({
                 muddy = muddy, haul = haul, mob = mob, stock = stockChar, account = accountChar,
-                market = acct.market, names = names, planner = planner,
+                market = acct.market, names = names, planner = planner, mobLib = mobLib, now = result.generated,
             })
             model.profile.name = model.profile.name or c.name:match("^[^-]+")
             model.profile.realm = model.profile.realm or (stockChar and stockChar.realm)

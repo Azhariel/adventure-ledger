@@ -759,9 +759,24 @@ function M.priceHistory(market, ids, nameOf, minDays)
     return out
 end
 
+-- { [itemID] = n } one character holds in bags, bank and mail (Stockpile entry)
+function M.held(stock)
+    local out = {}
+    for _, loc in ipairs({ "bags", "bank", "mail" }) do
+        for id, n in pairs(stock and stock[loc] or {}) do
+            id = tonumber(id)
+            if id and n > 0 then out[id] = (out[id] or 0) + n end
+        end
+    end
+    return out
+end
+
 -- Top crafts by profit at saved prices, using Make or Buy's own planner (`P` = its Planner module).
 -- Sale value is the AH price after the 5% cut (vendor sell prices aren't saved offline).
-function M.crafts(P, recipes, market, nameOf, limit)
+-- opts.have = { [itemID] = n } held: each craft also gets `pay`, the cash one craft still costs once what you
+-- hold is used (Make or Buy's own Expand, at any depth), and `owned`, how many held items it uses.
+function M.crafts(P, recipes, market, nameOf, limit, opts)
+    opts = opts or {}
     if not (P and recipes) then
         return {}
     end
@@ -797,12 +812,22 @@ function M.crafts(P, recipes, market, nameOf, limit)
             end
             local cost = math.floor(plan.total)
             local naiveCost = math.floor(plan.naiveTotal or plan.total)
+            local pay, owned
+            if opts.have and P.Expand then
+                local have = {}
+                for id, n in pairs(opts.have) do have[id] = n end
+                local lines, _, _, cash = P.Expand(plan, 1, have)
+                pay, owned = math.floor(cash + 0.5), 0
+                for _, l in ipairs(lines) do owned = owned + (l.owned or 0) end
+            end
             out[#out + 1] = {
                 id = recipe.outputItemID,
                 name = recipe.name or nameOf(recipe.outputItemID),
                 outputQty = plan.outputQty,
                 cost = cost,
                 naiveCost = naiveCost,
+                pay = pay,
+                owned = owned,
                 gross = ahUnit and math.floor(ahUnit * plan.outputQty) or nil,
                 sale = math.floor(value * plan.outputQty),
                 profit = profit,
@@ -908,7 +933,8 @@ function M.character(data)
         quests = M.quests(events),
         professions = M.professions(events),
         crafted = M.crafted(counts.prof),
-        crafts = M.crafts(data.planner, data.mob and data.mob.recipes, data.market, nameOf, 12),
+        crafts = M.crafts(data.planner, data.mob and data.mob.recipes, data.market, nameOf, nil,
+            { have = data.stock and M.held(data.stock) or nil }),
         restock = restock,
         inventory = inv,
         prices = M.priceHistory(data.market, ownedIds, nameOf, 2),
