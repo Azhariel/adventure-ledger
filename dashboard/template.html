@@ -2577,6 +2577,7 @@ function renderLive(L) {
       L.logWrites && L.logWrites.next ? `<span>WoW writes this file every ${Math.round(L.logWrites.every / 60)} min · next update ${
         L.logWrites.next - now > 0 ? "in " + countdown(L.logWrites.next - now) : "any moment"}</span>` : "",
       L.file ? `<span>${esc(L.file)}</span>` : "",
+      (L.v || 1) < LIVE_V ? `<span class="neg">The live server is running older code: run <code>wowstats stop</code>, then <code>wowstats live</code></span>` : "",
       b && b.at ? `<span>${b.ok ? "Ledger rebuilt" : "Ledger build failed"} ${hhmm(b.at)}${b.ok ? " (at your last /reload or logout)" : ": " + esc(b.message)}</span>` : "",
     ].join("");
   if (!L) return;
@@ -2670,6 +2671,7 @@ let mapZoom = false, mapMarks = [];
 const MAP_ZOOM = 0.28; // share of the zone's width shown when zoomed in on you
 const LINE_JUMP = 0.06; // a step longer than this share of the map has no position logged in between: drawn dashed
 const PLAY_GAP = 1800;  // seconds: pieces of play closer than this are one session (the build's I.SESSION_GAP)
+const LIVE_V = 2;       // the live snapshot version this page reads (livelog.SNAPSHOT_VERSION)
 
 // This session's line on map mapId as [x, y] points (0..1), oldest first: Logbook's saved trail (a point every
 // 5 seconds while you move, up to the last /reload or logout), then the combat log's points after it (the log has
@@ -2678,7 +2680,9 @@ const PLAY_GAP = 1800;  // seconds: pieces of play closer than this are one sess
 function sessionLine(L, ch, mapId) {
   const live = [], saved = [];
   const T = (L && L.trail) || [];
-  for (let i = 0; i + 2 < T.length; i += 3) live.push([T[i], T[i + 1], T[i + 2]]);
+  // an older live server (before snapshot v2) sends (x, y) pairs with no times: all of them count as after the save
+  if ((L && L.v || 1) >= 2) for (let i = 0; i + 2 < T.length; i += 3) live.push([T[i], T[i + 1], T[i + 2]]);
+  else for (let i = 0; i + 1 < T.length; i += 2) live.push([Infinity, T[i], T[i + 1]]);
   const rec = ch && ch.recentTrail ? ch.recentTrail.find(t => t.map === mapId) : null;
   if (rec) for (let i = 0; i + 2 < rec.pts.length; i += 3) saved.push([rec.pts[i], rec.pts[i + 1] / 10000, rec.pts[i + 2] / 10000]);
   const firstLive = live.length ? live[0][0] : Infinity;

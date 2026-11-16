@@ -80,6 +80,7 @@ class YouAndTheMap(unittest.TestCase):
         s = state(MAP, ZONE, BEAR_LANDED)
         snap = s.snapshot(0)
         trail, me = snap["trail"], snap["me"]
+        self.assertEqual(snap["v"], livelog.SNAPSHOT_VERSION)
         self.assertEqual(len(trail), 3)
         self.assertEqual(trail[0], round(me["at"], 1))
         self.assertEqual((trail[1], trail[2]), (round(me["x"], 4), round(me["y"], 4)))

@@ -28,6 +28,7 @@ ADVANCED_SUFFIXES = ("_DAMAGE", "_DAMAGE_LANDED", "_HEAL", "_ENERGIZE", "_CAST_S
 FIGHT_GAP = 6.0          # seconds without damage to or from you that end a fight
 OTHERS_TTL = 120.0       # players not seen for this long drop off "around you"
 HOSTILE_RENOTIFY = 300.0
+SNAPSHOT_VERSION = 2     # the page checks it: 2 = trail as (t, x, y) triples, players with "near"
 NEAR_SECONDS = 20.0      # a player's own logged position stays good this long before "near you" replaces it
 
 _TS = re.compile(r"^(\d+)/(\d+)/(\d+) (\d+):(\d+):(\d+(?:\.\d+)?)([+-]\d+(?:[.:]\d+)?)?$")
@@ -421,6 +422,7 @@ class LiveState:
         sess["spells"] = self.spells.most_common(10)
         sess["heals"] = self.heals.most_common(8)
         return {
+            "v": SNAPSHOT_VERSION,
             "file": self.file, "firstLine": self.first_line, "lastLine": self.last_line, "now": now,
             "me": me, "session": sess,
             "fight": self._fight_view(self.fight) if self.fight else None,
