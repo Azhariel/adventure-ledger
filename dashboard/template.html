@@ -444,7 +444,7 @@ tr.flash td { animation: flash .8s ease-out; }
           <button class="mapbtn" id="mapZoom" type="button" hidden>Zoom to you</button></div>
         <div class="legend" id="mapLegend"></div></article>
       <article class="panel w4"><div class="ph"><h2 id="fightTitle">Last fight</h2></div><div id="fightBox"></div>
-        <h3>Around you</h3><p class="hint">Players the combat log saw in the last 2 minutes (about 50 yards).</p><div class="scroll" style="max-height:220px"><table id="aroundTable"></table></div></article>
+        <h3>Around you</h3><p class="hint">Players the combat log saw in the last 2 minutes (about 50 yards), and anyone you buffed or who buffed you.</p><div class="scroll" style="max-height:220px"><table id="aroundTable"></table></div></article>
       <article class="panel w7"><div class="ph"><h2>Fights this session</h2></div><p class="hint">A fight ends after 6 seconds with no damage to or from you.</p><div class="scroll"><table id="fightsTable"></table></div></article>
       <article class="panel w5"><div class="ph"><h2>What just happened</h2></div><div class="scroll"><ul class="feed" id="feedList"></ul></div></article>
       <article class="panel w4"><div class="ph"><h2>Damage by spell</h2></div><p class="hint" id="spellHint"></p><div id="spellBars" class="bars"></div><h3>Healing by spell</h3><div id="healBars" class="bars"></div></article>
@@ -2610,7 +2610,8 @@ function renderLive(L) {
     </div>${f.kills && f.kills.length ? `<div class="muted">Killed ${esc(f.kills.join(", "))}</div>` : ""}`;
   // Around you
   table("aroundTable", [{ t: "Player" }, { t: "Item lvl", n: 1 }, { t: "Health", n: 1 }, { t: "Seen", n: 1 }],
-    (L.players || []).map(p => [playerLink(p.name) + (p.hostile ? ' <span class="pill hostile">enemy</span>' : ""),
+    (L.players || []).map(p => [playerLink(p.name) + (p.hostile ? ' <span class="pill hostile">enemy</span>' : "")
+      + (p.near ? ' <span class="pill" title="A spell between you: placed where you are">near you</span>' : ""),
       p.itemLevel ?? "", p.hp != null ? pct(p.hp) : "", agoText(p.ago)]),
     "Nobody else in combat-log range.");
   // Fights table

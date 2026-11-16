@@ -28,6 +28,7 @@ ADVANCED_SUFFIXES = ("_DAMAGE", "_DAMAGE_LANDED", "_HEAL", "_ENERGIZE", "_CAST_S
 FIGHT_GAP = 6.0          # seconds without damage to or from you that end a fight
 OTHERS_TTL = 120.0       # players not seen for this long drop off "around you"
 HOSTILE_RENOTIFY = 300.0
+NEAR_SECONDS = 20.0      # a player's own logged position stays good this long before "near you" replaces it
 
 _TS = re.compile(r"^(\d+)/(\d+)/(\d+) (\d+):(\d+):(\d+(?:\.\d+)?)([+-]\d+(?:[.:]\d+)?)?$")
 
@@ -189,13 +190,36 @@ class LiveState:
             o = self.others[guid] = {"name": short_name(unit_name), "hostile": False}
         hostile = bool(unit_flags & HOSTILE)
         o.update({"itemLevel": ilvl, "hp": int(num(f[p + 2])), "maxHp": int(num(f[p + 3])),
-                  "map": map_id, "x": x, "y": y, "t": t})
+                  "map": map_id, "x": x, "y": y, "t": t, "near": False})
         if hostile:
             o["hostile"] = True
             last = self.hostile_seen.get(guid)
             if last is None or t - last > HOSTILE_RENOTIFY:
                 self._note(t, "hostile", "Enemy player nearby: %s (item level %d)" % (o["name"], ilvl))
             self.hostile_seen[guid] = t
+
+    def _near(self, t, src, src_name, src_fl, dst, dst_name, dst_fl):
+        """A spell between you and another player (your buff on a passer-by, their heal on you): the log's position
+        is yours, not theirs, but they're within spell range, so they're placed where you are (near) until a line
+        of their own gives their position."""
+        if self.me is None:
+            return
+        if self._is_me(src) and dst.startswith("Player-") and dst != src:
+            guid, name, fl = dst, dst_name, dst_fl
+        elif self._is_me(dst) and src.startswith("Player-") and src != dst:
+            guid, name, fl = src, src_name, src_fl
+        else:
+            return
+        me = self.me
+        o = self.others.get(guid)
+        if o is None:
+            o = self.others[guid] = {"name": short_name(name), "hostile": False}
+        if fl & HOSTILE:
+            o["hostile"] = True
+        own = o.get("x") is not None and not o.get("near") and t - o.get("t", 0) <= NEAR_SECONDS
+        if not own:
+            o.update({"map": me.get("map"), "x": me.get("x"), "y": me.get("y"), "near": True})
+        o["t"] = t
 
     # ------------------------------------------------------------------ fights
     def _touch_fight(self, t):
@@ -288,6 +312,7 @@ class LiveState:
         s = p + 19 if adv else p
         if ev.startswith("ENVIRONMENTAL_"):
             s += 1  # environmental type
+        self._near(t, src, src_name, src_fl, dst, dst_name, dst_fl)
 
         src_mine = self._mine(src, src_fl)
         dst_me = self._is_me(dst)
@@ -388,6 +413,7 @@ class LiveState:
                     "name": o["name"], "itemLevel": o.get("itemLevel"), "hostile": o.get("hostile", False),
                     "map": o.get("map"), "x": o.get("x"), "y": o.get("y"),
                     "hp": round(o["hp"] / o["maxHp"], 3) if o.get("maxHp") else None, "ago": round(now - o["t"]),
+                    "near": o.get("near", False),
                 })
         players.sort(key=lambda o: (not o["hostile"], o["ago"]))
         sess = dict(self.session)

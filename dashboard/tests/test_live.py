@@ -84,6 +84,21 @@ class YouAndTheMap(unittest.TestCase):
         self.assertEqual(trail[0], round(me["at"], 1))
         self.assertEqual((trail[1], trail[2]), (round(me["x"], 4), round(me["y"], 4)))
 
+    def test_a_buff_on_a_passer_by_places_them_near_you(self):
+        # real line, 15 Nov 2026: the advanced block is the caster's (you), so the target has no position of its own
+        buff = ('11/8/2026 21:40:52.000-3  SPELL_CAST_SUCCESS,Player-6800-00A90C3E,"Azhariel-Deadheart-PvP-US",0x511,'
+                '0x80000000,Player-6922-007A5281,"Soren-Dawnsworn-PvP-US",0x10518,0x80000000,1245,"Power Word: Fortitude",'
+                '0x2,Player-6800-00A90C3E,0000000000000000,812,812,168,30,766,0,0,0,0,1282,1282,400,22.84,1229.40,1421,'
+                '1.7282,18')
+        s = state(MAP, ZONE, BEAR_LANDED, buff)
+        snap = s.snapshot(s.last_line)
+        me = snap["me"]
+        soren = [p for p in snap["players"] if p["name"].startswith("Soren")]
+        self.assertEqual(len(soren), 1)
+        self.assertTrue(soren[0]["near"])
+        self.assertEqual((soren[0]["map"], soren[0]["x"], soren[0]["y"]), (me["map"], me["x"], me["y"]))
+        self.assertFalse(soren[0]["hostile"])
+
     def test_no_position_until_the_map_edges_are_known(self):
         s = state(BEAR_LANDED)
         self.assertIsNone(s.snapshot(0)["me"]["x"])
