@@ -187,6 +187,28 @@ footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: va
 .prose dl.cols > div { break-inside: avoid; padding-top: 1px; }
 .prose .steps li { line-height: 1.5; }
 .prose .links { font-weight: 500; }
+.rp-map canvas { cursor: grab; touch-action: none; }
+.rp-map canvas.drag { cursor: grabbing; }
+.rp-zoom { position: absolute; top: 8px; right: 8px; z-index: 1; display: flex; gap: 4px; }
+.rp-zoom button { background: color-mix(in srgb, var(--void) 88%, transparent); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; min-width: 30px; height: 28px; padding: 0 9px; font: 500 13px var(--sans); cursor: pointer; }
+.rp-zoom button:hover { border-color: var(--muted); }
+.rp-zoom button[aria-pressed="true"] { border-color: var(--purple); color: var(--purple); }
+.rp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.rp-play { width: 38px; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--raise); color: var(--fg); font-size: 13px; cursor: pointer; }
+.rp-play:hover { border-color: var(--purple); }
+.rp-scrub { flex: 1 1 260px; min-width: 200px; height: 34px; cursor: pointer; touch-action: none; }
+.rp-time { font: 12px var(--mono); color: var(--muted); white-space: nowrap; min-width: 150px; text-align: right; }
+.rp-moments { display: flex; flex-direction: column; min-width: 0; }
+.rp-list { list-style: none; margin: 0; padding: 0; flex: 1 1 0; min-height: 340px; overflow-y: auto; }
+.rp-list li { display: grid; grid-template-columns: 58px 16px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+.rp-list li:hover { background: var(--raise); }
+.rp-list li.ahead { opacity: .5; }
+.rp-list li.now { background: color-mix(in srgb, var(--purple) 20%, transparent); opacity: 1; }
+.rp-list .t { font: 11.5px var(--mono); color: var(--dim); }
+.rp-list .k { text-align: center; font-weight: 700; }
+.rp-list .x { min-width: 0; overflow-wrap: anywhere; }
+.rp-list .s { display: block; color: var(--muted); font-size: 12px; }
+.rp-list .none { display: block; color: var(--muted); cursor: default; }
 .addon .ph h2 small { font: 12px var(--mono); color: var(--dim); margin-left: 8px; }
 .addon .vers { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 10px 0 0; font: 12px var(--mono); }
 .addon .vers dt { margin: 0; font-weight: 400; color: var(--dim); }
@@ -430,6 +452,31 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w4 shot"><div class="ph"><h2>Latest screenshot</h2></div><p class="hint" id="shotHint"></p><div id="shotBox"></div></article>
     </section>
 
+    <!-- replay: one play session on the map, with its moments beside it -->
+    <section class="mod" data-mod="replay" hidden>
+      <article class="panel w8 rp"><div class="ph"><h2 id="rpTitle">Replay</h2>
+          <select id="rpSession" aria-label="Play session to replay"></select></div>
+        <div class="mapwrap rp-map"><canvas id="rpMap" role="img" aria-label="Map replay of the play session"></canvas>
+          <div class="tip" id="rpTip" hidden></div>
+          <div class="rp-zoom">
+            <button type="button" id="rpZoomIn" title="Zoom in (mouse wheel)">+</button>
+            <button type="button" id="rpZoomOut" title="Zoom out">&minus;</button>
+            <button type="button" id="rpFit" title="Frame this session's path">Fit</button>
+            <button type="button" id="rpZone" title="Show the whole zone">Zone</button>
+            <button type="button" id="rpFollow" aria-pressed="true" title="Keep you in view when zoomed in">Follow</button>
+          </div></div>
+        <div class="rp-bar">
+          <button type="button" class="rp-play" id="rpPlay" aria-label="Play">&#9654;</button>
+          <div class="seg" id="rpSpeed" aria-label="Replay speed"></div>
+          <canvas id="rpScrub" class="rp-scrub" aria-label="Session timeline: click or drag to move"></canvas>
+          <span class="rp-time" id="rpTime"></span>
+        </div>
+        <p class="hint" id="rpHint"></p></article>
+      <article class="panel w4 rp-moments"><div class="ph"><h2>Moments</h2><span class="hint" id="rpCount"></span></div>
+        <div class="chips" id="rpKinds"></div>
+        <ol class="rp-list" id="rpList"></ol></article>
+    </section>
+
     <!-- about -->
     <section class="mod about" data-mod="about" hidden>
       <article class="panel w12 prose"><div class="ph"><h2>What this is</h2></div>
@@ -455,6 +502,9 @@ tr.flash td { animation: flash .8s ease-out; }
             what your items would sell for), and your last farming session from Haul.</dd>
           <dt><a href="#/combat" data-module="combat">Combat &amp; quests</a></dt><dd>The mobs you fight most, every quest turned in, deaths and close calls, and from the
             game's damage meter: damage per second, damage by spell, what hurts you, and damage at each level.</dd>
+          <dt><a href="#/replay" data-module="replay">Replay</a></dt><dd>Plays back a session on the zone map: your path draws
+            itself, and level-ups, deaths, quests, flights and loot appear where they happened. Scrub, zoom and pan the map,
+            and click a moment to jump there.</dd>
         </dl></article>
 
       <article class="panel w6 prose"><div class="ph"><h2>~/account</h2></div>
@@ -903,6 +953,7 @@ const MODULES = [
   { group: "character", key: "progress", label: "Progress", char: true },
   { group: "character", key: "gold", label: "Gold", char: true },
   { group: "character", key: "combat", label: "Combat & quests", char: true },
+  { group: "character", key: "replay", label: "Replay", char: true },
   { group: "account", key: "roster", label: "Characters" },
   { group: "account", key: "inventory", label: "Inventory" },
   { group: "account", key: "alts", label: "Mail to alts" },
@@ -1771,7 +1822,7 @@ function modLive() {
 
 const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, combat: modCombat, roster: modRoster, inventory: modInventory,
   alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral,
-  trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout, addons: modAddons };
+  trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout, addons: modAddons, replay: modReplay };
 
 // Module names link to their module; one this page can't open (Live without the live server, character modules
 // without a character) shows as plain text
@@ -1801,7 +1852,7 @@ const LATEST_KEY = "adventureLedger.latest", LATEST_TTL = 6 * 3600;
 const CURSEFORGE = "https://www.curseforge.com/wow/addons/";
 const ADDON_INFO = {
   Logbook: { text: "Your journey: XP and levels, gold by source, kills, quests, deaths, zones, dungeons, professions, play sessions, where you've walked, your damage from the game's damage meter, and your flights. It can copy your older history from MuddyBoots.",
-    feeds: ["overview", "progress", "gold", "combat", "trades", "live"] },
+    feeds: ["overview", "progress", "gold", "combat", "replay", "trades", "live"] },
   LedgerLink: { text: "The page's in-game half: keeps the combat log on for the Live view, and keeps the Neutral auction house's prices apart from your faction's.",
     feeds: ["live", "neutral"] },
   MakeOrBuy: { text: "Your recipes, what each craft costs and makes, and your restock list. In game: craft cost and profit that counts crafting your own reagents, and skill-up routes.",
@@ -1916,6 +1967,386 @@ function modAddons() {
   }).join("");
   sec.insertAdjacentHTML("beforeend", cards);
   linkModules(sec);
+}
+
+// ------------------------------------------------------------------ Replay: one play session on the map
+// The build's replay data (M.replay): every trail point (a point every 5 seconds while you move) with its time and
+// state, and the moments with where they happened. The replay clock is game time with every stand longer than
+// RP_STAND seconds squeezed to RP_STAND, so a long AFK or a vendor visit doesn't stall it; speed multiplies it.
+const RP_STAND = 20;
+const RP_SPEEDS = [10, 60, 300, 1200];
+const RP_ZOOM_MAX = 12;
+const MAP_IMAGE = { width: 1022, height: 668, left: 10, mapWidth: 1002, mapHeight: 668 }; // zones.py IMAGE
+const MAP_CDN = "https://wow.zamimg.com/images/wow/classic/maps/enus/original/";
+// Kinds of moment: glyph, colour token, and the filter chip it belongs to
+const RP_KINDS = {
+  lv: { g: "★", c: "--gold", f: "progress" }, qt: { g: "!", c: "--yellow", f: "progress" },
+  qa: { g: "?", c: "--muted", f: "progress" }, qx: { g: "–", c: "--muted", f: "progress" },
+  de: { g: "✕", c: "--red", f: "deaths" },
+  zo: { g: "◇", c: "--cyan", f: "travel" }, fl: { g: "➶", c: "--cyan", f: "travel" },
+  ie: { g: "⌂", c: "--purple", f: "travel" }, il: { g: "⌂", c: "--dim", f: "travel" },
+  in: { g: "●", c: "--green", f: "travel" }, out: { g: "○", c: "--dim", f: "travel" },
+  ga: { g: "✿", c: "--green", f: "loot" }, lo: { g: "◆", c: "--cyan", f: "loot" }, ah: { g: "$", c: "--gold", f: "loot" },
+  sk: { g: "↑", c: "--purple", f: "skills" }, ki: { g: "†", c: "--orange", f: "kills" },
+};
+const RP_FILTERS = [["progress", "Levels & quests"], ["deaths", "Deaths"], ["travel", "Travel"], ["loot", "Loot & sales"],
+  ["skills", "Skill-ups"], ["kills", "Kills"]];
+const RP_KEY = "adventureLedger.replay";
+const RP = { char: null, idx: 0, T: [], M: [], X: [], Y: [], F: [], C: [], dur: 0, c: 0, playing: false, speed: 60,
+  view: { m: null, cx: 0.5, cy: 0.5, z: 1 }, follow: true, moments: [], shown: [], marks: [], active: -1, ready: false,
+  filters: { progress: true, deaths: true, travel: true, loot: true, skills: false, kills: false } };
+try { const saved = JSON.parse(store.get(RP_KEY) || "null"); if (saved) { if (saved.filters) Object.assign(RP.filters, saved.filters); if (RP_SPEEDS.includes(saved.speed)) RP.speed = saved.speed; } } catch (e) {}
+const rpSave = () => store.set(RP_KEY, JSON.stringify({ filters: RP.filters, speed: RP.speed }));
+
+// Map art: the live server caches each zone the first time it's asked for; the file page uses that cache, and
+// Wowhead's CDN for a zone it doesn't have yet
+const rpArt = {};
+function rpArtFor(m) {
+  const zone = DATA.zones && DATA.zones[m];
+  if (!m || !zone) return null;
+  let a = rpArt[m];
+  if (!a) {
+    const urls = [SERVED ? `/map/${m}.jpg` : `maps/${m}.jpg`, MAP_CDN + zone + ".jpg"];
+    a = rpArt[m] = { img: new Image(), ok: false };
+    a.img.onload = () => { a.ok = true; rpDraw(); };
+    a.img.onerror = () => { urls.shift(); if (urls.length) a.img.src = urls[0]; };
+    a.img.src = urls[0];
+  }
+  return a.ok ? a.img : null;
+}
+
+const rpSessions = ch => (ch && ch.recaps) || [];
+const rpFind = (A, v) => { let lo = 0, hi = A.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (A[mid] <= v) lo = mid; else hi = mid - 1; } return lo; };
+// game time <-> replay clock, both piecewise linear between trail points
+function rpClockAt(t) {
+  const T = RP.T, C = RP.C; if (!T.length) return 0;
+  if (t <= T[0]) return 0; if (t >= T[T.length - 1]) return RP.dur;
+  const i = rpFind(T, t), span = T[i + 1] - T[i];
+  return span > 0 ? C[i] + (t - T[i]) * (C[i + 1] - C[i]) / span : C[i];
+}
+function rpTimeAt(c) {
+  const T = RP.T, C = RP.C; if (!T.length) return 0;
+  if (c <= 0) return T[0]; if (c >= RP.dur) return T[T.length - 1];
+  const i = rpFind(C, c), span = C[i + 1] - C[i];
+  return span > 0 ? T[i] + (c - C[i]) * (T[i + 1] - T[i]) / span : T[i];
+}
+// where you are at clock c: { i (the point at or before it), m, x, y, f }
+function rpPos(c) {
+  const C = RP.C, i = rpFind(C, c), j = Math.min(i + 1, C.length - 1);
+  let x = RP.X[i], y = RP.Y[i];
+  if (j > i && RP.M[j] === RP.M[i] && Math.hypot(RP.X[j] - x, RP.Y[j] - y) <= LINE_JUMP && C[j] > C[i]) {
+    const k = (c - C[i]) / (C[j] - C[i]); x += (RP.X[j] - x) * k; y += (RP.Y[j] - y) * k;
+  }
+  return { i, m: RP.M[i], x, y, f: RP.F[i] };
+}
+
+// Loads session idx (an index into the character's play sessions, newest first)
+function rpLoad(ch, idx) {
+  RP.char = ch.id; RP.idx = idx; RP.playing = false;
+  const r = ch.replay, s = rpSessions(ch)[idx];
+  Object.assign(RP, { T: [], M: [], X: [], Y: [], F: [], C: [], moments: [], dur: 0, c: 0, active: -1 });
+  if (!r || !s) { RP.ready = false; return; }
+  const t0 = s.start - r.base - 5, t1 = s.finish - r.base + 5, P = r.pts;
+  for (let i = 0; i + 4 < P.length; i += 5) {
+    if (P[i] < t0) continue; if (P[i] > t1) break;
+    RP.T.push(P[i]); RP.M.push(P[i + 1]); RP.X.push(P[i + 2] / 10000); RP.Y.push(P[i + 3] / 10000); RP.F.push(P[i + 4]);
+  }
+  for (let i = 0; i < RP.T.length; i++) RP.C.push(i ? RP.C[i - 1] + Math.min(RP.T[i] - RP.T[i - 1], RP_STAND) : 0);
+  RP.dur = RP.C.length ? RP.C[RP.C.length - 1] : 0;
+  RP.ready = RP.T.length > 1;
+  // a /reload logs "out" then "in|reload" a moment later: neither is a moment, only real logins and logouts are
+  const reloadAt = new Set(r.moments.filter(m => m[1] === "in" && m[5] === "Reload").map(m => m[0]));
+  const reloadSoon = t => { for (let d = 0; d <= 120; d++) if (reloadAt.has(t + d)) return true; return false; };
+  for (const m of r.moments) {
+    if (m[0] < t0 || m[0] > t1 || !RP_KINDS[m[1]]) continue;
+    if ((m[1] === "in" && m[5] === "Reload") || (m[1] === "out" && reloadSoon(m[0]))) continue;
+    const mo = { t: m[0], k: m[1], text: m[5], sub: m[6], c: rpClockAt(m[0]) };
+    if (m[2] && m[3] >= 0) { mo.m = m[2]; mo.x = m[3] / 10000; mo.y = m[4] / 10000; }
+    else if (RP.ready) { const p = rpPos(mo.c); mo.m = p.m; mo.x = p.x; mo.y = p.y; }
+    RP.moments.push(mo);
+  }
+  RP.view = { m: null, cx: 0.5, cy: 0.5, z: 1 };
+}
+
+function rpShown() { return RP.moments.filter(m => RP.filters[RP_KINDS[m.k].f]); }
+
+function rpSeek(c, opts = {}) {
+  RP.c = Math.max(0, Math.min(RP.dur, c));
+  if (opts.center && RP.view.z > 1) { const p = rpPos(RP.c); RP.view.cx = p.x; RP.view.cy = p.y; }
+  rpDraw();
+}
+
+let rpRaf = 0, rpLast = 0;
+function rpTick(now) {
+  rpRaf = 0;
+  if (!RP.playing || route !== "replay") { RP.playing = false; rpButtons(); return; }
+  const dt = rpLast ? Math.min(0.1, (now - rpLast) / 1000) : 0;
+  rpLast = now;
+  RP.c += dt * RP.speed;
+  if (RP.c >= RP.dur) { RP.c = RP.dur; RP.playing = false; rpButtons(); }
+  rpDraw();
+  if (RP.playing) rpRaf = requestAnimationFrame(rpTick);
+}
+function rpPlay(on) {
+  if (!RP.ready) return;
+  if (on && RP.c >= RP.dur) RP.c = 0;
+  RP.playing = on; rpLast = 0; rpButtons();
+  if (on && !rpRaf) rpRaf = requestAnimationFrame(rpTick);
+}
+function rpButtons() {
+  const b = el("rpPlay"); b.innerHTML = RP.playing ? "&#10074;&#10074;" : "&#9654;"; b.setAttribute("aria-label", RP.playing ? "Pause" : "Play");
+  el("rpSpeed").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(Number(x.dataset.speed) === RP.speed)));
+  el("rpFollow").setAttribute("aria-pressed", String(RP.follow));
+}
+
+function rpCanvas(id) {
+  const cv = el(id), box = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { g, W: box.width, H: box.height };
+}
+function rpClamp() {
+  const v = RP.view, half = 0.5 / v.z;
+  v.z = Math.max(1, Math.min(RP_ZOOM_MAX, v.z));
+  v.cx = Math.max(half, Math.min(1 - half, v.cx)); v.cy = Math.max(half, Math.min(1 - half, v.cy));
+}
+
+// Frames the session's path on map m with a margin (never closer than a 12th of the zone)
+function rpFit(m) {
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (let i = 0; i < RP.T.length; i++) if (RP.M[i] === m) {
+    x0 = Math.min(x0, RP.X[i]); x1 = Math.max(x1, RP.X[i]); y0 = Math.min(y0, RP.Y[i]); y1 = Math.max(y1, RP.Y[i]);
+  }
+  const v = RP.view;
+  if (x1 < x0) { Object.assign(v, { cx: 0.5, cy: 0.5, z: 1 }); return; }
+  const span = Math.max(x1 - x0, y1 - y0) * 1.35;
+  Object.assign(v, { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, z: Math.max(1, Math.min(RP_ZOOM_MAX, 1 / Math.max(span, 1 / RP_ZOOM_MAX))) });
+}
+
+function rpDraw() {
+  if (route !== "replay" || !RP.ready) return;
+  const { g, W, H } = rpCanvas("rpMap");
+  const p = rpPos(RP.c), v = RP.view;
+  if (v.m !== p.m) { v.m = p.m; rpFit(p.m); }
+  // following: pan only when you near the edge (the inner 70% of the view is free), so the framing holds
+  if (RP.follow && v.z > 1) {
+    const keep = 0.35 / v.z;
+    v.cx = Math.max(p.x - keep, Math.min(p.x + keep, v.cx)); v.cy = Math.max(p.y - keep, Math.min(p.y + keep, v.cy));
+  }
+  rpClamp();
+  const x0 = v.cx - 0.5 / v.z, y0 = v.cy - 0.5 / v.z;
+  const X = x => (x - x0) * v.z * W, Y = y => (y - y0) * v.z * H;
+  const art = rpArtFor(p.m);
+  g.fillStyle = css("--bg"); g.fillRect(0, 0, W, H);
+  if (art) {
+    g.drawImage(art, MAP_IMAGE.left + x0 * MAP_IMAGE.mapWidth, y0 * MAP_IMAGE.mapHeight, MAP_IMAGE.mapWidth / v.z, MAP_IMAGE.mapHeight / v.z, 0, 0, W, H);
+  } else {
+    g.strokeStyle = css("--line2"); g.lineWidth = 1;
+    for (let s = 0.1; s < 1; s += 0.1) { g.beginPath(); g.moveTo(X(s), 0); g.lineTo(X(s), H); g.moveTo(0, Y(s)); g.lineTo(W, Y(s)); g.stroke(); }
+  }
+  // The session on this map: what's ahead faint, what's played strong; ghost runs dim, flights cyan; a step with
+  // no position logged in between dashed
+  const ink = art ? "#8c2a1c" : css("--accent"), halo = art ? "rgba(255, 250, 235, .85)" : null;
+  const strokeRun = (from, to, style) => {
+    g.beginPath(); let open = false;
+    for (let i = from; i <= to; i++) {
+      if (RP.M[i] !== p.m) { open = false; continue; }
+      const jump = open && Math.hypot(RP.X[i] - RP.X[i - 1], RP.Y[i] - RP.Y[i - 1]) > LINE_JUMP;
+      if (!open || jump) g.moveTo(X(RP.X[i]), Y(RP.Y[i])); else g.lineTo(X(RP.X[i]), Y(RP.Y[i]));
+      open = true;
+    }
+    style(); g.stroke();
+  };
+  g.lineJoin = "round"; g.lineCap = "round";
+  strokeRun(p.i, RP.T.length - 1, () => { g.strokeStyle = art ? "rgba(60, 35, 15, .35)" : css("--line"); g.lineWidth = 2; });
+  if (halo) strokeRun(0, p.i, () => { g.strokeStyle = halo; g.lineWidth = 5; });
+  // played part, coloured by state, one run per state change
+  let runStart = 0;
+  for (let i = 1; i <= p.i + 1; i++) {
+    if (i > p.i || RP.F[i] !== RP.F[runStart]) {
+      const f = RP.F[runStart];
+      strokeRun(runStart, Math.min(i, p.i), () => { g.strokeStyle = f === 2 ? (art ? "#1d6f8c" : css("--cyan")) : f === 1 ? (art ? "#6b6b6b" : css("--dim")) : ink; g.lineWidth = f === 2 ? 2 : 2.6; });
+      runStart = i;
+    }
+  }
+  // the last step up to where you are now
+  if (RP.M[p.i] === p.m) { g.beginPath(); g.moveTo(X(RP.X[p.i]), Y(RP.Y[p.i])); g.lineTo(X(p.x), Y(p.y)); g.strokeStyle = ink; g.lineWidth = 2.6; g.stroke(); }
+  // you (moments draw over you, so a fresh one shows where it happened)
+  const ux = X(p.x), uy = Y(p.y);
+  g.fillStyle = art ? "rgba(255, 250, 235, .9)" : css("--void"); g.beginPath(); g.arc(ux, uy, 8, 0, Math.PI * 2); g.fill();
+  g.fillStyle = p.f === 1 ? css("--dim") : css("--pink"); g.beginPath(); g.arc(ux, uy, 5.5, 0, Math.PI * 2); g.fill();
+  // moments so far on this map
+  RP.marks = [];
+  const shown = rpShown();
+  g.textAlign = "center"; g.textBaseline = "middle"; g.font = "700 13px 'IBM Plex Sans', sans-serif";
+  for (const m of shown) {
+    if (m.c > RP.c || m.m !== p.m || m.x == null) continue;
+    const mx = X(m.x), my = Y(m.y);
+    if (mx < -10 || my < -10 || mx > W + 10 || my > H + 10) continue;
+    const fresh = RP.c - m.c < 8 * Math.max(1, RP.speed / 60);
+    const r = fresh ? 10 : 7;
+    g.fillStyle = art ? "rgba(255, 250, 235, .9)" : css("--void"); g.beginPath(); g.arc(mx, my, r, 0, Math.PI * 2); g.fill();
+    g.fillStyle = css(RP_KINDS[m.k].c); g.fillText(RP_KINDS[m.k].g, mx, my + 0.5);
+    RP.marks.push({ x: mx, y: my, m });
+  }
+  // labels
+  const name = (LIVE && LIVE.maps && LIVE.maps[p.m]) || (DATA.zoneNames && DATA.zoneNames[p.m]) || rpZoneName(p.m);
+  el("rpTitle").textContent = name ? `Replay: ${name}` : "Replay";
+  rpScrub(); rpTimeLabel(); rpActive();
+}
+
+// The zone's name: the newest zone moment on this map, as the map title
+function rpZoneName(m) {
+  let name = null;
+  for (const mo of RP.moments) if (mo.k === "zo" && mo.m === m) { name = mo.text; if (mo.c > RP.c) break; }
+  return name;
+}
+
+function rpScrub() {
+  const { g, W, H } = rpCanvas("rpScrub");
+  g.clearRect(0, 0, W, H);
+  const pad = 8, y = H / 2, w = W - pad * 2, X = c => pad + (RP.dur ? c / RP.dur : 0) * w;
+  g.lineCap = "round";
+  g.strokeStyle = css("--line"); g.lineWidth = 4; g.beginPath(); g.moveTo(pad, y); g.lineTo(pad + w, y); g.stroke();
+  g.strokeStyle = css("--purple"); g.beginPath(); g.moveTo(pad, y); g.lineTo(X(RP.c), y); g.stroke();
+  for (const m of rpShown()) {
+    const big = m.k === "lv" || m.k === "de";
+    g.fillStyle = css(RP_KINDS[m.k].c); g.fillRect(Math.round(X(m.c)) - 1, big ? 3 : 8, 2, big ? H - 6 : H - 16);
+  }
+  g.fillStyle = css("--fg"); g.beginPath(); g.arc(X(RP.c), y, 6, 0, Math.PI * 2); g.fill();
+}
+
+function rpTimeLabel() {
+  const t = rpTimeAt(RP.c), ch = curChar(), base = ch && ch.replay ? ch.replay.base : 0;
+  const s = rpSessions(ch)[RP.idx], spent = s ? Math.max(0, base + t - s.start) : 0, total = s ? s.finish - s.start : 0;
+  const mm = x => `${Math.floor(x / 3600) ? Math.floor(x / 3600) + "h " : ""}${String(Math.floor(x / 60) % 60).padStart(2, "0")}m`;
+  el("rpTime").textContent = `${clock(base + t)} · ${mm(spent)} of ${mm(total)}`;
+}
+
+// The moments list: the newest one at or before the playhead is "now"; ones after it are dimmed
+function rpList() {
+  const shown = RP.shown = rpShown(), ch = curChar(), base = ch && ch.replay ? ch.replay.base : 0;
+  el("rpCount").textContent = `${shown.length} of ${RP.moments.length}`;
+  el("rpList").innerHTML = shown.length ? shown.map((m, i) => `<li data-i="${i}"><span class="t">${clock(base + m.t)}</span>`
+    + `<span class="k" style="color:var(${RP_KINDS[m.k].c})">${RP_KINDS[m.k].g}</span>`
+    + `<span class="x">${esc(m.text)}${m.sub ? `<span class="s">${esc(m.sub)}</span>` : ""}</span></li>`).join("")
+    : '<li class="none">Nothing of these kinds in this session. Turn on more above.</li>';
+  RP.active = -2; rpActive();
+}
+function rpActive() {
+  const shown = RP.shown; let a = -1;
+  for (let i = 0; i < shown.length && shown[i].c <= RP.c; i++) a = i;
+  if (a === RP.active) return;
+  RP.active = a;
+  const list = el("rpList");
+  list.querySelectorAll("li[data-i]").forEach(li => { const i = Number(li.dataset.i); li.classList.toggle("now", i === a); li.classList.toggle("ahead", i > a); });
+  const li = list.querySelector(`li[data-i="${a}"]`);
+  if (li && !list.matches(":hover")) {
+    const top = li.offsetTop - list.offsetTop, h = list.clientHeight;
+    if (top < list.scrollTop || top > list.scrollTop + h - li.offsetHeight) list.scrollTop = top - h / 3;
+  }
+}
+
+function rpSessionLabel(s) {
+  return `${day(s.start)}, ${clock(s.start)}–${clock(s.finish)} (${dur(s.finish - s.start)})`;
+}
+
+let rpWired = false;
+function rpWire() {
+  if (rpWired) return; rpWired = true;
+  el("rpSpeed").innerHTML = RP_SPEEDS.map(s => `<button type="button" data-speed="${s}">${s}×</button>`).join("");
+  el("rpSpeed").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; RP.speed = Number(b.dataset.speed); rpSave(); rpButtons(); });
+  el("rpPlay").addEventListener("click", () => rpPlay(!RP.playing));
+  el("rpSession").addEventListener("change", e => { const ch = curChar(); if (!ch) return; rpLoad(ch, Number(e.target.value)); rpList(); rpButtons(); rpDraw(); });
+  el("rpKinds").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    RP.filters[b.dataset.f] = !RP.filters[b.dataset.f]; b.setAttribute("aria-pressed", String(RP.filters[b.dataset.f]));
+    rpSave(); rpList(); rpDraw();
+  });
+  el("rpList").addEventListener("click", e => {
+    const li = e.target.closest("li[data-i]"); if (!li) return;
+    const m = RP.shown[Number(li.dataset.i)]; if (!m) return;
+    rpSeek(m.c, { center: true });
+  });
+  // the scrubber: click or drag
+  const scrub = el("rpScrub");
+  const seekAt = e => { const r = scrub.getBoundingClientRect(), k = (e.clientX - r.left - 8) / (r.width - 16); rpSeek(Math.max(0, Math.min(1, k)) * RP.dur); };
+  scrub.addEventListener("pointerdown", e => { scrub.setPointerCapture(e.pointerId); seekAt(e); });
+  scrub.addEventListener("pointermove", e => { if (scrub.hasPointerCapture(e.pointerId)) seekAt(e); });
+  // the map: wheel zooms where the pointer is, drag pans (and stops following), double-click zooms in
+  const map = el("rpMap");
+  const toMap = e => { const r = map.getBoundingClientRect(), v = RP.view; return [v.cx + ((e.clientX - r.left) / r.width - 0.5) / v.z, v.cy + ((e.clientY - r.top) / r.height - 0.5) / v.z, r]; };
+  const zoomAt = (e, k) => {
+    const v = RP.view, [mx, my, r] = toMap(e), z = Math.max(1, Math.min(RP_ZOOM_MAX, v.z * k));
+    if (!RP.follow) { const fx = (e.clientX - r.left) / r.width - 0.5, fy = (e.clientY - r.top) / r.height - 0.5; v.cx = mx - fx / z; v.cy = my - fy / z; }
+    v.z = z; rpDraw();
+  };
+  map.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e, e.deltaY < 0 ? 1.25 : 0.8); }, { passive: false });
+  map.addEventListener("dblclick", e => zoomAt(e, 1.6));
+  let drag = null;
+  map.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, cx: RP.view.cx, cy: RP.view.cy, moved: false }; map.setPointerCapture(e.pointerId); });
+  map.addEventListener("pointermove", e => {
+    if (drag && map.hasPointerCapture(e.pointerId)) {
+      const r = map.getBoundingClientRect(), dx = (e.clientX - drag.x) / r.width, dy = (e.clientY - drag.y) / r.height;
+      if (!drag.moved && Math.hypot(dx * r.width, dy * r.height) < 4) return;
+      drag.moved = true; map.classList.add("drag");
+      if (RP.follow) { RP.follow = false; rpButtons(); }
+      RP.view.cx = drag.cx - dx / RP.view.z; RP.view.cy = drag.cy - dy / RP.view.z; rpDraw(); return;
+    }
+    rpHover(e);
+  });
+  map.addEventListener("pointerup", () => { drag = null; map.classList.remove("drag"); });
+  map.addEventListener("mouseleave", () => { el("rpTip").hidden = true; });
+  el("rpZoomIn").addEventListener("click", () => { RP.view.z *= 1.5; rpDraw(); });
+  el("rpZoomOut").addEventListener("click", () => { RP.view.z /= 1.5; rpDraw(); });
+  el("rpFit").addEventListener("click", () => { rpFit(RP.view.m); rpDraw(); });
+  el("rpZone").addEventListener("click", () => { Object.assign(RP.view, { cx: 0.5, cy: 0.5, z: 1 }); rpDraw(); });
+  el("rpFollow").addEventListener("click", () => { RP.follow = !RP.follow; rpButtons(); rpDraw(); });
+  new ResizeObserver(() => rpDraw()).observe(map);
+  // keys while the replay is open: space plays or pauses, the arrows jump between moments
+  document.addEventListener("keydown", e => {
+    if (route !== "replay" || e.target.closest("input, select, textarea, button")) return;
+    if (e.key === " ") { e.preventDefault(); rpPlay(!RP.playing); }
+    else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      const s = RP.shown, next = e.key === "ArrowRight" ? s.find(m => m.c > RP.c + 0.5) : [...s].reverse().find(m => m.c < RP.c - 0.5);
+      rpSeek(next ? next.c : (e.key === "ArrowRight" ? RP.dur : 0), { center: true });
+    }
+  });
+}
+
+function rpHover(e) {
+  const r = el("rpMap").getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = null, bd = 12;
+  for (const k of RP.marks) { const d = Math.hypot(k.x - mx, k.y - my); if (d < bd) { bd = d; best = k; } }
+  const tip = el("rpTip");
+  if (!best) { tip.hidden = true; return; }
+  const ch = curChar(), base = ch && ch.replay ? ch.replay.base : 0;
+  tip.innerHTML = `<b>${esc(best.m.text)}</b>${best.m.sub ? `<br>${esc(best.m.sub)}` : ""}<br><span class="muted">${clock(base + best.m.t)}</span>`;
+  tip.hidden = false;
+  tip.style.left = `${Math.max(4, Math.min(best.x + 12, r.width - tip.offsetWidth - 4))}px`;
+  tip.style.top = `${Math.max(4, best.y - tip.offsetHeight - 8)}px`;
+}
+
+function modReplay() {
+  rpWire();
+  const ch = curChar(), list = rpSessions(ch);
+  el("rpKinds").innerHTML = RP_FILTERS.map(([f, label]) => `<button type="button" class="chip" data-f="${f}" aria-pressed="${RP.filters[f]}">${label}</button>`).join("");
+  if (!ch || !ch.replay || !list.length) {
+    el("who").textContent = "No play sessions with a trail yet: Logbook records one as you play.";
+    el("rpSession").innerHTML = ""; el("rpList").innerHTML = ""; el("rpHint").textContent = ""; RP.ready = false;
+    return;
+  }
+  el("rpSession").innerHTML = list.map((s, i) => `<option value="${i}">${esc(rpSessionLabel(s))}</option>`).join("");
+  if (RP.char !== ch.id || RP.idx >= list.length) rpLoad(ch, 0);
+  el("rpSession").value = String(RP.idx);
+  el("who").textContent = `${list.length} play session${list.length === 1 ? "" : "s"} to replay, newest first.`;
+  el("rpHint").textContent = RP.ready
+    ? "Stands over 20 s play as 20 s. Space plays or pauses, ← and → jump between moments. Wheel or double-click zooms; drag to pan. Map art: Wowhead."
+    : "This session has no trail to replay: Logbook keeps a point every 5 seconds while you move.";
+  rpList(); rpButtons();
+  requestAnimationFrame(rpDraw);
 }
 
 // ------------------------------------------------------------------ The item inspector (both houses on one chart)
