@@ -187,6 +187,44 @@ local function ranked(t)
 end
 M.ranked = ranked
 
+-- How gold on hand adds up: what you had when the log began, plus what it logged, against what you have now.
+-- Each level-up has a snapshot of your gold (snaps[level].money, saved at the ding), so gold minus the money
+-- logged so far gives the gold you started with; while every change is logged that figure stays put, and where
+-- it moves, money changed without a log line. Returns nil without a gold figure, else
+--   { now, logged (earned - spent), start (nil without a snapshot), startLevel, unrecorded (now - start - logged),
+--     gaps = { { from, to (levels), copper (+ gold the log missed, - gold it counted that you never had) } } }
+-- gaps of at least GAP_MIN copper, biggest first.
+M.MONEY_GAP_MIN = 100
+function M.moneyCheck(events, snaps, moneyNow)
+    if not moneyNow then return nil end
+    local net, marks = 0, {}
+    for _, e in ipairs(events or {}) do
+        if e.kind == "mn" then
+            net = net + num(e.args[1])
+        elseif e.kind == "lv" then
+            local L = num(e.args[1])
+            local s = snaps and snaps[L]
+            if s and s.money then marks[#marks + 1] = { level = L, start = s.money - net } end
+        end
+    end
+    local out = { now = moneyNow, logged = net, gaps = {} }
+    local first = marks[1]
+    if not first then return out end
+    out.start, out.startLevel = first.start, first.level
+    out.unrecorded = moneyNow - first.start - net
+    for i = 2, #marks + 1 do
+        local a, b = marks[i - 1], marks[i]
+        -- after the last level-up, today's gold is the last mark
+        local bStart, bLevel = b and b.start or (moneyNow - net), b and b.level or nil
+        local d = bStart - a.start
+        if math.abs(d) >= M.MONEY_GAP_MIN then
+            out.gaps[#out.gaps + 1] = { from = a.level, to = bLevel, copper = d }
+        end
+    end
+    table.sort(out.gaps, function(x, y) return math.abs(x.copper) > math.abs(y.copper) end)
+    return out
+end
+
 -- Gold on hand at each level snapshot plus now
 function M.moneySeries(snaps, playedNow, moneyNow)
     local list = {}
@@ -857,6 +895,7 @@ function M.character(data)
         levelTimes = M.levelTimes(levels, char.first and char.first.level, firstPlayed, playedNow, level),
         money = { flow = moneyFlow, earned = ranked(earned), spent = ranked(spent),
             onHand = M.moneySeries(mb.snap, playedNow, money), auction = counts.auction,
+            check = M.moneyCheck(events, mb.snap, money),
             ahTrades = M.ahTrades(events, idOf) },
         activity = activity,
         distance = counts.distance,

@@ -346,7 +346,8 @@ tr.flash td { animation: flash .8s ease-out; }
         <p class="hint">Running totals of money earned and spent, and gold on hand. Pink: where gold on hand is heading if you keep your recent pace.</p>
         <div class="chart tall"><canvas id="moneyChart"></canvas></div><div class="method" id="moneyMethod"></div></article>
       <article class="panel w4"><div class="ph"><h2>Where gold comes from</h2></div><p class="hint" id="flowHint"></p><div id="incomeBars" class="bars"></div>
-        <h3>Spent on</h3><div id="spendBars" class="bars"></div></article>
+        <h3>Spent on</h3><div id="spendBars" class="bars"></div>
+        <h3>How it adds up</h3><div id="goldCheck"></div></article>
       <article class="panel w6"><div class="ph"><h2>Net worth</h2></div><p class="hint" id="worthHint"></p><div class="chart"><canvas id="worthChart"></canvas></div></article>
       <article class="panel w6"><div class="ph"><h2>Last Haul session</h2></div><div id="haulBox"></div></article>
     </section>
@@ -1262,6 +1263,7 @@ function modGold() {
   el("flowHint").innerHTML = `Earned ${money(sum(earned), { short: true })}, spent ${money(sum(spent), { short: true })}.`;
   bars("incomeBars", earned.map(r => ({ label: SRC[r.source] || r.source, value: r.copper, color: css("--green") })), moneyText);
   bars("spendBars", spent.map(r => ({ label: SRC[r.source] || r.source, value: r.copper, color: css("--purple") })), moneyText);
+  renderGoldCheck(c.money.check, sum(earned), sum(spent));
   const inv = c.inventory, loc = inv.byLocation || {};
   el("worthHint").innerHTML = `Gold ${money(p.money || 0, { short: true })} plus items at the faction AH's last minimum price.`;
   chart("worthChart", { type: "doughnut", data: { labels: ["Gold", "Bags", "Bank", "Mail"],
@@ -1273,6 +1275,34 @@ function modGold() {
       <tr><td>Coin (loot and quests)</td><td class="n">${money(c.haul.coin)}</td></tr>
       <tr><td>Loot value</td><td class="n">${money(c.haul.items)}</td></tr>
       <tr><td>Per hour</td><td class="n">${money(c.haul.perHour)}</td></tr></table>` : empty("No Haul data yet.");
+}
+
+// Gold you started with + earned − spent, against gold on hand: what the log missed, and between which levels
+function renderGoldCheck(chk, earnedSum, spentSum) {
+  const box = el("goldCheck");
+  if (!chk) { box.innerHTML = empty("Needs your gold on hand: log in once with Logbook enabled."); return; }
+  const row = (label, v, cls = "") => `<tr><td>${label}</td><td class="n ${cls}">${v}</td></tr>`;
+  const signed = v => `${v >= 0 ? "+" : "−"}${money(Math.abs(v))}`;
+  const levels = g => g.to ? `levels ${g.from} and ${g.to}` : `level ${g.from} and now`;
+  const rows = [];
+  if (chk.start != null) rows.push(row(`<span title="Worked out from your gold at level ${chk.startLevel}">When tracking began</span>`, money(chk.start)));
+  rows.push(row("Earned", signed(earnedSum)), row("Spent", signed(-spentSum)));
+  const off = chk.start != null ? chk.unrecorded : chk.now - chk.logged;
+  if (Math.abs(off) >= 1) rows.push(row(chk.start != null ? "Not in the log" : "Before tracking, or not in the log", signed(off), off < 0 ? "neg" : ""));
+  rows.push(row("<b>On hand now</b>", `<b>${money(chk.now)}</b>`));
+  let note = "";
+  if (chk.start == null) {
+    note = "There's no gold snapshot from a level-up yet, so this can't tell gold you had before tracking from money the log missed.";
+  } else if (Math.abs(chk.unrecorded) < 100) {
+    note = "Every copper is accounted for.";
+  } else {
+    const g = chk.gaps[0];
+    const what = chk.unrecorded < 0 ? "money the log counted as income that never reached your bags, or spending it didn't see"
+      : "money that reached your bags without a log line";
+    note = `${moneyText(Math.abs(chk.unrecorded))} is ${what}.` + (g ? ` Most of it (${moneyText(Math.abs(g.copper))}) happened between ${levels(g)}.` : "")
+      + " Each level-up saves your gold, which is how the log is checked.";
+  }
+  box.innerHTML = `<table>${rows.join("")}</table><p class="hint" style="margin:8px 0 0">${esc(note)}</p>`;
 }
 
 function modCombat() {

@@ -176,6 +176,27 @@ test("money: mail gold matching an AH invoice counts as auction (decision table,
     eq(spent.mail, 30)
 end)
 
+test("money check (state-based): starting gold from the first level snapshot, and where unlogged money changed", function()
+    local events = S.parseLog({
+        "10|1|1|1|1|mn|100|loot", "20|1|1|1|1|lv|12",          -- had 400 at the start: 500 at level 12
+        "30|1|1|1|1|mn|-50|vendor", "40|1|1|1|1|lv|13",        -- 450: every change logged
+        "50|1|1|1|1|mn|300|mail", "60|1|1|1|1|lv|14",          -- 600, not 750: 150 the log counted that never came
+        "70|1|1|1|1|mn|99|loot",                               -- 699 if nothing else changed
+    })
+    local snaps = { [12] = { money = 500 }, [13] = { money = 450 }, [14] = { money = 600 } }
+    local c = M.moneyCheck(events, snaps, 699)
+    eq(c.logged, 449); eq(c.start, 400); eq(c.startLevel, 12)
+    eq(c.unrecorded, 699 - 400 - 449, "-150")
+    eq(#c.gaps, 1); eq(c.gaps[1].from, 13); eq(c.gaps[1].to, 14); eq(c.gaps[1].copper, -150)
+    local after = M.moneyCheck(events, snaps, 899)
+    eq(after.gaps[1].from, 14); eq(after.gaps[1].to, nil, "since the last level-up"); eq(after.gaps[1].copper, 200)
+    local wobble = M.moneyCheck(events, snaps, 649)
+    eq(#wobble.gaps, 1, "50 copper since level 14 is under GAP_MIN"); eq(wobble.gaps[1].copper, -150)
+    local none = M.moneyCheck(events, nil, 500)
+    eq(none.start, nil); eq(none.logged, 449); eq(#none.gaps, 0)
+    eq(M.moneyCheck(events, snaps, nil), nil, "no gold figure")
+end)
+
 test("zone time: gaps up to ZONE_GAP count, longer gaps and logouts don't (boundaries)", function()
     local z = M.zoneTimes(ev({
         "1000|||||zo|Tirisfal", "1600|||||sz|A", -- 600 s: exactly the limit, counted
