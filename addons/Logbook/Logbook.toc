@@ -2,7 +2,7 @@
 ## Title: Logbook
 ## Notes: Records your journey for the Adventure Ledger: XP and levels, gold by source, kills, quests, deaths, zones, dungeons, professions, sessions, where you've walked, damage from the game's damage meter and your flights.
 ## Author: Azhariel
-## Version: 0.2.0
+## Version: 0.3.0
 ## IconTexture: Interface\Icons\INV_Misc_Book_11
 ## SavedVariables: LogbookDB
 ## SavedVariablesPerCharacter: LogbookCharDB
