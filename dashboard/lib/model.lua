@@ -225,16 +225,16 @@ function M.moneyCheck(events, snaps, moneyNow)
     return out
 end
 
--- Gold on hand at each level snapshot plus now
-function M.moneySeries(snaps, playedNow, moneyNow)
+-- Gold on hand at each level snapshot plus now: { h (played hours), copper, t (when, if known) }
+function M.moneySeries(snaps, playedNow, moneyNow, tNow)
     local list = {}
     for _, s in pairs(snaps or {}) do
         if s.played and s.money then
-            list[#list + 1] = { h = hours(s.played), copper = s.money }
+            list[#list + 1] = { h = hours(s.played), copper = s.money, t = s.t }
         end
     end
     if playedNow and moneyNow then
-        list[#list + 1] = { h = hours(playedNow), copper = moneyNow }
+        list[#list + 1] = { h = hours(playedNow), copper = moneyNow, t = tNow }
     end
     table.sort(list, function(a, b) return a.h < b.h end)
     return list
@@ -894,7 +894,7 @@ function M.character(data)
         xp = { series = xpSeries, levels = levels, totals = xpTotals, byLevel = xpByLevel, all = counts.xp and counts.xp.all },
         levelTimes = M.levelTimes(levels, char.first and char.first.level, firstPlayed, playedNow, level),
         money = { flow = moneyFlow, earned = ranked(earned), spent = ranked(spent),
-            onHand = M.moneySeries(mb.snap, playedNow, money), auction = counts.auction,
+            onHand = M.moneySeries(mb.snap, playedNow, money, acc.lastSeen or (lastSession and lastSession.last)), auction = counts.auction,
             check = M.moneyCheck(events, mb.snap, money),
             ahTrades = M.ahTrades(events, idOf) },
         activity = activity,

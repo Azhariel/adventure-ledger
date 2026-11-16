@@ -542,6 +542,38 @@ function I.priceLogLines(market, last, now)
     return table.concat(lines)
 end
 
+-- The dashboard's net worth log: a line "time<TAB>character id<TAB>gold<TAB>items" (copper) each build where a
+-- character's gold or item value changed. Stockpile only knows what you hold now, so this log is the only
+-- history of net worth. Returns seen = { [id] = { { t, gold, items }, ... } } (file order), last = { [id] = point }.
+function I.parseWorthLog(text)
+    local seen, last = {}, {}
+    for line in (text or ""):gmatch("[^\r\n]+") do
+        local t, id, gold, items = line:match("^(%d+)\t([^\t]+)\t(%-?%d+)\t(%-?%d+)$")
+        if t then
+            local pt = { tonumber(t), tonumber(gold), tonumber(items) }
+            seen[id] = seen[id] or {}
+            table.insert(seen[id], pt)
+            last[id] = pt
+        end
+    end
+    return seen, last
+end
+
+-- Lines to append: characters ({ { id, gold, items } }, gold known) whose gold or items differ from the log's last
+function I.worthLogLines(chars, last, now)
+    local lines = {}
+    for _, c in ipairs(chars or {}) do
+        if c.id and c.gold then
+            local items = math.floor((c.items or 0) + 0.5)
+            local l = last and last[c.id]
+            if not l or l[2] ~= c.gold or l[3] ~= items then
+                lines[#lines + 1] = string.format("%d\t%s\t%d\t%d\n", now, c.id, c.gold, items)
+            end
+        end
+    end
+    return table.concat(lines)
+end
+
 ----------------------------------------------------------------------------------------------------
 -- Faction vs Neutral auction house
 

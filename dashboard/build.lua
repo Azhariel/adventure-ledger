@@ -267,6 +267,25 @@ function Build.data(wow, opts)
     table.sort(result.characters, function(a, b)
         return (a.profile.lastSeen or 0) > (b.profile.lastSeen or 0)
     end)
+    -- Net worth over time. opts.worthLog = { seen, last, append(lines) }: the dashboard's own log (Build.run passes
+    -- it); this build adds a point for each character whose gold or items changed
+    local worthSeen = {}
+    if opts.worthLog then
+        worthSeen = opts.worthLog.seen
+        local rows = {}
+        for _, c in ipairs(result.characters) do
+            rows[#rows + 1] = { id = c.id, gold = c.profile.money, items = c.netWorth.items }
+        end
+        local lines = I.worthLogLines(rows, opts.worthLog.last, result.generated)
+        if lines ~= "" then
+            opts.worthLog.append(lines)
+            for id, list in pairs((I.parseWorthLog(lines))) do
+                worthSeen[id] = worthSeen[id] or {}
+                for _, pt in ipairs(list) do table.insert(worthSeen[id], pt) end
+            end
+        end
+    end
+    for _, c in ipairs(result.characters) do c.worthLog = worthSeen[c.id] or {} end
     -- Every character together (also alts with no detailed log yet)
     -- Names the characters' own logs learned (loot, Haul, recipes) beat "Item #id"
     local known = {}
@@ -428,8 +447,13 @@ function Build.run(wow, outFile, data)
         end }
     end
     local neutralDays = I.parseNeutralDays(U.readFile(data .. "neutral_days.txt"), S.timeToDay)
+    local worthPath = data .. "networth_log.tsv"
+    local worthSeen, worthLast = I.parseWorthLog(U.readFile(worthPath) or "")
     local result = Build.data(wow, { priceLog = log(logPath), neutralLog = log(data .. "price_log_neutral.tsv"),
-        neutralDays = neutralDays })
+        neutralDays = neutralDays, worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
+            local f = io.open(worthPath, "ab")
+            if f then f:write(lines); f:close() end
+        end } })
     U.writeFile(outFile, Build.html(template, result))
     return result
 end

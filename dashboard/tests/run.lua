@@ -669,8 +669,14 @@ test("end to end: fixture SavedVariables -> one character with every section, em
         if p:match("/91$") then return { "Hero-Realm" } end
         return {}
     end
+    local appended = {}
     local data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs,
-        dropStats = Build.dropStats(wowDir()), repoAddons = repo })
+        dropStats = Build.dropStats(wowDir()), repoAddons = repo,
+        worthLog = { seen = { ["hero-R"] = { { 1, 4000, 0 } } }, last = { ["hero-R"] = { 1, 4000, 0 } },
+            append = function(lines) appended[#appended + 1] = lines end } })
+    eq(#appended, 1, "gold changed since the logged point")
+    truthy(appended[1]:find("\thero%-R\t5000\t400\n"), "gold 5000, 4 Wool Cloth at 100: " .. appended[1])
+    eq(#data.characters[1].worthLog, 2, "the logged point and this build's")
     local byKey = {}
     for _, r in ipairs(data.addons) do byKey[r.key] = r end
     eq(byKey.Logbook.repo, "0.2.0"); eq(byKey.Logbook.installed, "0.1.0"); eq(byKey.Logbook.notes, "Your journey.")
@@ -823,6 +829,19 @@ test("marketTab: launch low, change, supply; families, owned by value, risers an
     eq(out.falling[1], 9999); truthy(out.items["9999"], "movers are included")
     truthy(out.items["8888"], "all priced items are included in marketTab catalog")
     eq(#out.families, 6, "herbs, ore, cloth, leather, enchanting, elemental")
+end)
+
+test("net worth log: parse per character, and append only characters whose gold or items changed", function()
+    local seen, last = I.parseWorthLog("100\thero-r\t500\t200\n150\talt-r\t7\t0\r\n200\thero-r\t600\t200\nbroken line\n")
+    eq(#seen["hero-r"], 2); eq(seen["hero-r"][2][2], 600); eq(last["hero-r"][1], 200); eq(last["alt-r"][3], 0)
+    local lines = I.worthLogLines({
+        { id = "hero-r", gold = 600, items = 200.4 },  -- same after rounding: nothing
+        { id = "alt-r", gold = 7, items = 30 },        -- items changed
+        { id = "new-r", gold = 1, items = 0 },         -- first point
+        { id = "nogold-r", items = 50 },               -- gold unknown: skipped
+    }, last, 300)
+    eq(lines, "300\talt-r\t7\t30\n300\tnew-r\t1\t0\n")
+    eq(I.worthLogLines({ { id = "x", gold = 1 } }, nil, 5), "5\tx\t1\t0\n", "no log yet")
 end)
 
 test("price log: parse, and append only prices that changed", function()
