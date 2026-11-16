@@ -315,6 +315,8 @@ function Build.data(wow, opts)
                 for item, h in pairs(holds) do
                     local o = owned[item]
                     o.holders[#o.holders + 1] = who .. " " .. (h.bags + h.bank + h.mail)
+                    o.where = o.where or {}
+                    o.where[#o.where + 1] = { name = who, bags = h.bags, bank = h.bank, mail = h.mail }
                 end
                 local u = usesById[id] or {}
                 holders[#holders + 1] = { id = id, name = who, faction = row and row.faction, holds = holds,

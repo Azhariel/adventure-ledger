@@ -40,10 +40,12 @@ function I.usualPrice(p)
     return median(lows), #lows
 end
 
--- market: sources.auctionator() result. owned: { [itemID] = { count, holders } } over all characters (or nil).
+-- market: sources.auctionator() result. owned: { [itemID] = { count, holders, where } } over all characters (or
+-- nil); where = { { name, bags, bank, mail } } per character.
 -- Returns { scanDays, ready (enough history for any signal), buy = { ... }, sell = { ... } }
 --   buy:  { id, name, now, usual, pct (fraction below usual), available, days }  biggest discount first
---   sell: { id, name, now, usual, pct (fraction above), count, extra ((now - usual) * count), holders, days }
+--   sell: { id, name, now, usual, pct (fraction above), count, extra ((now - usual) * count), holders, where
+--           (most held first), days }
 function I.market(market, owned, nameOf, cfg)
     cfg = cfg or I.MARKET
     local out = { buy = {}, sell = {}, scanDays = 0, ready = false }
@@ -61,9 +63,16 @@ function I.market(market, owned, nameOf, cfg)
             end
             local have = owned and owned[id]
             if have and have.count > 0 and now >= usual * cfg.sellAbove and now - usual >= cfg.minGain then
+                local where = {}
+                for i, w in ipairs(have.where or {}) do where[i] = w end
+                local held = function(w) return (w.bags or 0) + (w.bank or 0) + (w.mail or 0) end
+                table.sort(where, function(a, b)
+                    if held(a) ~= held(b) then return held(a) > held(b) end
+                    return a.name < b.name
+                end)
                 out.sell[#out.sell + 1] = { id = id, name = nameOf(id), now = now, usual = usual,
                     pct = now / usual - 1, count = have.count, extra = (now - usual) * have.count,
-                    holders = have.holders, days = n + 1 }
+                    holders = have.holders, where = where, days = n + 1 }
             end
         end
     end

@@ -486,6 +486,16 @@ test("market sell signal: only items you own, at 125% of usual or more, largest 
     local m = I.market(market, owned, idName)
     eq(#m.sell, 2); eq(m.sell[1].id, 1, "10 x 250 extra beats 1 x 2000"); eq(m.sell[1].extra, 2500); eq(m.sell[2].id, 4)
     eq(#m.buy, 0)
+    eq(#m.sell[2].where, 0, "no per-character counts: an empty list")
+end)
+
+test("market sell signal: where each character holds it, the biggest holder first", function()
+    local market = { vendor = {}, prices = { [1] = priced(1250, { 1000, 1000, 1250 }) } }
+    local owned = { [1] = { count = 12, holders = { "Alt 2", "Main 10" }, where = {
+        { name = "Alt", bags = 0, bank = 0, mail = 2 }, { name = "Main", bags = 4, bank = 6, mail = 0 } } } }
+    local w = I.market(market, owned, idName).sell[1].where
+    eq(w[1].name, "Main"); eq(w[1].bags, 4); eq(w[1].bank, 6); eq(w[2].name, "Alt"); eq(w[2].mail, 2)
+    eq(owned[1].where[1].name, "Alt", "the caller's list isn't reordered")
 end)
 
 test("market with two scan days isn't ready and suggests nothing", function()

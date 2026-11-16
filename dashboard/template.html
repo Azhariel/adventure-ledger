@@ -1576,9 +1576,14 @@ function renderMarket(m) {
   table("buyTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Under", n: 1 }, { t: "Listed", n: 1 }],
     m.buy.map(b => rowId(b.id, [whItem(b.id, b.name), money(b.now), money(b.usual), `<span class="pos" data-sort="${b.pct}">${pct(b.pct)}</span>`, b.available ?? ""])),
     "Nothing well under its usual price in the last scan.", { onRender: () => pickRows(mktItem) });
-  table("sellTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Over", n: 1 }, { t: "You have", n: 1 }, { t: "Extra", n: 1 }],
+  // "Azhariel: 30 in bags, 12 in bank" per character holding it
+  const where = x => (x.where || []).map(w => {
+    const spots = [["bags", "in bags"], ["bank", "in the bank"], ["mail", "in the mail"]].filter(([k]) => w[k] > 0).map(([k, l]) => `${w[k]} ${l}`);
+    return `<b>${esc(w.name)}</b>: ${spots.join(", ")}`;
+  }).join("<br>");
+  table("sellTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Over", n: 1 }, { t: "You have", n: 1 }, { t: "Where" }, { t: "Extra", n: 1 }],
     m.sell.map(x => rowId(x.id, [whItem(x.id, x.name), money(x.now), money(x.usual), `<span class="pos" data-sort="${x.pct}">+${pct(x.pct)}</span>`,
-      `<span data-sort="${x.count}" title="${esc(x.holders.join(", "))}">${x.count}</span>`, money(x.extra)])),
+      `<span data-sort="${x.count}">${x.count}</span>`, `<span class="muted">${where(x) || esc(x.holders.join(", "))}</span>`, money(x.extra)])),
     "Nothing you own is well above its usual price.", { onRender: () => pickRows(mktItem) });
 }
 
