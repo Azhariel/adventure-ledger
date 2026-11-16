@@ -1136,7 +1136,7 @@ function M.account(groups, nameOf, limit)
                     a.count = a.count + it.count
                     a.value = a.value + it.value
                     a.unit = a.unit or it.unit
-                    a.holders[#a.holders + 1] = { name = c.name, count = it.count }
+                    a.holders[#a.holders + 1] = { name = c.name, count = it.count, bags = it.bags, bank = it.bank, mail = it.mail }
                 end
             end
         end

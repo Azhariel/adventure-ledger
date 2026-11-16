@@ -215,8 +215,12 @@ Also on the page:
 - **Market: buy low, sell high** (All characters): items selling 30% or more under their usual price, and items you
   own at 25% or more over it. Usual = the median of the lowest price on each earlier scan day, as Make or Buy's own
   price check does. It needs 3 days of Auctionator scans; until then it says how many you have.
-- **Mail to your alts** (All characters): items one character holds that another crafts with or needs for its
-  restock list. The in-game version is Make or Buy's "For your alts" list at the mailbox.
+- **Mail to your alts** (All characters): a mail list you build on purpose. On Crafting, pick a recipe and a batch
+  size and press **Add to mail list**; the list shows what each craft still needs after what the crafter holds
+  (an intermediate it lacks is asked for as its own reagents), and which of your other characters of the same faction
+  holds it, in bags, bank or mail. It's saved in your browser. Below it: what a Make or Buy restock list needs from
+  another character. Make or Buy's "For your alts" list at the mailbox also suggests every reagent an alt's recipes
+  use; the page leaves those guesses out.
 - **Drop rates from your kills** (All characters): from the DropLab addon. Mobs with 5+ kills first, by value per
   kill, with gold per hour at your pace and each drop's rate and likely range. Uses DropLab's own `Stats.lua`, so
   the numbers match the game. Drops are valued at the AH price after the 5% cut (vendor prices aren't saved outside

@@ -417,8 +417,13 @@ function Build.data(wow, opts)
         result.neutralTab.visits = neutral.visits
         result.houses = I.compareHouses(market, neutral, acctNameOf, owned)
     end
-    result.transfers = I.transfers(holders, acctNameOf, market)
-    for i = #result.transfers, 41, -1 do result.transfers[i] = nil end
+    -- Mail to alts lists only what you asked for: restock lists (made by hand in game) here, and the mail list you
+    -- build on the Crafting page. Make or Buy's in-game mailbox also suggests every reagent an alt's recipes use;
+    -- on the page that guessed too much (herbs for a potion you never make), so those are left out.
+    result.transfers = {}
+    for _, t in ipairs(I.transfers(holders, acctNameOf, market)) do
+        if t.reason == "restock" and #result.transfers < 40 then result.transfers[#result.transfers + 1] = t end
+    end
     -- Drop rates from your own kills (DropLab), drops valued at the AH price after the 5% cut
     local dropDB = groups[1] and groups[1].droplab
     if dropDB then

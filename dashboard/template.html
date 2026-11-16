@@ -391,7 +391,9 @@ tr.flash td { animation: flash .8s ease-out; }
     </section>
 
     <section class="mod" data-mod="alts" hidden>
-      <article class="panel w12"><div class="ph"><h2>Mail to your alts</h2></div><p class="hint" id="mailHint"></p><div class="scroll tall"><table id="mailTable"></table></div></article>
+      <article class="panel w12"><div class="ph"><h2>Your mail list</h2><button type="button" class="link" id="mailClear" hidden>Clear the list</button></div><p class="hint" id="mailListHint"></p>
+        <div id="mailCrafts" class="chips"></div><div class="scroll tall"><table id="mailListTable"></table></div></article>
+      <article class="panel w12"><div class="ph"><h2>For restock lists</h2></div><p class="hint" id="mailHint"></p><div class="scroll tall"><table id="mailTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="drops" hidden>
@@ -534,7 +536,8 @@ tr.flash td { animation: flash .8s ease-out; }
         <dl>
           <dt><a href="#/roster" data-module="roster">Characters</a></dt><dd>Your alts side by side: level, class, played time, gold, items and net worth, last played.</dd>
           <dt><a href="#/inventory" data-module="inventory">Inventory</a></dt><dd>Everything you own in bags, bank and mail, with who holds it and what it's worth.</dd>
-          <dt><a href="#/alts" data-module="alts">Mail to alts</a></dt><dd>Items one character holds that another crafts with or needs to restock.</dd>
+          <dt><a href="#/alts" data-module="alts">Mail to alts</a></dt><dd>A mail list you build from the Crafting page: what each planned craft is missing and which
+            of your other characters holds it. Also what Make or Buy's restock lists need from another character.</dd>
           <dt><a href="#/drops" data-module="drops">Drop rates</a></dt><dd>What each kind of mob drops for you, how often, and gold per hour at your pace (DropLab).</dd>
         </dl>
         <h3>~/live</h3>
@@ -1022,7 +1025,7 @@ function badge(m) {
     case "crafting": return c && c.crafts ? c.crafts.length : "";
     case "roster": return DATA.account ? DATA.account.characters.length : "";
     case "drops": return DATA.drops ? DATA.drops.tracked : "";
-    case "alts": return (DATA.transfers || []).length || "";
+    case "alts": return mailList.get().length + (DATA.transfers || []).length || "";
     case "addons": return addonRows().filter(a => a.status.act).length || "";
     default: return "";
   }
@@ -1546,7 +1549,8 @@ function renderCraftPlan(c) {
   const cost = r.cost * n, naive = (r.naiveCost || r.cost) * n, profit = r.profit * n;
   const saved = naive > cost ? ` <span class="pos">(saves ${money(naive - cost)} vs buying all)</span>` : "";
   box.innerHTML = `<div class="planbox">
-    <div class="planhead"><div><b>Reagent breakdown:</b> ${whItem(r.id, r.name)}${r.outputQty * n > 1 ? ` ×${r.outputQty * n}` : ""}</div><div class="chips" style="margin:0">${chips}</div></div>
+    <div class="planhead"><div><b>Reagent breakdown:</b> ${whItem(r.id, r.name)}${r.outputQty * n > 1 ? ` ×${r.outputQty * n}` : ""}</div><div class="chips" style="margin:0">${chips}
+      <button type="button" class="chip" data-mail-add="${r.id}" title="Put this craft on Mail to alts' list: what's missing and which other character holds it">${mailList.get().some(x => x.crafter === c.id && x.id === r.id && x.batch === n) ? "On the mail list ✓" : `Add ${n}× to mail list`}</button></div></div>
     <table><tbody>${rows}</tbody></table>
     <div class="planfoot">
       <span>Best cost: <b>${money(cost)}</b>${saved}</span>
@@ -1704,7 +1708,8 @@ function modInventory() {
 
 function modAlts() {
   const people = DATA.account ? DATA.account.characters.length : 0;
-  el("who").textContent = "Items one character holds that another crafts with or still needs.";
+  el("who").textContent = "What to mail between your characters for the crafts you've planned.";
+  renderMailList();
   renderMail(DATA.transfers || [], people);
 }
 function modDrops() {
@@ -1755,13 +1760,84 @@ function renderMarket(m) {
 }
 
 function renderMail(list, people) {
-  el("mailHint").textContent = people < 2
-    ? "Once you have alts, this lists items one character holds that another crafts with (from Make or Buy's recipes and restock list). The in-game mailbox shows the same list."
-    : "Items one character holds that another crafts with. \"Restock\" = that character's restock list still needs them. The mailbox in game can attach them for you.";
+  el("mailHint").textContent = "Reagents a character's Make or Buy restock list still needs (alt-click a recipe in its Worth crafting tab to plan a craft) that another character of the same faction holds. The mailbox in game can attach them for you.";
   table("mailTable", [{ t: "Item" }, { t: "From" }, { t: "To" }, { t: "Count", n: 1 }],
-    list.map(x => [whItem(x.id, x.name) + (x.reason === "restock" ? ' <span class="pill">restock</span>' : ""),
+    list.map(x => [whItem(x.id, x.name),
       esc(x.from) + (x.bank && !x.bags ? ' <span class="pill">bank</span>' : ""), esc(x.to), `<span data-sort="${x.count}">${x.count}${x.need ? ` / ${x.need}` : ""}</span>`]),
-    people < 2 ? "Nothing yet: you have one character." : "Nothing to move: no character holds what another one crafts with.");
+    people < 2 ? "Nothing yet: you have one character." : "No restock list needs anything another character holds.");
+}
+
+// ------------------------------------------------------------------ The mail list: crafts you picked on the Crafting page
+// Saved in this browser only ({ crafter, id, name, batch } per craft): the page can't write to the game's files.
+const MAIL_KEY = "adventureLedger.mailList";
+const mailList = { get() { try { return JSON.parse(store.get(MAIL_KEY) || "[]") || []; } catch (e) { return []; } },
+  set(list) { store.set(MAIL_KEY, JSON.stringify(list)); } };
+function addToMailList(c, r, batch) {
+  const list = mailList.get().filter(x => !(x.crafter === c.id && x.id === r.id));
+  list.push({ crafter: c.id, id: r.id, name: r.name, batch });
+  mailList.set(list);
+}
+
+// Per item: what the picked crafts need, what the crafter holds, and who else (same faction) holds it and where
+function renderMailList() {
+  const list = mailList.get(), byChar = Object.fromEntries(chars().map(c => [c.id, c]));
+  const rows = (DATA.account && DATA.account.characters) || [];
+  const factionOf = name => (rows.find(r => r.fullName === name || r.name === name) || {}).faction;
+  const holdersOf = Object.fromEntries(((DATA.account && DATA.account.inventory.items) || []).map(it => [it.id, it.holders]));
+  el("mailClear").hidden = !list.length;
+  el("mailCrafts").innerHTML = list.map((x, i) => {
+    const c = byChar[x.crafter];
+    return `<button type="button" class="chip" data-mail-remove="${i}" title="Take it off the list">${esc(x.name)} ×${x.batch} <span class="muted">for ${esc(c ? (c.profile.fullName || c.profile.name) : "?")}</span> ✕</button>`;
+  }).join("");
+  // Walk each craft's reagent tree (the breakdown's lines: an intermediate is followed by what it's made of, one
+  // level deeper). The crafter's own items are used first, shared across the list; an intermediate it lacks is
+  // asked for as its own reagents when it's crafted, else as itself.
+  const need = new Map(), left = new Map();
+  const heldBy = c => { if (!left.has(c.id)) left.set(c.id, new Map(((c.inventory && c.inventory.items) || []).map(it => [it.id, it.count]))); return left.get(c.id); };
+  const ask = (c, l, qty, recipe) => {
+    const key = c.id + "|" + l.id;
+    const e = need.get(key) || { c, id: l.id, name: l.name, qty: 0, missing: 0, for: [] };
+    if (!e.for.includes(recipe)) e.for.push(recipe);
+    need.set(key, e);
+    return e;
+  };
+  for (const x of list) {
+    const c = byChar[x.crafter], r = c && (c.crafts || []).find(k => k.id === x.id);
+    if (!r) continue;
+    const lines = r.reagents || [], held = heldBy(c);
+    const walk = (i, qty) => { // line i, `qty` of it wanted
+      const l = lines[i], e = ask(c, l, qty, r.name);
+      e.qty += qty;
+      const use = Math.min(held.get(l.id) || 0, qty);
+      held.set(l.id, (held.get(l.id) || 0) - use);
+      const short = qty - use;
+      if (short <= 0) return;
+      const kids = [];
+      for (let j = i + 1; j < lines.length && lines[j].depth > l.depth; j++) if (lines[j].depth === l.depth + 1) kids.push(j);
+      if (l.method === "craft" && kids.length) kids.forEach(j => walk(j, Math.ceil(lines[j].qty / l.qty * short)));
+      else e.missing += short;
+    };
+    lines.forEach((l, i) => { if (l.depth === 0) walk(i, l.qty * x.batch); });
+  }
+  const out = [];
+  for (const e of need.values()) {
+    if (e.missing <= 0) continue;
+    const me = e.c.profile.fullName || e.c.profile.name, faction = e.c.profile.faction;
+    const own = ((e.c.inventory && e.c.inventory.items) || []).find(it => it.id === e.id);
+    const has = own ? own.count : 0;
+    const others = (holdersOf[e.id] || []).filter(h => h.name !== me && h.name !== e.c.profile.name && (!faction || !factionOf(h.name) || factionOf(h.name) === faction));
+    const from = others.map(h => {
+      const spots = [["bags", "bags"], ["bank", "bank"], ["mail", "mail"]].filter(([k]) => h[k] > 0).map(([k, l]) => `${h[k]} in ${l}`);
+      return `<b>${esc(h.name)}</b>: ${spots.length ? spots.join(", ") : h.count}`;
+    }).join("<br>");
+    out.push([whItem(e.id, e.name), esc(me), `<span class="muted">${esc(e.for.join(", "))}</span>`, e.qty, has,
+      `<span data-sort="${e.missing}"><b>${e.missing}</b></span>`, from || '<span class="muted">nobody else: buy or farm it</span>']);
+  }
+  el("mailListHint").textContent = list.length
+    ? "What the crafts below still need after what the crafter holds, and which of your other characters (same faction) holds it. Click a craft to take it off. Saved in this browser."
+    : "Empty. On the Crafting page, pick a recipe and a batch size, then Add to mail list: this shows what the crafter is missing and which of your other characters holds it.";
+  table("mailListTable", [{ t: "Item" }, { t: "To" }, { t: "For" }, { t: "Need", n: 1 }, { t: "Has", n: 1 }, { t: "Missing", n: 1 }, { t: "Mail from" }],
+    out, list.length ? "The crafters already hold everything these crafts need." : "Nothing on the list yet.");
 }
 
 // ------------------------------------------------------------------ Market modules
@@ -2679,6 +2755,15 @@ document.addEventListener("click", e => {
     if (!all) box.scrollTop = 0;
     return;
   }
+  const mailAdd = e.target.closest("button[data-mail-add]");
+  if (mailAdd) {
+    const c = curChar(), r = c && (c.crafts || []).find(x => x.id === Number(mailAdd.dataset.mailAdd));
+    if (r) { addToMailList(c, r, craftBatch || 1); renderCraftPlan(c); drawNav(); }
+    return;
+  }
+  const mailRemove = e.target.closest("button[data-mail-remove]");
+  if (mailRemove) { const list = mailList.get(); list.splice(Number(mailRemove.dataset.mailRemove), 1); mailList.set(list); renderMailList(); drawNav(); return; }
+  if (e.target.closest("#mailClear")) { mailList.set([]); renderMailList(); drawNav(); return; }
   const skillBtn = e.target.closest("button[data-skill]");
   if (skillBtn) { skillProf = skillBtn.dataset.skill; if (curChar()) renderSkillRoute(curChar()); return; }
   const batchBtn = e.target.closest("button[data-craft-batch]");
