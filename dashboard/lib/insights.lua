@@ -137,6 +137,19 @@ function I.playPace(pieces, now, days)
     return { hoursPerDay = played / 3600 / span, days = span, played = played }
 end
 
+-- When you were logged in, for the weekday-by-hour chart: { start1, end1, start2, ... } (epoch seconds) from each
+-- piece's start to its last event, oldest first. The page buckets them by the viewer's local clock.
+function I.playSpans(pieces)
+    local list = {}
+    for _, s in ipairs(pieces or {}) do
+        if s.start and s.last and s.last > s.start then list[#list + 1] = s end
+    end
+    table.sort(list, function(a, b) return a.start < b.start end)
+    local out = {}
+    for _, s in ipairs(list) do out[#out + 1] = s.start; out[#out + 1] = s.last end
+    return out
+end
+
 local QUALITY_MIN = 2 -- loot worth naming: green or better, or anything with an AH value
 local LOOT_HOW = { loot = true, roll = true, quest = true } -- found or earned; "made" is listed apart; mail/trade aren't new
 

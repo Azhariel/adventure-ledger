@@ -535,6 +535,11 @@ test("play pace: played hours per day over the last 14 days; a younger character
     eq(I.playPace(nil, now), nil)
 end)
 
+test("play spans: start to last event per piece, oldest first; pieces without an end left out", function()
+    local s = I.playSpans({ { start = 50, last = 80 }, { start = 10, last = 20 }, { start = 90 }, { start = 95, last = 95 } })
+    eq(table.concat(s, ","), "10,20,50,80")
+end)
+
 test("recap (state-based): zone carried in from before, loot by source, skills from the earlier rank, newest first", function()
     local ev = S.parseLog({
         "10|0|1|0|0|zo|Tirisfal Glades",

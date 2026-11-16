@@ -154,6 +154,13 @@ a.wh:hover { text-decoration-color: var(--purple); color: var(--purple); }
 .bar .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar .n { text-align: right; font: 12.5px var(--mono); white-space: nowrap; }
 svg.spark { display: block; margin-left: auto; }
+/* weekday by hour: one hue, stronger = more time; empty hours sit on the page colour */
+.heat { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)) 64px; gap: 3px; font: 11px var(--mono); color: var(--dim); }
+.heat .hr { text-align: left; white-space: nowrap; overflow: visible; }
+.heat .dl { color: var(--muted); align-self: center; }
+.heat .cell { height: 20px; border-radius: 3px; background: var(--bg); }
+.heat .tot { text-align: right; align-self: center; color: var(--muted); }
+@media (max-width: 860px) { .heat { grid-template-columns: 28px repeat(24, minmax(0, 1fr)) 48px; gap: 2px; } .heat .cell { height: 14px; } }
 details.session { border-top: 1px solid var(--line2); padding: 9px 0; }
 details.session:first-of-type { border-top: 0; }
 details.session summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; list-style: none; }
@@ -327,6 +334,8 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w4"><div class="ph"><h2>Time per level</h2><span class="meta" id="levelMeta"></span></div>
         <p class="hint">Hours played in each level (* = only since tracking began). Pink: a curve fitted to your finished levels, carried to 60.</p>
         <div class="chart tall"><canvas id="levelChart"></canvas></div></article>
+      <article class="panel w12"><div class="ph"><h2>When you play</h2><span class="meta" id="whenMeta"></span></div>
+        <p class="hint" id="whenHint"></p><div class="heat" id="whenGrid" role="table" aria-label="Time logged in by weekday and hour"></div></article>
       <article class="panel w12"><div class="ph"><h2>Play sessions</h2></div><p class="hint" id="recapHint"></p><div id="recapBox"></div></article>
     </section>
 
@@ -1187,7 +1196,43 @@ function modOverview() {
         return `Played: ${dur(r.seconds)}${r.partial ? " (only since tracking began)" : ""}`; } } } },
       scales: { x: { stacked: true, title: { display: true, text: "level" } }, y: { stacked: true, title: { display: true, text: "hours" } } } } });
 
+  renderWhen(c.playSpans || []);
   renderRecaps(c.recaps || []);
+}
+
+// Time logged in by weekday and hour, on the viewer's clock: each span is cut at the hour marks
+function renderWhen(spans) {
+  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0)); // Monday first
+  for (let i = 0; i + 1 < spans.length; i += 2) {
+    let t = spans[i];
+    const end = spans[i + 1];
+    while (t < end) {
+      const d = new Date(t * 1000);
+      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1).getTime() / 1000;
+      const stop = Math.min(end, next);
+      grid[(d.getDay() + 6) % 7][d.getHours()] += stop - t;
+      t = stop;
+    }
+  }
+  const max = Math.max(0, ...grid.flat());
+  if (!max) { el("whenHint").textContent = "No play sessions logged yet."; el("whenGrid").innerHTML = ""; el("whenMeta").textContent = ""; return; }
+  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const hh = h => `${String(h).padStart(2, "0")}:00`;
+  let best = { d: 0, h: 0, v: -1 };
+  grid.forEach((row, d) => row.forEach((v, h) => { if (v > best.v) best = { d, h, v }; }));
+  const first = spans[0], weeks = Math.max(1, Math.round((spans[spans.length - 1] - first) / (7 * 86400)));
+  el("whenHint").textContent = `Time logged in, by weekday and hour on your clock, since ${DAYFMT.format(new Date(first * 1000))} (about ${plural(weeks, "week")}). Darker means more; hover an hour for its total.`;
+  el("whenMeta").textContent = `most: ${DAYS[best.d]} ${hh(best.h)}`;
+  const purple = css("--purple");
+  const head = `<span></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}<span class="tot">total</span>`;
+  const rows = grid.map((row, d) => `<span class="dl">${DAYS[d]}</span>` + row.map((v, h) => {
+    const k = v / max;
+    // a floor so a few minutes still shows against the empty cells
+    const bg = v > 0 ? `background:${alpha(purple, (0.18 + 0.82 * k).toFixed(3))}` : "";
+    return `<span class="cell" role="cell" style="${bg}" title="${LONG[d]} ${hh(h)}–${hh(h + 1)}: ${v ? dur(v) : "never"} in total"></span>`;
+  }).join("") + `<span class="tot">${dur(row.reduce((a, b) => a + b, 0))}</span>`).join("");
+  el("whenGrid").innerHTML = head + rows;
 }
 
 function modProgress() {
