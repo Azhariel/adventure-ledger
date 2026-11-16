@@ -517,7 +517,7 @@ function M.fights(events, counts, limit)
     end
     local f = counts or {}
     return {
-        top = sortedPairsByValue(byMob, "kills", limit or 12),
+        top = sortedPairsByValue(byMob, "kills", limit),
         kills = total,
         fights = f.n, combatSeconds = f.sec, longest = f.longest, died = f.died,
     }

@@ -101,6 +101,8 @@ h3, .sub2 { font: 600 13.5px/1.35 var(--sans); margin: 14px 0 4px; color: var(--
 .chart.tall { height: 310px; } .chart.short { height: 130px; }
 .scroll { max-height: 380px; overflow: auto; }
 .scroll.tall { max-height: 520px; }
+.scroll.all { max-height: none; }
+.ph .expand { font-size: 12.5px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; }
 .legend i.dash { background: repeating-linear-gradient(90deg, var(--pink) 0 4px, transparent 4px 7px) !important; }
@@ -364,9 +366,9 @@ tr.flash td { animation: flash .8s ease-out; }
     </section>
 
     <section class="mod" data-mod="combat" hidden>
-      <article class="panel w5"><div class="ph"><h2>Most fought</h2></div><p class="hint" id="fightHint"></p><div class="scroll"><table id="mobTable"></table></div></article>
-      <article class="panel w7"><div class="toolbar"><div><h2>Quests</h2><p class="hint" id="questHint"></p></div><input type="search" class="search" data-table="questTable" placeholder="Filter quest or zone"></div><div class="scroll"><table id="questTable"></table></div></article>
-      <article class="panel w12"><div class="ph"><h2>Deaths and close calls</h2></div><p class="hint" id="deathHint"></p><div class="scroll"><table id="deathTable"></table></div></article>
+      <article class="panel w5"><div class="toolbar"><div><h2>Most fought</h2><p class="hint" id="fightHint"></p></div><input type="search" class="search" data-table="mobTable" placeholder="Filter mob or type"></div><div class="scroll"><table id="mobTable"></table></div><button type="button" class="link expand" data-expand>Show all</button></article>
+      <article class="panel w7"><div class="toolbar"><div><h2>Quests</h2><p class="hint" id="questHint"></p></div><input type="search" class="search" data-table="questTable" placeholder="Filter quest or zone"></div><div class="scroll"><table id="questTable"></table></div><button type="button" class="link expand" data-expand>Show all</button></article>
+      <article class="panel w12"><div class="toolbar"><div><h2>Deaths and close calls</h2><p class="hint" id="deathHint"></p></div><input type="search" class="search" data-table="deathTable" placeholder="Filter killer or zone"></div><div class="scroll"><table id="deathTable"></table></div><button type="button" class="link expand" data-expand>Show all</button></article>
       <article class="panel w4"><div class="ph"><h2>Your damage by spell</h2></div><p class="hint" id="dmgHint"></p><div class="scroll"><table id="dmgSpellTable"></table></div></article>
       <article class="panel w4"><div class="ph"><h2>What hurts you</h2></div><p class="hint">Damage taken by attacker, from the damage meter.</p><div class="scroll"><table id="dmgFromTable"></table></div></article>
       <article class="panel w4"><div class="ph"><h2>Damage by level</h2></div><p class="hint">Per fight, at the level you were then.</p><div class="scroll"><table id="dmgLevelTable"></table></div></article>
@@ -1448,6 +1450,11 @@ function modCombat() {
         + (d.meter ? ' <span class="pill" title="Killing blow from the damage meter">confirmed</span>' : ""),
       d.killerLevel || "", d.level || "", esc(d.place || d.zone || "")]),
     "No deaths. Nice.");
+  // "Show all" only where the table runs past its box
+  requestAnimationFrame(() => document.querySelectorAll('section[data-mod="combat"] button[data-expand]').forEach(b => {
+    const box = b.closest(".panel").querySelector(".scroll");
+    b.hidden = !box.classList.contains("all") && box.scrollHeight <= box.clientHeight + 2;
+  }));
 }
 
 function renderCrafts(c) {
@@ -2650,6 +2657,14 @@ document.addEventListener("click", e => {
   if (hb && !hb.disabled) { house = hb.dataset.house; store.set(HOUSE_KEY, house); go(route, { keepScroll: true }); return; }
   const charBtn = e.target.closest("button[data-char]");
   if (charBtn) { selectChar(charBtn.dataset.char); go("overview"); return; }
+  const expand = e.target.closest("button[data-expand]");
+  if (expand) {
+    const box = expand.closest(".panel").querySelector(".scroll");
+    const all = box.classList.toggle("all");
+    expand.textContent = all ? "Show fewer" : "Show all";
+    if (!all) box.scrollTop = 0;
+    return;
+  }
   const skillBtn = e.target.closest("button[data-skill]");
   if (skillBtn) { skillProf = skillBtn.dataset.skill; if (curChar()) renderSkillRoute(curChar()); return; }
   const batchBtn = e.target.closest("button[data-craft-batch]");
