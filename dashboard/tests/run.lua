@@ -1150,6 +1150,14 @@ test("merge logbooks (state-based): lines in time order, sessions, counters adde
     local copied = { since = 100, log = { A.log[1], A.log[2], "300|1|1|1|1|lv|7" }, sessions = { A.sessions[1] }, counts = {} }
     local m2, shared2 = Mg.logbooks({ A, copied })
     eq(shared2, 2); eq(#m2.log, 3); eq(#m2.sessions, 1)
+    -- the same line twice in one file is two real events (two identical sales in one second): both kept, none shared
+    local twice = "130|1|1|1|1|ah|sold|290|Page 7"
+    local R = { since = 100, log = { twice, twice }, counts = {} }
+    local m3, shared3 = Mg.logbooks({ R, B })
+    eq(shared3, 0); eq(#m3.log, 4); eq(m3.log[1], twice); eq(m3.log[2], twice)
+    -- a copy of that file on another PC: each line counts as often as the copy that has it most, the overlap is shared
+    local m4, shared4 = Mg.logbooks({ R, { since = 100, log = { twice, twice, twice }, counts = {} } })
+    eq(shared4, 2); eq(#m4.log, 3)
     local one, none = Mg.logbooks({ A })
     eq(one, A, "one PC: untouched"); eq(none, 0); eq(Mg.logbooks({}), nil)
 end)

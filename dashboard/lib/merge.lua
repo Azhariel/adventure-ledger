@@ -53,13 +53,17 @@ function Mg.logbooks(list)
     if out.char.level == 0 then out.char.level = nil end
     out.char.first = first.char and first.char.first
 
-    local seen, shared, lines = {}, 0, {}
+    -- a line repeated within one file is that many real events (two identical sales in one second), so each line
+    -- is kept as often as the copy holding it most; only repeats across copies are shared
+    local kept, shared, lines = {}, 0, {}
     for src, db in ipairs(byStart) do
+        local here = {}
         for i, line in ipairs(db.log or {}) do
-            if seen[line] then
+            here[line] = (here[line] or 0) + 1
+            if here[line] <= (kept[line] or 0) then
                 shared = shared + 1
             else
-                seen[line] = true
+                kept[line] = here[line]
                 lines[#lines + 1] = { t = lineTime(line) or 0, src = src, i = i, line = line }
             end
         end
