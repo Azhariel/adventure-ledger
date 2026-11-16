@@ -445,6 +445,9 @@ tr.flash td { animation: flash .8s ease-out; }
 
     <section class="mod" data-mod="crafting" hidden>
       <article class="panel w12"><div class="ph"><h2>Your crafts at saved prices</h2><span class="pill faction">faction AH</span></div><p class="hint">Every recipe with all its reagents priced, best profit first: Make or Buy's planner on your last Auctionator scan. Cost and profit are at market prices, after the 5% cut; <b>You pay</b> is the cash one craft still needs once what this character holds (bags, bank, mail) is used. <span class="pill">own reagents</span> = crafting the intermediates yourself. <b>Will it sell</b>: how many were listed at the last scan, on how many scan days it was listed at all, Make or Buy's price warnings, and your own sales of it. Click a recipe for its reagents.</p><div class="scroll"><table id="craftsTable"></table></div><div id="craftPlanBox"></div></article>
+      <article class="panel w8"><div class="ph"><h2>Skill-ups: the cheapest route</h2><span class="meta" id="skillMeta"></span></div>
+        <p class="hint">Make or Buy's Route on your known recipes, from your skill to the cap: at each point, the recipe with the lowest expected cost for it (crafts needed × cost after selling the result at the AH; a craft that earns counts as free). Crafts are expected counts: green recipes may take more. Recipes you could still learn aren't included; the Worth crafting tab in game can add them.</p>
+        <div class="chips" id="skillChips"></div><div id="skillBox"></div></article>
       <article class="panel w4"><div class="ph"><h2>Restock list</h2></div><p class="hint">From Make or Buy.</p><div id="restockBox"></div></article>
     </section>
 
@@ -1479,6 +1482,28 @@ function renderCrafts(c) {
   renderCraftPlan(c);
 }
 
+let skillProf = null;
+// One profession's route (model.lua M.skillRoutes), picked with the chips
+function renderSkillRoute(c) {
+  const routes = c.skillRoutes || [];
+  if (!routes.some(r => r.profession === skillProf)) skillProf = routes[0] ? routes[0].profession : null;
+  el("skillChips").innerHTML = routes.length > 1 ? routes.map(r => `<button type="button" class="chip" data-skill="${esc(r.profession)}" aria-pressed="${r.profession === skillProf}">${esc(r.profession)} ${r.level}/${r.max}</button>`).join("") : "";
+  const r = routes.find(x => x.profession === skillProf);
+  if (!r) { el("skillMeta").textContent = ""; el("skillBox").innerHTML = empty("Every profession is at its cap, or none has a recipe with its reagents priced. Open your professions in game so Make or Buy saves your skill."); return; }
+  const net = v => v <= 0 ? `<span class="pos" data-sort="${v}">+${money(-v)}</span>` : money(v);
+  el("skillMeta").textContent = `${r.profession} ${r.level} → ${r.max}`;
+  const sum = `<p style="margin:2px 0 8px"><b>${r.profession} ${r.level} → ${r.stuckAt != null ? r.stuckAt : r.max}</b>: about ${plural(r.crafts, "craft")}, `
+    + `spend ${money(r.cost, { short: true })}, ${r.net <= 0 ? `and you earn ${money(-r.net, { short: true })} selling the results` : `${money(r.net, { short: true })} after selling the results`}.`
+    + (r.stuckAt != null ? ` <span class="pill death">stuck at ${r.stuckAt}</span> <span class="muted">no known recipe gives points from there: learn a new one.</span>` : "") + "</p>";
+  el("skillBox").innerHTML = sum + `<div class="scroll"><table id="skillTable"></table></div><h3>Cheapest next point</h3><div class="scroll"><table id="skillNextTable"></table></div>`;
+  table("skillTable", [{ t: "Skill" }, { t: "Craft" }, { t: "Crafts", n: 1 }, { t: "Spend", n: 1 }, { t: "After selling", n: 1 }],
+    r.segments.map(s => [`<span data-sort="${s.from}">${s.from} → ${s.to}</span>`, whItem(s.id, s.name), s.crafts, money(s.cost), net(s.net)]),
+    "No route.", { defaultCol: 0, defaultDir: 1 });
+  table("skillNextTable", [{ t: "Craft" }, { t: "Chance", n: 1 }, { t: "Per craft", n: 1 }, { t: "Per point", n: 1 }],
+    r.next.map(x => [whItem(x.id, x.name), `${Math.round(x.chance * 100)}%`, net(x.net), x.net <= 0 ? '<span class="pos" data-sort="0">free</span>' : money(Math.round(x.perPoint))]),
+    `No known recipe gives a point at ${r.level}.`);
+}
+
 function renderCraftPlan(c) {
   const box = el("craftPlanBox");
   if (!box) return;
@@ -1972,6 +1997,7 @@ function modCrafting() {
     kpi("Best profit", profitable[0] ? money(Math.max(...profitable.map(r => r.profit))) : "?", "per craft"),
   ].join("");
   renderCrafts(c);
+  renderSkillRoute(c);
   el("restockBox").innerHTML = c.restock && c.restock.length
     ? `<table>${c.restock.map(r => `<tr><td>${whItem(r.id, r.name)}</td><td class="n">${r.crafts}×</td></tr>`).join("")}</table>` : empty("Nothing on the restock list.");
 }
@@ -2624,6 +2650,8 @@ document.addEventListener("click", e => {
   if (hb && !hb.disabled) { house = hb.dataset.house; store.set(HOUSE_KEY, house); go(route, { keepScroll: true }); return; }
   const charBtn = e.target.closest("button[data-char]");
   if (charBtn) { selectChar(charBtn.dataset.char); go("overview"); return; }
+  const skillBtn = e.target.closest("button[data-skill]");
+  if (skillBtn) { skillProf = skillBtn.dataset.skill; if (curChar()) renderSkillRoute(curChar()); return; }
   const batchBtn = e.target.closest("button[data-craft-batch]");
   if (batchBtn) { craftBatch = Number(batchBtn.dataset.craftBatch) || 1; if (curChar()) renderCraftPlan(curChar()); return; }
   const gapBtn = e.target.closest("button[data-gap]");

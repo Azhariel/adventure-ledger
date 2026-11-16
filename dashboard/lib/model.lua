@@ -872,6 +872,77 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
     return out
 end
 
+-- Trade skill ids (Make or Buy's profession keys) to names
+M.PROFESSION_IDS = { [171] = "Alchemy", [164] = "Blacksmithing", [333] = "Enchanting", [202] = "Engineering",
+    [182] = "Herbalism", [165] = "Leatherworking", [186] = "Mining", [393] = "Skinning", [197] = "Tailoring",
+    [185] = "Cooking", [129] = "First Aid", [356] = "Fishing", [755] = "Jewelcrafting", [773] = "Inscription" }
+
+-- The cheapest way to skill up each profession below its cap, with Make or Buy's own maths: recipe thresholds
+-- from its recipe data (learn skill) narrowed by the colours it saw in game (mob.bounds), then Skill.Route over
+-- your known recipes with every reagent priced. A craft's net cost is its cost minus what selling it brings (AH
+-- after the 5% cut); one that earns money counts as free. lib = { Planner, Skill, RecipeData }; mob =
+-- MakeOrBuyCharDB. Returns { { profession, key, level, max, crafts, cost, net, stuckAt, segments = { { from, to,
+-- id, name, crafts, cost, net } }, next = { { id, name, chance, net, perPoint } } (cheapest point now, 5 at most) } }.
+function M.skillRoutes(lib, mob, market, nameOf)
+    local P, Skill = lib and lib.Planner, lib and lib.Skill
+    if not (P and Skill and mob and mob.recipes and mob.skill) then return {} end
+    local function price(id)
+        local ah, vendor = marketPrice(market, id), market.vendor[id]
+        if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
+        if ah then return ah, "ah" end
+        return nil
+    end
+    local index = P.IndexByOutput(mob.recipes)
+    local out = {}
+    for prof, s in pairs(mob.skill) do
+        local level, max = tonumber(s.level), tonumber(s.max)
+        if level and max and level < max then
+            local data = lib.RecipeData and lib.RecipeData[prof] or {}
+            local cands = {}
+            for id, recipe in pairs(mob.recipes) do
+                if recipe.profession == prof then
+                    local learn = data[id] and data[id][1]
+                    local t = Skill.Thresholds(learn, mob.bounds and mob.bounds[id])
+                    local plan = P.PlanRecipe(recipe, index, price)
+                    if t and plan.complete then
+                        local sale = P.SaleValue(marketPrice(market, recipe.outputItemID), nil)
+                        cands[#cands + 1] = { key = id, id = recipe.outputItemID, name = recipe.name or nameOf(recipe.outputItemID),
+                            learn = learn or 0, thresholds = t, cost = plan.total,
+                            net = math.ceil(plan.total - (sale and sale * plan.outputQty or 0)) }
+                    end
+                end
+            end
+            if #cands > 0 then
+                local route = Skill.Route(cands, level, max)
+                local segs = {}
+                for _, seg in ipairs(route.segments) do
+                    local c = seg.candidate
+                    segs[#segs + 1] = { from = seg.from, to = seg.to, id = c.id, name = c.name, crafts = seg.wholeCrafts,
+                        cost = math.floor(seg.wholeCrafts * c.cost + 0.5), net = seg.wholeCrafts * c.net }
+                end
+                local nxt = {}
+                for _, c in ipairs(cands) do
+                    local chance = c.learn <= level and Skill.Chance(c.thresholds, level) or 0
+                    if chance > 0 then
+                        nxt[#nxt + 1] = { id = c.id, name = c.name, chance = chance, net = c.net, perPoint = math.max(c.net, 0) / chance }
+                    end
+                end
+                table.sort(nxt, function(a, b)
+                    if a.perPoint ~= b.perPoint then return a.perPoint < b.perPoint end
+                    if a.chance ~= b.chance then return a.chance > b.chance end
+                    return a.name < b.name
+                end)
+                for i = #nxt, 6, -1 do nxt[i] = nil end
+                out[#out + 1] = { profession = M.PROFESSION_IDS[prof] or ("Profession " .. prof), key = prof, level = level,
+                    max = max, crafts = route.crafts, cost = math.floor(route.cost + 0.5), net = route.net,
+                    stuckAt = route.stuckAt, segments = segs, next = nxt }
+            end
+        end
+    end
+    table.sort(out, function(a, b) return a.profession < b.profession end)
+    return out
+end
+
 ----------------------------------------------------------------------------------------------------
 -- A whole character
 
@@ -971,6 +1042,7 @@ function M.character(data)
             { have = data.stock and M.held(data.stock) or nil, Market = data.mobLib and data.mobLib.Market,
               today = data.now and S.timeToDay(data.now) or nil, sold = soldById }),
         restock = restock,
+        skillRoutes = M.skillRoutes(data.mobLib, data.mob, data.market, nameOf),
         inventory = inv,
         prices = M.priceHistory(data.market, ownedIds, nameOf, 2),
         haul = haul,

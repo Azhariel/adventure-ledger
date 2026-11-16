@@ -349,6 +349,31 @@ test("sale check with Make or Buy's real Market: listed, days listed, spike / th
     eq(M.saleCheck(market, 1, nil, nil).listed, 15, "without Make or Buy: just the book's figures")
 end)
 
+test("skill routes with Make or Buy's real Skill: cheapest recipe per stretch, a recipe joins once it's learnable", function()
+    local real = require("build").makeOrBuy(wowDir())
+    truthy(real.Skill, "MakeOrBuy/Skill.lua found in the WoW folder")
+    -- recipe 1 (learn 40) is orange until 65; recipe 2 (learn 60) is cheaper but needs skill 60
+    local lib = { Planner = real.Planner, Skill = real.Skill, RecipeData = { [197] = { [1] = { 40 }, [2] = { 60 } } } }
+    local mob = {
+        skill = { [197] = { level = 50, max = 75 }, [185] = { level = 75, max = 75 } },
+        recipes = {
+            [1] = { recipeID = 1, name = "Pricey", profession = 197, outputItemID = 20, outputQty = 1, reagents = { { itemID = 10, qty = 1 } } },
+            [2] = { recipeID = 2, name = "Cheap", profession = 197, outputItemID = 21, outputQty = 1, reagents = { { itemID = 11, qty = 1 } } },
+            [3] = { recipeID = 3, name = "Stew", profession = 185, outputItemID = 22, outputQty = 1, reagents = { { itemID = 11, qty = 1 } } },
+        },
+    }
+    local market = { prices = { [10] = { now = 100 }, [11] = { now = 50 } }, vendor = {} }
+    local routes = M.skillRoutes(lib, mob, market, tostring)
+    eq(#routes, 1, "cooking is capped: no route"); local r = routes[1]
+    eq(r.profession, "Tailoring"); eq(r.level, 50); eq(r.max, 75)
+    eq(#r.segments, 2)
+    eq(r.segments[1].name, "Pricey"); eq(r.segments[1].from, 50); eq(r.segments[1].to, 60); eq(r.segments[1].crafts, 10); eq(r.segments[1].cost, 1000)
+    eq(r.segments[2].name, "Cheap"); eq(r.segments[2].from, 60); eq(r.segments[2].to, 75); eq(r.segments[2].crafts, 15)
+    eq(r.crafts, 25); eq(r.cost, 1000 + 750); eq(r.net, 1750, "nothing sells: net = cost")
+    eq(#r.next, 1, "only the learnable recipe gives a point at 50"); eq(r.next[1].name, "Pricey"); eq(r.next[1].chance, 1)
+    eq(#M.skillRoutes(nil, mob, market, tostring), 0, "without Make or Buy: nothing")
+end)
+
 test("held: bags, bank and mail together, string ids made numbers, zero counts dropped", function()
     local h = M.held({ bags = { [1] = 2, ["7"] = 1 }, bank = { [1] = 3 }, mail = { [9] = 0 } })
     eq(h[1], 5); eq(h[7], 1); eq(h[9], nil); eq(next(M.held(nil)), nil)
