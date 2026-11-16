@@ -1213,6 +1213,8 @@ function modOverview() {
 
   renderWhen(c.playSpans || []);
   renderRecaps(c.recaps || []);
+  const away = p.unlogged || [];
+  if (away.length) el("recapHint").textContent += ` Not here: ${dur(away.reduce((a, u) => a + u.seconds, 0))} of play in ${plural(away.length, "stretch", "stretches")} this computer never logged (${away.map(u => MONTHDAY.format(new Date(u.to * 1000))).join(", ")}): play on another PC, or a session lost to a crash, since WoW saves addon data only at a logout or /reload.`;
 }
 
 // Time logged in by weekday and hour, on the viewer's clock: each span is cut at the hour marks
@@ -1417,7 +1419,10 @@ function renderGoldCheck(chk, earnedSum, spentSum) {
     const g = chk.gaps[0];
     const what = chk.unrecorded < 0 ? "money the log counted as income that never reached your bags, or spending it didn't see"
       : "money that reached your bags without a log line";
-    note = `${moneyText(Math.abs(chk.unrecorded))} is ${what}.` + (g ? ` Most of it (${moneyText(Math.abs(g.copper))}) happened between ${levels(g)}.` : "")
+    const away = g && g.unlogged && g.unlogged.length
+      ? `, which holds ${dur(g.unlogged.reduce((a, u) => a + u.seconds, 0))} of play this computer's log never saw (${g.unlogged.map(u => MONTHDAY.format(new Date(u.to * 1000))).join(", ")}): play on another PC, or a session lost to a crash`
+      : "";
+    note = `${moneyText(Math.abs(chk.unrecorded))} is ${what}.` + (g ? ` Most of it (${moneyText(Math.abs(g.copper))}) happened between ${levels(g)}${away}.` : "")
       + " Each level-up saves your gold, which is how the log is checked.";
   }
   box.innerHTML = `<table>${rows.join("")}</table><p class="hint" style="margin:8px 0 0">${esc(note)}</p>`;

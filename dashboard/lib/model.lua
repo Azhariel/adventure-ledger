@@ -195,7 +195,31 @@ M.ranked = ranked
 --     gaps = { { from, to (levels), copper (+ gold the log missed, - gold it counted that you never had) } } }
 -- gaps of at least GAP_MIN copper, biggest first.
 M.MONEY_GAP_MIN = 100
-function M.moneyCheck(events, snaps, moneyNow)
+-- Play the log never saw: /played moved on between one session piece's end and the next one's start. WoW
+-- writes addon data only at a logout or /reload, so a crash or a disconnect loses that whole session (and play
+-- with the addons off, or on another computer, never reaches this file). Holes under UNLOGGED_MIN are loading
+-- screens. Returns { { from (last logged moment), to (next start), seconds } } oldest first.
+M.UNLOGGED_MIN = 300
+function M.unloggedPlay(pieces)
+    local list = {}
+    for _, s in ipairs(pieces or {}) do
+        if s.start and s.played0 and s.played1 then list[#list + 1] = s end
+    end
+    table.sort(list, function(a, b) return a.start < b.start end)
+    local out = {}
+    for i = 2, #list do
+        local a, b = list[i - 1], list[i]
+        local hole = num(b.played0) - num(a.played1)
+        if hole >= M.UNLOGGED_MIN then
+            out[#out + 1] = { from = a.last or a.start, to = b.start, seconds = hole }
+        end
+    end
+    return out
+end
+
+-- unlogged (optional): M.unloggedPlay's list; each gap then also gets `unlogged`, the unlogged stretches inside
+-- its span ({ from, to, seconds }).
+function M.moneyCheck(events, snaps, moneyNow, unlogged)
     if not moneyNow then return nil end
     local net, marks = 0, {}
     for _, e in ipairs(events or {}) do
@@ -204,7 +228,7 @@ function M.moneyCheck(events, snaps, moneyNow)
         elseif e.kind == "lv" then
             local L = num(e.args[1])
             local s = snaps and snaps[L]
-            if s and s.money then marks[#marks + 1] = { level = L, start = s.money - net } end
+            if s and s.money then marks[#marks + 1] = { level = L, start = s.money - net, t = e.t } end
         end
     end
     local out = { now = moneyNow, logged = net, gaps = {} }
@@ -218,7 +242,11 @@ function M.moneyCheck(events, snaps, moneyNow)
         local bStart, bLevel = b and b.start or (moneyNow - net), b and b.level or nil
         local d = bStart - a.start
         if math.abs(d) >= M.MONEY_GAP_MIN then
-            out.gaps[#out.gaps + 1] = { from = a.level, to = bLevel, copper = d }
+            local gap = { from = a.level, to = bLevel, copper = d, unlogged = {} }
+            for _, u in ipairs(unlogged or {}) do
+                if u.to > (a.t or 0) and (not b or u.from < (b.t or math.huge)) then gap.unlogged[#gap.unlogged + 1] = u end
+            end
+            out.gaps[#out.gaps + 1] = gap
         end
     end
     table.sort(out.gaps, function(x, y) return math.abs(x.copper) > math.abs(y.copper) end)
@@ -1030,13 +1058,14 @@ function M.character(data)
             journal = mb.source or (data.muddy and "MuddyBoots") or nil,
             firstSeen = char.first and char.first.t, lastSeen = acc.lastSeen or (lastSession and lastSession.last),
             sessions = #(mb.sessions or {}),
+            unlogged = M.unloggedPlay(mb.sessions),
         },
         netWorth = { money = money or 0, items = inv.total, total = (money or 0) + inv.total },
         xp = { series = xpSeries, levels = levels, totals = xpTotals, byLevel = xpByLevel, all = counts.xp and counts.xp.all },
         levelTimes = M.levelTimes(levels, char.first and char.first.level, firstPlayed, playedNow, level),
         money = { flow = moneyFlow, earned = ranked(earned), spent = ranked(spent),
             onHand = M.moneySeries(mb.snap, playedNow, money, acc.lastSeen or (lastSession and lastSession.last)), auction = counts.auction,
-            check = M.moneyCheck(events, mb.snap, money),
+            check = M.moneyCheck(events, mb.snap, money, M.unloggedPlay(mb.sessions)),
             ahTrades = ahTrades },
         activity = activity,
         distance = counts.distance,

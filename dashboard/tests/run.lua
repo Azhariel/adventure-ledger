@@ -192,6 +192,16 @@ test("money check (state-based): starting gold from the first level snapshot, an
     eq(after.gaps[1].from, 14); eq(after.gaps[1].to, nil, "since the last level-up"); eq(after.gaps[1].copper, 200)
     local wobble = M.moneyCheck(events, snaps, 649)
     eq(#wobble.gaps, 1, "50 copper since level 14 is under GAP_MIN"); eq(wobble.gaps[1].copper, -150)
+    -- the play the log never saw, matched to the gap it falls in
+    local holes = M.unloggedPlay({
+        { start = 0, last = 25, played0 = 0, played1 = 25 },
+        { start = 45, last = 55, played0 = 25 + 299, played1 = 334 },     -- 299 s: a loading screen
+        { start = 58, last = 65, played0 = 334 + 3600, played1 = 3941 },  -- an hour played elsewhere, between 55 and 58
+    })
+    eq(#holes, 1); eq(holes[1].from, 55); eq(holes[1].to, 58); eq(holes[1].seconds, 3600)
+    local matched = M.moneyCheck(events, snaps, 699, holes)
+    eq(#matched.gaps[1].unlogged, 1, "levels 13 to 14 (t 40 to 60) hold the hole at 55-58")
+    eq(#M.moneyCheck(events, snaps, 699, { { from = 70, to = 80, seconds = 900 } }).gaps[1].unlogged, 0, "after level 14: not that gap's")
     local none = M.moneyCheck(events, nil, 500)
     eq(none.start, nil); eq(none.logged, 449); eq(#none.gaps, 0)
     eq(M.moneyCheck(events, snaps, nil), nil, "no gold figure")
