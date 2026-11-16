@@ -76,7 +76,7 @@ update is out; an unchanged version means no warning.
 
 ### Layout
 
-A menu on the left holds every module, grouped as `~/character` (Overview, Progress, Gold, Combat & quests: the
+A menu on the left holds every module, grouped as `~/character` (Overview, Progress, Gold, Combat & quests, Replay: the
 character picked above the menu), `~/account` (Characters, Inventory, Mail to alts, Drop rates), `~/market`
 (Signals, Stockpile, Browse, Movers, Faction vs Neutral, Your trades, Crafting), `~/live` and `~/about` (About:
 what each module shows, for new users; Addons: each addon the page reads, its version in WoW, in your copy and
@@ -179,6 +179,11 @@ Also on the page:
   saw names that attacker and spell, marked *confirmed*; without it, the killer is your last hostile target.
 - **Flights** (Progress): every route you've flown with its usual fare and time in the air, the stops on the way,
   and your recent flights. A route with a stop is counted apart from the direct one, since the fares differ.
+- **Replay** (each character): pick a play session and watch it on the zone map. Your path draws itself from
+  Logbook's trail (a point every 5 seconds while you move), and level-ups, deaths, quests, zones, dungeons,
+  flights, gathering, rare loot, AH sales and kills appear where they happened. The moments list beside it jumps
+  the playhead to any of them; scrub, zoom and pan the map. Stands over 20 seconds play as 20 seconds. Map art is
+  the live server's cache of each zone (`data/maps`), or Wowhead's CDN for a zone it hasn't fetched yet.
 - **Play sessions** (each character): a diary of every session, newest first: time, XP and levels, gold earned and
   spent, kills, quests, deaths, zones, profession gains, loot, what you made, and Auction House buys & sales. The log starts a new piece at
   every reload; pieces less than 30 minutes apart are one session.
@@ -203,7 +208,8 @@ Also on the page:
 
 Charts load Chart.js from cdnjs, so they need an internet connection; everything else works offline. The page also
 reads each of our addons' `.toc` from GitHub (at most every 6 hours) to say when an update is out; offline, the
-Addons module still compares WoW's copy with yours.
+Addons module still compares WoW's copy with yours. The Replay's map art comes from `data/maps` (the live server
+downloads each zone once), or from Wowhead's image server for a zone that isn't there yet.
 
 From any terminal: `wowstats` (or `wowstats -n` to build without opening the browser). Or directly:
 `lua dashboard/build.lua [wow folder] [output file]` (defaults: `wow =` in `ledger.cfg`, `data/dashboard.html`).
