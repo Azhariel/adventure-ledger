@@ -444,7 +444,7 @@ tr.flash td { animation: flash .8s ease-out; }
     </section>
 
     <section class="mod" data-mod="crafting" hidden>
-      <article class="panel w8"><div class="ph"><h2>Your crafts at saved prices</h2><span class="pill faction">faction AH</span></div><p class="hint">Every recipe with all its reagents priced, best profit first: Make or Buy's planner on your last Auctionator scan. Cost and profit are at market prices, after the 5% cut; <b>You pay</b> is the cash one craft still needs once what this character holds (bags, bank, mail) is used. <span class="pill">own reagents</span> = crafting the intermediates yourself. Click a recipe for its reagents.</p><div class="scroll"><table id="craftsTable"></table></div><div id="craftPlanBox"></div></article>
+      <article class="panel w12"><div class="ph"><h2>Your crafts at saved prices</h2><span class="pill faction">faction AH</span></div><p class="hint">Every recipe with all its reagents priced, best profit first: Make or Buy's planner on your last Auctionator scan. Cost and profit are at market prices, after the 5% cut; <b>You pay</b> is the cash one craft still needs once what this character holds (bags, bank, mail) is used. <span class="pill">own reagents</span> = crafting the intermediates yourself. <b>Will it sell</b>: how many were listed at the last scan, on how many scan days it was listed at all, Make or Buy's price warnings, and your own sales of it. Click a recipe for its reagents.</p><div class="scroll"><table id="craftsTable"></table></div><div id="craftPlanBox"></div></article>
       <article class="panel w4"><div class="ph"><h2>Restock list</h2></div><p class="hint">From Make or Buy.</p><div id="restockBox"></div></article>
     </section>
 
@@ -1452,7 +1452,20 @@ function renderCrafts(c) {
   if (!list.some(r => r.id === selectedCraft)) selectedCraft = list[0] ? list[0].id : null;
   const pay = r => r.pay == null ? '<span class="muted">–</span>'
     : `<span data-sort="${r.pay}" title="${r.owned ? `Cash for one craft after using ${plural(r.owned, "item")} you hold` : "You hold none of its reagents"}">${money(r.pay)}${r.owned ? ` <span class="pill">${r.owned} held</span>` : ""}</span>`;
-  table("craftsTable", [{ t: "Recipe" }, { t: "Cost", n: 1 }, { t: "You pay", n: 1 }, { t: "After 5% cut", n: 1 }, { t: "Profit", n: 1 }, { t: "Margin", n: 1 }],
+  // Will it sell: listings, days listed, Make or Buy's warnings (Market.Reasons' wording), your own sales
+  const scanDays = ((DATA.marketTab && DATA.marketTab.days) || []).length;
+  const sells = r => {
+    const k = r.check, bits = [];
+    if (!k) return '<span class="pill" data-sort="-1">never listed</span>';
+    bits.push(`<span data-sort="${k.listed ?? 0}">${k.listed != null ? short(k.listed) : "?"} listed</span>`);
+    bits.push(`<span class="muted" title="Scan days this item was listed on">${k.days}${scanDays ? "/" + scanDays : ""} days</span>`);
+    if (k.spike) bits.push(`<span class="pill death" title="Today's price against its usual ${moneyText(k.usual)}: one odd listing can make a loss look like a profit">${k.ratio.toFixed(1)}× usual</span>`);
+    if (k.thin) bits.push(`<span class="pill death">${k.listed === 0 ? "none listed" : `only ${k.listed} listed`}</span>`);
+    if (k.stale) bits.push(`<span class="pill death">${k.age} days old</span>`);
+    if (r.sold) bits.push(`<span class="pill kill" title="Your auction house sales of it${r.sold.avg ? `, ${moneyText(r.sold.avg)} each on average` : ""}">you sold ${r.sold.count}</span>`);
+    return bits.join(" ");
+  };
+  table("craftsTable", [{ t: "Recipe" }, { t: "Cost", n: 1 }, { t: "You pay", n: 1 }, { t: "After 5% cut", n: 1 }, { t: "Profit", n: 1 }, { t: "Margin", n: 1 }, { t: "Will it sell" }],
     list.map(r => rowId(r.id, [
       `${whItem(r.id, r.name)}${r.outputQty > 1 ? ` ×${r.outputQty}` : ""} ${r.ownReagents ? '<span class="pill">own reagents</span>' : ""}`,
       money(r.cost),
@@ -1460,6 +1473,7 @@ function renderCrafts(c) {
       money(r.sale),
       `<span class="${r.profit >= 0 ? "pos" : "neg"}" data-sort="${r.profit}">${r.profit >= 0 ? "+" : ""}${money(r.profit)}</span>`,
       r.margin != null ? `<span class="${r.margin >= 0 ? "pos" : "neg"}" data-sort="${r.margin}">${Math.round(r.margin * 100)}%</span>` : "",
+      sells(r),
     ])), "No priced recipes yet: open your professions in game and scan the AH.",
     { onRender: () => document.querySelectorAll("#craftsTable tr.pick").forEach(tr => tr.classList.toggle("sel", selectedCraft != null && Number(tr.dataset.id) === selectedCraft)) });
   renderCraftPlan(c);

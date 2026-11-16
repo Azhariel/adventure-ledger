@@ -326,6 +326,29 @@ test("crafts use Make or Buy's real planner: crafting bolts beats buying them, a
     eq(held[2592], 4, "the caller's holdings aren't used up")
 end)
 
+test("sale check with Make or Buy's real Market: listed, days listed, spike / thin / stale against its usual price", function()
+    local Market = require("build").makeOrBuy(wowDir()).Market
+    truthy(Market, "MakeOrBuy/Market.lua found in the WoW folder")
+    local days = function(lows, lastAvail)
+        local out = {}
+        for i, low in ipairs(lows) do out[i] = { day = 100 + i, low = low, high = low, available = i == #lows and lastAvail or 20 } end
+        return out
+    end
+    local market = { prices = {
+        [1] = { now = 100, days = days({ 100, 100, 100, 100 }, 15) },       -- steady, well listed
+        [2] = { now = 300, days = days({ 100, 100, 100, 300 }, 1) },        -- 3x the usual and 1 listed
+        [3] = { now = 100, days = days({ 100, 100, 100, 100 }, 15) },       -- the same, but checked 4 days later
+    } }
+    local ok = M.saleCheck(market, 1, Market, 104)
+    eq(ok.listed, 15); eq(ok.days, 4); eq(ok.usual, 100); eq(ok.age, 0); eq(ok.risky, false)
+    local hot = M.saleCheck(market, 2, Market, 104)
+    eq(hot.spike, true); eq(hot.thin, true); eq(hot.risky, true); near(hot.ratio, 3)
+    local old = M.saleCheck(market, 3, Market, 107)
+    eq(old.age, 3); eq(old.stale, true); eq(old.risky, true)
+    eq(M.saleCheck(market, 99, Market, 104), nil, "never on the AH")
+    eq(M.saleCheck(market, 1, nil, nil).listed, 15, "without Make or Buy: just the book's figures")
+end)
+
 test("held: bags, bank and mail together, string ids made numbers, zero counts dropped", function()
     local h = M.held({ bags = { [1] = 2, ["7"] = 1 }, bank = { [1] = 3 }, mail = { [9] = 0 } })
     eq(h[1], 5); eq(h[7], 1); eq(h[9], nil); eq(next(M.held(nil)), nil)

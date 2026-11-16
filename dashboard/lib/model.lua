@@ -759,6 +759,29 @@ function M.priceHistory(market, ids, nameOf, minDays)
     return out
 end
 
+-- Will a crafted item sell? From the AH book: listed at the last scan, how many scan days it was listed on, and
+-- Make or Buy's own price check (`Market` = its Market module: spike, stale, thin, against its usual price).
+-- `today` = today's scan day. Returns nil when the AH has never seen the item, else
+-- { listed, days, usual, ratio, age, spike, stale, thin, risky }.
+function M.saleCheck(market, id, Market, today)
+    local p = market and market.prices and market.prices[id]
+    if not p or not p.days or #p.days == 0 then return nil end
+    local last = p.days[#p.days]
+    local out = { listed = last.available, days = #p.days, age = today and math.max(0, today - last.day) or nil }
+    if Market and Market.Assess then
+        local history = {}
+        for i = #p.days, 1, -1 do
+            local d = p.days[i]
+            history[#history + 1] = { minSeen = d.low, maxSeen = d.high, available = d.available }
+        end
+        local a = Market.Assess(p.now, history, out.age)
+        out.usual, out.ratio = a.usual, a.ratio
+        out.spike, out.stale, out.thin = a.spike, a.stale, a.thin
+        if Market.Risky then out.risky = Market.Risky(a) end
+    end
+    return out
+end
+
 -- { [itemID] = n } one character holds in bags, bank and mail (Stockpile entry)
 function M.held(stock)
     local out = {}
@@ -775,6 +798,8 @@ end
 -- Sale value is the AH price after the 5% cut (vendor sell prices aren't saved offline).
 -- opts.have = { [itemID] = n } held: each craft also gets `pay`, the cash one craft still costs once what you
 -- hold is used (Make or Buy's own Expand, at any depth), and `owned`, how many held items it uses.
+-- opts.Market (Make or Buy's Market module) and opts.today (scan day): each craft gets `check` (M.saleCheck).
+-- opts.sold = { [itemID] = { count, avg, last } }: your own AH sales of the item, as `sold`.
 function M.crafts(P, recipes, market, nameOf, limit, opts)
     opts = opts or {}
     if not (P and recipes) then
@@ -828,6 +853,8 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
                 naiveCost = naiveCost,
                 pay = pay,
                 owned = owned,
+                check = M.saleCheck(market, recipe.outputItemID, opts.Market, opts.today),
+                sold = opts.sold and opts.sold[recipe.outputItemID] or nil,
                 gross = ahUnit and math.floor(ahUnit * plan.outputQty) or nil,
                 sale = math.floor(value * plan.outputQty),
                 profit = profit,
@@ -897,6 +924,13 @@ function M.character(data)
         table.sort(restock, function(a, b) return a.name < b.name end)
     end
 
+    -- Your own AH sales per item, for the Crafting table's "will it sell"
+    local ahTrades = M.ahTrades(events, idOf)
+    local soldById = {}
+    for _, it in ipairs(ahTrades.items) do
+        if it.id and it.soldCount > 0 then soldById[it.id] = { count = it.soldCount, avg = it.avgSell, last = it.last } end
+    end
+
     local haul
     local hs = data.haul and data.haul.current and data.haul.current.session
     if hs then
@@ -921,7 +955,7 @@ function M.character(data)
         money = { flow = moneyFlow, earned = ranked(earned), spent = ranked(spent),
             onHand = M.moneySeries(mb.snap, playedNow, money, acc.lastSeen or (lastSession and lastSession.last)), auction = counts.auction,
             check = M.moneyCheck(events, mb.snap, money),
-            ahTrades = M.ahTrades(events, idOf) },
+            ahTrades = ahTrades },
         activity = activity,
         distance = counts.distance,
         zones = M.zoneTimes(events),
@@ -934,7 +968,8 @@ function M.character(data)
         professions = M.professions(events),
         crafted = M.crafted(counts.prof),
         crafts = M.crafts(data.planner, data.mob and data.mob.recipes, data.market, nameOf, nil,
-            { have = data.stock and M.held(data.stock) or nil }),
+            { have = data.stock and M.held(data.stock) or nil, Market = data.mobLib and data.mobLib.Market,
+              today = data.now and S.timeToDay(data.now) or nil, sold = soldById }),
         restock = restock,
         inventory = inv,
         prices = M.priceHistory(data.market, ownedIds, nameOf, 2),
