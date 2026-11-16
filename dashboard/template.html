@@ -101,6 +101,9 @@ h3, .sub2 { font: 600 13.5px/1.35 var(--sans); margin: 14px 0 4px; color: var(--
 .toolbar > div:first-child { flex: 1 1 320px; min-width: 0; } /* the heading and hint share the row with the search box */
 .chart { position: relative; height: 250px; }
 .chart.tall { height: 310px; } .chart.short { height: 130px; }
+/* a chart beside a taller panel grows into the row's height instead of leaving a blank strip under it */
+.panel.fill { display: flex; flex-direction: column; }
+.panel.fill > .chart { flex: 1 1 auto; }
 .scroll { max-height: 380px; overflow: auto; }
 .scroll.tall { max-height: 520px; }
 .scroll.all { max-height: none; }
@@ -354,13 +357,13 @@ tr.flash td { animation: flash .8s ease-out; }
     </section>
 
     <section class="mod" data-mod="gold" hidden>
-      <article class="panel w8"><div class="ph"><h2>Gold over played time</h2><span class="meta" id="moneyMeta"></span></div>
+      <article class="panel w8 fill"><div class="ph"><h2>Gold over played time</h2><span class="meta" id="moneyMeta"></span></div>
         <p class="hint">Running totals of money earned and spent, and gold on hand. Pink: where gold on hand is heading if you keep your recent pace.</p>
         <div class="chart tall"><canvas id="moneyChart"></canvas></div><div class="method" id="moneyMethod"></div></article>
       <article class="panel w4"><div class="ph"><h2>Where gold comes from</h2></div><p class="hint" id="flowHint"></p><div id="incomeBars" class="bars"></div>
         <h3>Spent on</h3><div id="spendBars" class="bars"></div>
         <h3>How it adds up</h3><div id="goldCheck"></div></article>
-      <article class="panel w8"><div class="ph"><h2>Net worth over time</h2><span class="meta" id="worthTimeMeta"></span></div><p class="hint" id="worthTimeHint"></p><div class="chart"><canvas id="worthTimeChart"></canvas></div></article>
+      <article class="panel w8 fill"><div class="ph"><h2>Net worth over time</h2><span class="meta" id="worthTimeMeta"></span></div><p class="hint" id="worthTimeHint"></p><div class="chart"><canvas id="worthTimeChart"></canvas></div></article>
       <article class="panel w4"><div class="ph"><h2>Net worth</h2></div><p class="hint" id="worthHint"></p><div class="chart"><canvas id="worthChart"></canvas></div></article>
       <article class="panel w8"><div class="ph"><h2>Gold per hour by activity</h2></div><p class="hint" id="actHint"></p><div class="scroll"><table id="actTable"></table></div></article>
       <article class="panel w4"><div class="ph"><h2>Last Haul session</h2></div><div id="haulBox"></div></article>
@@ -397,7 +400,7 @@ tr.flash td { animation: flash .8s ease-out; }
 
     <!-- market -->
     <section class="mod" data-mod="signals" hidden>
-      <article class="panel w8"><div class="ph"><h2>Your stockpile's value</h2><span class="meta" id="valueMeta"></span></div>
+      <article class="panel w8 fill"><div class="ph"><h2>Your stockpile's value</h2><span class="meta" id="valueMeta"></span></div>
         <p class="hint">What everything you hold now was worth on each scan day, at that day's lowest price. Pink: the next 7 days if the recent trend holds, with an 80% band.</p>
         <div class="chart tall"><canvas id="valueChart"></canvas></div><div class="method" id="valueMethod"></div></article>
       <article class="panel w4"><div class="ph"><h2>Your best sellers</h2></div><p class="hint">Your holdings furthest above their launch low. Click one for its chart.</p><div class="scroll"><table id="windowTable"></table></div></article>
