@@ -1121,6 +1121,108 @@ test("level: the highest any source knows, never a newer row's stale level 1", f
     eq(c.profile.level, 5, "from the last level-up logged")
 end)
 
+----------------------------------------------------------------------------------------------------
+-- Several PCs
+
+local Mg = require("merge")
+
+test("merge logbooks (state-based): lines in time order, sessions, counters added, records kept, newest char", function()
+    local A = { since = 100, baseline = { counts = { xp = { kill = 1000 } } }, char = { name = "Hero", level = 5, zone = "Elwynn", first = { level = 1 } },
+        log = { "110|1|1|1|1|mn|50|loot", "120|1|1|1|1|lv|5" },
+        sessions = { { start = 105, last = 125, played0 = 0, played1 = 20, how = "login" } },
+        counts = { xp = { kill = 10 }, fights = { longest = 30, n = 4 } },
+        snap = { [5] = { t = 120, money = 50 } }, trail = { chunks = { { m = 1, t = 106, d = "0,1,1" } } } }
+    local B = { since = 200, char = { name = "Hero", level = 6, zone = "Westfall" },
+        log = { "210|1|1|1|1|mn|-20|vendor", "220|1|1|1|1|lv|6" },
+        sessions = { { start = 205, last = 225, played0 = 20, played1 = 40, how = "login" } },
+        counts = { xp = { kill = 5 }, fights = { longest = 40, n = 2 } },
+        snap = { [6] = { t = 220, money = 30 } }, trail = { chunks = { { m = 1, t = 206, d = "0,2,2" } } } }
+    local m, shared = Mg.logbooks({ B, A })
+    eq(shared, 0); eq(m.since, 100); eq(m.baseline, A.baseline, "the baseline counts once, from the PC that started first")
+    eq(table.concat(m.log, ";"), table.concat({ A.log[1], A.log[2], B.log[1], B.log[2] }, ";"))
+    eq(#m.sessions, 2); eq(m.sessions[1].start, 105)
+    eq(m.counts.xp.kill, 15); eq(m.counts.fights.n, 6); eq(m.counts.fights.longest, 40, "a record: the higher")
+    eq(m.snap[5].money, 50); eq(m.snap[6].money, 30); eq(#m.trail.chunks, 2)
+    eq(m.char.zone, "Westfall", "from the PC that played last"); eq(m.char.level, 6); eq(m.char.first.level, 1)
+    -- through mergeJournal as the build does: baseline + both PCs' own counts
+    eq(S.mergeJournal(m, nil).counts.xp.kill, 1015)
+    -- a file copied between PCs: the shared lines and sessions count once, and the overlap is reported
+    local copied = { since = 100, log = { A.log[1], A.log[2], "300|1|1|1|1|lv|7" }, sessions = { A.sessions[1] }, counts = {} }
+    local m2, shared2 = Mg.logbooks({ A, copied })
+    eq(shared2, 2); eq(#m2.log, 3); eq(#m2.sessions, 1)
+    local one, none = Mg.logbooks({ A })
+    eq(one, A, "one PC: untouched"); eq(none, 0); eq(Mg.logbooks({}), nil)
+end)
+
+test("merge account rows, Haul, Make or Buy, prices and Stockpile across PCs", function()
+    local acc = Mg.logbookAccounts({ { chars = { g = { name = "Hero", money = 5, lastSeen = 10 } } },
+        { chars = { g = { name = "Hero", money = 9, lastSeen = 20 }, h = { name = "Alt", lastSeen = 1 } } } })
+    eq(acc.chars.g.money, 9, "the row seen last"); eq(acc.chars.h.name, "Alt")
+
+    local haul = Mg.haul({ { history = { { start = 30 }, { start = 10 } }, current = { session = { start = 40 } } },
+        { history = { { start = 20 }, { start = 10 } }, current = { session = { start = 50 } } } })
+    eq(#haul.history, 3, "a repeated start once"); eq(haul.history[1].start, 30, "newest first"); eq(haul.current.session.start, 50)
+
+    local mob = Mg.makeOrBuy({
+        { recipes = { [1] = { profession = 197 } }, skill = { [197] = { level = 60, max = 75 } }, bounds = { [1] = { y = { 0, 60 } } }, restock = { [1] = 2 } },
+        { recipes = { [1] = { profession = 197 }, [2] = { profession = 185 } }, skill = { [197] = { level = 90, max = 150 }, [185] = { level = 5, max = 75 } },
+          bounds = { [1] = { y = { 0, 85 } } } } })
+    eq(mob.skill[197].level, 90); eq(mob.skill[185].level, 5); truthy(mob.recipes[2])
+    eq(mob.bounds[1].y[2], 85, "colours from the PC with the higher skill"); eq(mob.restock[1], 2, "the rest from the first")
+
+    local prices = Mg.markets({
+        { prices = { [7] = { now = 100, days = { { day = 1, low = 100, high = 120, available = 5 }, { day = 2, low = 90, high = 95, available = 3 } } } }, vendor = { [8] = 4 } },
+        { prices = { [7] = { now = 70, days = { { day = 2, low = 80, high = 99, available = 9 }, { day = 3, low = 70, high = 70, available = 2 } } } }, vendor = {} } })
+    local p = prices.prices[7]
+    eq(#p.days, 3); eq(p.days[2].low, 80); eq(p.days[2].high, 99); eq(p.days[2].available, 9); eq(p.now, 70, "the latest scan's price")
+    eq(prices.vendor[8], 4)
+
+    local stock = Mg.stockpiles({
+        { stock = { chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [1] = 1 } } } }, rows = { g = { name = "Hero", realm = "R", lastSeen = 10 } } },
+        { stock = { chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [1] = 9 } } } }, rows = { g = { name = "Hero", realm = "R", lastSeen = 20 } } } })
+    eq(stock.chars["Hero-R"].bags[1], 9, "what it holds on the PC where it was seen last")
+end)
+
+test("end to end: another PC's WTF in data/pcs adds its sessions, money and play to the same character", function()
+    local Build = require("build")
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_pcs_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    local function mkdir(p)
+        if windows then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. p .. '"') end
+    end
+    local wow, data = dir .. "/wow", dir .. "/data/"
+    local here = wow .. "/WTF/Account/ACC/91/Hero-Realm/SavedVariables"
+    local there = data .. "pcs/laptop/WTF/Account/ACC/91/Hero-Realm/SavedVariables"
+    mkdir(here); mkdir(there); mkdir(wow .. "/WTF/Account/ACC/SavedVariables"); mkdir(data .. "pcs/laptop/WTF/Account/ACC/SavedVariables")
+    U.writeFile(here .. "/Logbook.lua", [[LogbookCharDB = { since = 10, char = { name = "Hero", realm = "R", guid = "G1", level = 12 },
+        sessions = { { start = 10, last = 50, played0 = 0, played1 = 40 }, { start = 300, last = 340, played0 = 3640, played1 = 3680 } },
+        counts = { xp = { kill = 100 } }, log = { "20|1|1|1|1|mn|500|loot", "310|1|1|1|1|mn|50|loot" } }]])
+    U.writeFile(there .. "/Logbook.lua", [[LogbookCharDB = { since = 100, char = { name = "Hero", realm = "R", guid = "G1", level = 12 },
+        sessions = { { start = 100, last = 3700, played0 = 40, played1 = 3640 } },
+        counts = { xp = { kill = 30 } }, log = { "200|1|1|1|1|mn|-200|trainer" } }]])
+    local listDirs = function(p)
+        p = p:gsub("\\", "/")
+        if p:match("/data/pcs$") then return { "laptop" } end
+        if p:match("/WTF/Account$") then return { "ACC" } end
+        if p:match("/ACC$") then return { "91", "SavedVariables" } end
+        if p:match("/91$") then return { "Hero-Realm" } end
+        return {}
+    end
+    local others = Build.otherPCs(data, listDirs)
+    eq(#others, 1); eq(others[1].name, "laptop")
+    local d = Build.data(wow, { names = {}, listDirs = listDirs, otherPCs = others, repoAddons = dir .. "/none" })
+    eq(#d.characters, 1); eq(d.pcs[2], "laptop")
+    local c = d.characters[1]
+    eq(c.profile.pcs, 2); eq(c.profile.sessions, 3, "both PCs' pieces")
+    eq(#c.profile.unlogged, 0, "the laptop's hour is no longer a hole")
+    local earned, spent = 0, 0
+    for _, r in ipairs(c.money.earned) do earned = earned + r.copper end
+    for _, r in ipairs(c.money.spent) do spent = spent + r.copper end
+    eq(earned, 550); eq(spent, 200, "the trainer visit on the laptop")
+    eq(c.xp.totals.kill, 130)
+    if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

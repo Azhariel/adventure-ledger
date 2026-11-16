@@ -13,6 +13,7 @@ local U = require("util")
 local S = require("sources")
 local M = require("model")
 local I = require("insights")
+local Mg = require("merge")
 
 local Build = {}
 
@@ -91,11 +92,12 @@ local function heldMap(stockChar)
     return out
 end
 
--- Every character folder: { account, realmDir, name, dir }
-function Build.characters(wow, listDirs)
+-- Every character folder: { account, realmDir, name, dir }. `wtf` (optional): a WTF folder to read instead of
+-- the game's own (another PC's copy)
+function Build.characters(wow, listDirs, wtf)
     listDirs = listDirs or S.listDirs
     local out = {}
-    local base = wow .. "/WTF/Account"
+    local base = (wtf or (wow .. "/WTF")) .. "/Account"
     for _, account in ipairs(listDirs(base)) do
         for _, realmDir in ipairs(listDirs(base .. "/" .. account)) do
             if realmDir ~= "SavedVariables" then
@@ -113,6 +115,60 @@ end
 local function sv(dir, file, global)
     local env = U.loadSV(dir .. "/" .. file)
     return env and env[global] or nil
+end
+
+-- One saved table per folder that has it (this PC's first)
+local function svs(dirs, file, global)
+    local out = {}
+    for _, d in ipairs(dirs) do
+        local t = sv(d, file, global)
+        if t then out[#out + 1] = t end
+    end
+    return out
+end
+
+-- Other PCs' WTF folders: each folder under data/pcs holding a WTF folder (a copy of that PC's _forever_\WTF)
+-- or being one (it holds Account)
+function Build.otherPCs(dataDir, listDirs)
+    listDirs = listDirs or S.listDirs
+    local out = {}
+    local base = dataDir .. "pcs"
+    for _, name in ipairs(listDirs(base)) do
+        local root = base .. "/" .. name
+        if #listDirs(root .. "/WTF/Account") > 0 then
+            out[#out + 1] = { name = name, wtf = root .. "/WTF" }
+        elseif #listDirs(root .. "/Account") > 0 then
+            out[#out + 1] = { name = name, wtf = root }
+        end
+    end
+    return out
+end
+
+-- This PC's character folders, each with the same character's folders on the other PCs (same realm folder and
+-- name; a character only another PC has is added too): { account, realmDir, name, dir, accountDir,
+-- dirs = { this PC's first }, accountDirs, pcs = n }
+function Build.characterSets(wow, others, listDirs)
+    local sets, byKey = {}, {}
+    local function add(c, pc)
+        local key = string.lower(c.realmDir .. "/" .. c.name)
+        local set = byKey[key]
+        if not set then
+            set = { account = c.account, realmDir = c.realmDir, name = c.name, dir = c.dir, accountDir = c.accountDir,
+                dirs = {}, accountDirs = {}, pcs = 0 }
+            byKey[key] = set
+            sets[#sets + 1] = set
+        end
+        set.dirs[#set.dirs + 1] = c.dir
+        local seen = false
+        for _, d in ipairs(set.accountDirs) do if d == c.accountDir then seen = true end end
+        if not seen then set.accountDirs[#set.accountDirs + 1] = c.accountDir end
+        set.pcs = set.pcs + 1
+    end
+    for _, c in ipairs(Build.characters(wow, listDirs)) do add(c) end
+    for _, pc in ipairs(others or {}) do
+        for _, c in ipairs(Build.characters(wow, listDirs, pc.wtf)) do add(c, pc) end
+    end
+    return sets
 end
 
 -- The addons the page reads. Ours ship in addons/ (the repo's copy is what install.bat installs); the others
@@ -193,22 +249,47 @@ function Build.data(wow, opts)
     local result = { generated = os.time(), characters = {} }
 
     local folders = {}
-    local charDirs = Build.characters(wow, opts.listDirs)
-    result.addons = Build.addons(wow, charDirs, opts.repoAddons)
+    -- this PC's folders say which addons are installed and switched on; the journey also reads other PCs' copies
+    result.addons = Build.addons(wow, Build.characters(wow, opts.listDirs), opts.repoAddons)
     result.zones = Build.zones()
+    result.pcs = { "this PC" }
+    for _, pc in ipairs(opts.otherPCs or {}) do result.pcs[#result.pcs + 1] = pc.name end
+    result.warnings = {}
+    local charDirs = Build.characterSets(wow, opts.otherPCs, opts.listDirs)
+    -- every PC's account folder for each account
+    local accountDirs = {}
+    for _, c in ipairs(charDirs) do
+        local list = accountDirs[c.account] or {}
+        accountDirs[c.account] = list
+        for _, d in ipairs(c.accountDirs) do
+            local seen = false
+            for _, x in ipairs(list) do if x == d then seen = true end end
+            if not seen then list[#list + 1] = d end
+        end
+    end
     for _, c in ipairs(charDirs) do
         local fname, fsurname = c.name:match("^([^-]+)-(.+)$")
         if fname then folders[#folders + 1] = { name = fname, surname = fsurname } end
         local acct = accounts[c.account]
         if not acct then
-            local auction = U.loadSV(c.accountDir .. "/Auctionator.lua")
+            local dirs = accountDirs[c.account]
+            local books, neutrals, stocks = {}, {}, {}
+            local logbooks = {}
+            for _, d in ipairs(dirs) do
+                local env = U.loadSV(d .. "/Auctionator.lua")
+                if env then books[#books + 1] = S.auctionator(env) end
+                neutrals[#neutrals + 1] = S.neutral(U.loadSV(d .. "/LedgerLink.lua"))
+                local lbAcct = sv(d, "Logbook.lua", "LogbookDB")
+                logbooks[#logbooks + 1] = lbAcct
+                stocks[#stocks + 1] = { stock = sv(d, "Stockpile.lua", "StockpileDB"), rows = lbAcct and lbAcct.chars }
+            end
             acct = {
-                market = S.auctionator(auction),
-                stock = sv(c.accountDir, "Stockpile.lua", "StockpileDB"),
-                muddy = sv(c.accountDir, "MuddyBoots.lua", "MuddyBootsDB"),
-                logbook = sv(c.accountDir, "Logbook.lua", "LogbookDB"),
-                droplab = sv(c.accountDir, "DropLab.lua", "DropLabDB"),
-                neutral = S.neutral(U.loadSV(c.accountDir .. "/LedgerLink.lua")),
+                market = Mg.markets(books) or S.auctionator(nil),
+                stock = Mg.stockpiles(stocks),
+                muddy = svs(dirs, "MuddyBoots.lua", "MuddyBootsDB")[1],
+                logbook = Mg.logbookAccounts(logbooks),
+                droplab = svs(dirs, "DropLab.lua", "DropLabDB")[1],
+                neutral = Mg.markets(neutrals),
             }
             -- Neutral scans that reached Auctionator's book before Ledger Link kept them apart (neutral_days.txt)
             acct.market, acct.neutral = I.splitNeutralDays(acct.market, acct.neutral, opts.neutralDays)
@@ -218,10 +299,15 @@ function Build.data(wow, opts)
             groups[#groups + 1] = { muddyChars = acct.chars, stockChars = acct.stock and acct.stock.chars,
                 market = acct.market, droplab = acct.droplab, neutral = acct.neutral }
         end
-        -- the journey: Logbook (ours), with MuddyBoots' history from before Logbook started
-        local muddy = S.mergeJournal(sv(c.dir, "Logbook.lua", "LogbookCharDB"), sv(c.dir, "MuddyBoots.lua", "MuddyBootsCharDB"))
-        local haul = sv(c.dir, "Haul.lua", "HaulCharDB")
-        local mob = sv(c.dir, "MakeOrBuy.lua", "MakeOrBuyCharDB")
+        -- the journey: Logbook (ours, every PC's copy merged), with MuddyBoots' history from before Logbook started
+        local lb, shared = Mg.logbooks(svs(c.dirs, "Logbook.lua", "LogbookCharDB"))
+        if shared > 0 then
+            result.warnings[#result.warnings + 1] = c.name .. ": " .. shared .. " log lines are in more than one PC's"
+                .. " copy (a file copied between PCs?), so its counters may be counted twice."
+        end
+        local muddy = S.mergeJournal(lb, svs(c.dirs, "MuddyBoots.lua", "MuddyBootsCharDB")[1])
+        local haul = Mg.haul(svs(c.dirs, "Haul.lua", "HaulCharDB"))
+        local mob = Mg.makeOrBuy(svs(c.dirs, "MakeOrBuy.lua", "MakeOrBuyCharDB"))
         if muddy or haul or mob then
             local char = muddy and muddy.char or {}
             local stockChar
@@ -243,6 +329,7 @@ function Build.data(wow, opts)
             model.profile.fullName = fsurname and (model.profile.name .. " " .. fsurname) or model.profile.name
             model.profile.ruleset = M.ruleset(model.profile.realm)
             model.key = c.account .. "/" .. c.name
+            model.profile.pcs = c.pcs
             model.trails = M.trails(muddy and muddy.trail)
             model.recentTrail = M.recentTrail(muddy and muddy.trail, result.generated - M.RECENT_TRAIL_SECONDS)
             -- Play-session recaps (MuddyBoots joins a session per reload; I.playSessions merges them)
@@ -457,7 +544,8 @@ function Build.run(wow, outFile, data)
     local worthPath = data .. "networth_log.tsv"
     local worthSeen, worthLast = I.parseWorthLog(U.readFile(worthPath) or "")
     local result = Build.data(wow, { priceLog = log(logPath), neutralLog = log(data .. "price_log_neutral.tsv"),
-        neutralDays = neutralDays, worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
+        neutralDays = neutralDays, otherPCs = Build.otherPCs(data),
+        worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
             local f = io.open(worthPath, "ab")
             if f then f:write(lines); f:close() end
         end } })
@@ -485,7 +573,9 @@ if not package.loaded["build"] and arg and arg[0] and arg[0]:match("[^/\\]+$") =
     for _, c in ipairs(data.characters) do
         list[#list + 1] = (c.profile.fullName or c.profile.name or "?") .. " (" .. (c.profile.level or "?") .. ")"
     end
-    print("Wrote " .. out .. " for " .. (#list > 0 and table.concat(list, ", ") or "no characters"))
+    print("Wrote " .. out .. " for " .. (#list > 0 and table.concat(list, ", ") or "no characters")
+        .. (#data.pcs > 1 and (", merging " .. table.concat(data.pcs, ", ")) or ""))
+    for _, w in ipairs(data.warnings or {}) do print("Warning: " .. w) end
 end
 
 return Build
