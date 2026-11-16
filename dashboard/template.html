@@ -753,7 +753,7 @@ function countUp(root) {
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walk.nextNode()) {
     const n = walk.currentNode;
-    if (/\d/.test(n.nodeValue) && n.parentElement && n.parentElement.closest(".value")) items.push({ n, parts: n.nodeValue.split(/(\d[\d,]*(?:\.\d+)?)/) });
+    if (/\d/.test(n.nodeValue) && n.parentElement && n.parentElement.closest(".value") && !n.parentElement.closest("[data-static]")) items.push({ n, parts: n.nodeValue.split(/(\d[\d,]*(?:\.\d+)?)/) });
   }
   if (!items.length) return;
   const like = (s, f) => {
@@ -1117,6 +1117,21 @@ function xpOutlook(c) {
   return { need, rate: fit.b, hours: need / fit.b, from: last };
 }
 
+// Level 60 as a date: the hours of play still to go, spread over your recent play per day
+function level60Kpi(p, lf, pace) {
+  if (p.level >= MAX_LEVEL) return kpi(`Level ${MAX_LEVEL}`, "reached", "", "fc");
+  if (!lf || !lf.total) return kpi(`Level ${MAX_LEVEL}`, "?", "needs 3 finished levels", "fc");
+  const play = `${dur(lf.total * 3600)} of play`;
+  if (!pace || !(pace.hoursPerDay > 0)) return kpi(`Level ${MAX_LEVEL}`, `≈ ${dur(lf.total * 3600)}`, `of play, from ${lf.n} finished levels; no play in the last ${PACE_DAYS} days to date it`, "fc");
+  const when = new Date((DATA.generated + lf.total / pace.hoursPerDay * 86400) * 1000);
+  const fmt = when.getFullYear() === new Date(DATA.generated * 1000).getFullYear() ? MONTHDAY
+    : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const perDay = pace.hoursPerDay >= 1 ? `${pace.hoursPerDay.toFixed(1)}h` : `${Math.round(pace.hoursPerDay * 60)}m`;
+  return `<div class="kpi fc" title="${esc(`From ${lf.n} finished levels, and your play over the last ${Math.round(pace.days)} days`)}"><div class="label">Level ${MAX_LEVEL}</div>`
+    + `<div class="value" data-static>≈ ${esc(fmt.format(when))}</div><div class="note">${esc(play)} at your ${perDay} a day</div></div>`;
+}
+const PACE_DAYS = 14; // insights.lua I.PACE_DAYS
+
 function modOverview() {
   const c = curChar(); if (!c) return;
   charHeader(c);
@@ -1131,7 +1146,7 @@ function modOverview() {
     kpi("Played", dur(p.played), `${plural(p.sessions || 0, "session")} logged`),
     kpi("XP per hour", xpPerHour ? short(xpPerHour) : "?", out && out.rate ? `${short(out.rate)} lately` : "since the log started"),
     kpi("Next level", out && out.hours != null ? `≈ ${dur(out.hours * 3600)}` : "?", out ? `${short(out.need)} XP to go` : "Haul saves your XP at each /reload", "fc"),
-    kpi(`Level ${MAX_LEVEL}`, lf && lf.total ? `≈ ${dur(lf.total * 3600)}` : p.level >= MAX_LEVEL ? "reached" : "?", lf ? `of play, from ${lf.n} finished levels` : "needs 3 finished levels", "fc"),
+    level60Kpi(p, lf, c.pace),
     kpi("Gold on hand", money(p.money, { short: true }), `net worth ${moneyText(c.netWorth.total)}`),
     kpi("Deaths", (c.deaths || []).length, c.deathCounts ? `${c.deathCounts.closeCalls || 0} close calls` : ""),
   ].join("");

@@ -119,6 +119,24 @@ function I.playSessions(pieces, gap)
     return out
 end
 
+-- How much you play lately: played hours per calendar day over the last `days` days before `now` (or since
+-- the first piece, when the character is younger than that). Pieces count their own /played time, so time in
+-- the character list doesn't. Returns { hoursPerDay, days, played } or nil with no play in the window.
+I.PACE_DAYS = 14
+function I.playPace(pieces, now, days)
+    days = days or I.PACE_DAYS
+    local from, first, played = now - days * 86400, nil, 0
+    for _, s in ipairs(pieces or {}) do
+        if s.start then first = math.min(first or s.start, s.start) end
+        if s.start and s.start >= from and s.start <= now then
+            played = played + math.max(0, num(s.played1) - num(s.played0))
+        end
+    end
+    if played <= 0 or not first then return nil end
+    local span = math.max(1, math.min(days, (now - math.max(from, first)) / 86400))
+    return { hoursPerDay = played / 3600 / span, days = span, played = played }
+end
+
 local QUALITY_MIN = 2 -- loot worth naming: green or better, or anything with an AH value
 local LOOT_HOW = { loot = true, roll = true, quest = true } -- found or earned; "made" is listed apart; mail/trade aren't new
 

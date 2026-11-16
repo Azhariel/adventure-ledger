@@ -518,6 +518,23 @@ test("play sessions: pieces 30 minutes apart join, 30 minutes and 1 second split
     eq(s[2].start, 5801); eq(s[3].played, 1200)
 end)
 
+test("play pace: played hours per day over the last 14 days; a younger character over its own age (boundaries)", function()
+    local D, now = 86400, 100 * 86400
+    local pieces = {
+        { start = now - 15 * D, played0 = 0, played1 = 99999 },          -- before the window
+        { start = now - 14 * D, played0 = 0, played1 = 3600 * 7 },      -- exactly at its start: counts
+        { start = now - 1 * D, played0 = 100, played1 = 100 + 3600 * 7 },
+    }
+    local p = I.playPace(pieces, now)
+    eq(p.days, 14); near(p.hoursPerDay, 1); eq(p.played, 3600 * 14)
+    local young = I.playPace({ { start = now - 2 * D, played0 = 0, played1 = 3600 * 6 } }, now)
+    eq(young.days, 2); near(young.hoursPerDay, 3)
+    local fresh = I.playPace({ { start = now - 600, played0 = 0, played1 = 3600 } }, now)
+    eq(fresh.days, 1, "under a day counts as one"); near(fresh.hoursPerDay, 1)
+    eq(I.playPace({ { start = now - 20 * D, played0 = 0, played1 = 50 } }, now), nil, "no play lately")
+    eq(I.playPace(nil, now), nil)
+end)
+
 test("recap (state-based): zone carried in from before, loot by source, skills from the earlier rank, newest first", function()
     local ev = S.parseLog({
         "10|0|1|0|0|zo|Tirisfal Glades",

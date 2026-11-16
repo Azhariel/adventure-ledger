@@ -248,6 +248,7 @@ function Build.data(wow, opts)
             local events = muddy and S.parseLog(muddy.log) or {}
             local nameOf, idOf = M.nameBook(names, haul, events, mob)
             model.recaps = muddy and I.recaps(muddy.sessions, events, acct.market, nameOf, 30, M.PROFESSIONS, idOf) or {}
+            model.pace = muddy and I.playPace(muddy.sessions, result.generated) or nil
             model.xpLive = M.xpState(events, haul)
             model.replay = muddy and M.replay(muddy.trail, events) or nil
             -- What this character crafts with, and what its restock list still needs after what it holds
