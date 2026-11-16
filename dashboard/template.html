@@ -1189,7 +1189,7 @@ function modProgress() {
       label: `${pr.name} ${pr.level}/${pr.max}`, data: pr.points.map(pt => ({ x: pt.h, y: pt.level })), borderColor: P[i % P.length],
       backgroundColor: P[i % P.length], pointRadius: 0, borderWidth: 2, stepped: true })) },
     options: { parsing: false, scales: { x: { type: "linear", title: { display: true, text: "played hours" } }, y: { title: { display: true, text: "skill" }, beginAtZero: true } } } });
-  const VERB = { made: "Made", cooked: "Cooked", picked: "Picked", caught: "Caught", mined: "Mined", skinned: "Skinned" };
+  const VERB = { made: "Made", cooked: "Cooked", picked: "Picked", caught: "Caught", mined: "Mined", skinned: "Skinned", gathered: "Gathered" };
   table("craftedTable", [{ t: "What" }, { t: "Profession" }, { t: "Count", n: 1 }],
     (c.crafted || []).map(r => [`${esc(VERB[r.verb] || r.verb)} ${esc(r.item === "?" ? "fish and junk" : r.item)}`, esc(r.profession || ""), r.count]), "Nothing crafted yet.");
   const ACT = [["combat", "Combat"], ["travel", "Travel"], ["dungeon", "Dungeons"], ["town", "In town"], ["idle", "Idle"], ["afk", "AFK"], ["dead", "Dead"]];

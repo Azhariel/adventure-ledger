@@ -259,6 +259,13 @@ test("crafted counters parse verb, item and profession; '?' profession becomes n
     eq(#c, 2); eq(c[1].item, "Woolen Bag"); eq(c[1].count, 6); eq(c[2].profession, nil)
 end)
 
+test("crafted: Logbook's 'gathered' joins MuddyBoots' picked / mined / skinned row; other professions keep it", function()
+    local c = M.crafted({ ["picked|Briarthorn|Herbalism"] = 54, ["gathered|Briarthorn|Herbalism"] = 20,
+        ["gathered|Copper Ore|Mining"] = 3, ["gathered|Odd Thing|Archaeology"] = 1 })
+    eq(#c, 3); eq(c[1].verb, "picked"); eq(c[1].item, "Briarthorn"); eq(c[1].count, 74)
+    eq(c[2].verb, "mined"); eq(c[2].count, 3); eq(c[3].verb, "gathered")
+end)
+
 test("inventory: valued at today's AH price, per location; unpriced items counted, not valued", function()
     local market = { prices = { [2592] = { now = 100, days = {} } }, vendor = {} }
     local inv = M.inventory({ bags = { [2592] = 3, [999] = 2 }, bank = { [2592] = 7 }, mail = {} }, market,

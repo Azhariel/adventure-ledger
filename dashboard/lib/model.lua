@@ -632,13 +632,24 @@ function M.professions(events)
     return out
 end
 
+-- Logbook counts every gathering profession as "gathered"; MuddyBoots, whose counters it carries on, said
+-- picked, mined or skinned. The profession's own verb wins so one item is one row.
+M.GATHER_VERB = { Herbalism = "picked", Mining = "mined", Skinning = "skinned" }
+
 -- "made|Woolen Bag|Tailoring" = 6 -> { verb, item, profession, count }, most first
 function M.crafted(prof)
-    local out = {}
+    local out, byKey = {}, {}
     for key, n in pairs(prof or {}) do
         local verb, item, p = key:match("^(%a+)|(.-)|(.*)$")
         if verb then
-            out[#out + 1] = { verb = verb, item = item, profession = p ~= "?" and p or nil, count = n }
+            if verb == "gathered" then verb = M.GATHER_VERB[p] or verb end
+            local k = verb .. "|" .. item .. "|" .. p
+            if byKey[k] then
+                byKey[k].count = byKey[k].count + n
+            else
+                byKey[k] = { verb = verb, item = item, profession = p ~= "?" and p or nil, count = n }
+                out[#out + 1] = byKey[k]
+            end
         end
     end
     table.sort(out, function(a, b) return a.count > b.count or (a.count == b.count and a.item < b.item) end)
