@@ -233,6 +233,7 @@ function Build.data(wow, opts)
             model.profile.ruleset = M.ruleset(model.profile.realm)
             model.key = c.account .. "/" .. c.name
             model.trails = M.trails(muddy and muddy.trail)
+            model.recentTrail = M.recentTrail(muddy and muddy.trail, result.generated - M.RECENT_TRAIL_SECONDS)
             -- Play-session recaps (MuddyBoots joins a session per reload; I.playSessions merges them)
             local events = muddy and S.parseLog(muddy.log) or {}
             local nameOf, idOf = M.nameBook(names, haul, events, mob)

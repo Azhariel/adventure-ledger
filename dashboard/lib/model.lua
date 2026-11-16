@@ -1058,4 +1058,41 @@ function M.trails(trail, maxPerMap)
     return out
 end
 
+-- The newest stretch of the trail with each point's time, unthinned, for the Live map's line for this session:
+-- the combat log logs your position only when something happens to you, so the line is Logbook's 5-second trail
+-- up to the last save, then the log's points. Points from `since` on, at most `limit` (the newest kept), as
+-- { { map, pts = { t1, x1, y1, t2, ... } } } with x, y in ten-thousandths of the map, oldest first.
+M.RECENT_TRAIL_SECONDS = 12 * 3600
+M.RECENT_TRAIL_POINTS = 4000
+function M.recentTrail(trail, since, limit)
+    limit = limit or M.RECENT_TRAIL_POINTS
+    local all = {}
+    for _, c in ipairs(trail and trail.chunks or {}) do
+        local m, t0 = tonumber(c.m), tonumber(c.t)
+        if m and t0 and type(c.d) == "string" then
+            for dt, x, y in c.d:gmatch("(%-?%d+),(%-?%d+),(%-?%d+)") do
+                local t = t0 + tonumber(dt)
+                x, y = tonumber(x), tonumber(y)
+                if t >= since and x >= 0 and x <= 10000 and y >= 0 and y <= 10000 then
+                    all[#all + 1] = { t, m, x, y }
+                end
+            end
+        end
+    end
+    table.sort(all, function(a, b) return a[1] < b[1] end)
+    local byMap, out = {}, {}
+    for i = math.max(1, #all - limit + 1), #all do
+        local p = all[i]
+        local e = byMap[p[2]]
+        if not e then
+            e = { map = p[2], pts = {} }
+            byMap[p[2]] = e
+            out[#out + 1] = e
+        end
+        local pts = e.pts
+        pts[#pts + 1] = p[1]; pts[#pts + 1] = p[3]; pts[#pts + 1] = p[4]
+    end
+    return out
+end
+
 return M

@@ -674,6 +674,21 @@ test("a character folder without any of our addons' files is skipped", function(
 end)
 
 ----------------------------------------------------------------------------------------------------
+test("recent trail: timed points from `since` on, per map in time order, newest kept at the cap", function()
+    local trail = { chunks = {
+        { m = 1, t = 100, d = "0,10,20,w;5,11,21;10,10001,5" },
+        { m = 2, t = 200, d = "0,30,40" },
+        { m = 1, t = 300, d = "0,12,22;5,13,23,t" },
+    } }
+    local out = M.recentTrail(trail, 105)
+    eq(#out, 2); eq(out[1].map, 1); eq(out[2].map, 2)
+    eq(table.concat(out[1].pts, ","), "105,11,21,300,12,22,305,13,23", "before since and off the map dropped")
+    eq(table.concat(out[2].pts, ","), "200,30,40")
+    local capped = M.recentTrail(trail, 0, 2)
+    eq(#capped, 1); eq(table.concat(capped[1].pts, ","), "300,12,22,305,13,23")
+    eq(#M.recentTrail(nil, 0), 0)
+end)
+
 test("trails: points grouped by map, scaled to thousandths, thinned to the cap, out-of-map points dropped", function()
     local trail = { chunks = {
         { m = 1421, t = 100, d = "0,6728,549,w;5,6730,551,-;10,10001,5000" },
