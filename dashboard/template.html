@@ -1436,7 +1436,7 @@ function modCombat() {
   table("dmgLevelTable", [{ t: "Level", n: 1 }, { t: "Fights", n: 1 }, { t: "DPS", n: 1 }, { t: "Taken / fight", n: 1 }, { t: "Healed / fight", n: 1 }],
     (dm ? dm.byLevel : []).slice().reverse().map(r => [r.level, short(r.fights), r.dps ? Math.round(r.dps) : "",
       short(r.taken / r.fights), short(r.healed / r.fights)]), "No fights recorded yet.");
-  el("fightHint").textContent = f.fights ? `${plural(f.fights, "fight")},${dur(f.combatSeconds)} in combat, longest ${f.longest}s.` : "";
+  el("fightHint").textContent = f.fights ? `${plural(f.fights, "fight")}, ${dur(f.combatSeconds)} in combat, longest ${f.longest}s.` : "";
   table("mobTable", [{ t: "Mob" }, { t: "Level", n: 1 }, { t: "Kills", n: 1 }, { t: "XP", n: 1 }],
     (f.top || []).map(m => [whNpc(m.name, m.npc) + (m.type ? ` <span class="pill">${esc(m.type)}</span>` : ""), m.level || "", m.kills, short(m.xp)]), "No kills logged yet.");
   el("questHint").textContent = q.length ? `${plural(q.length, "quest")} turned in for ${short(q.reduce((a, r) => a + r.xp, 0))} XP and ${moneyText(q.reduce((a, r) => a + r.copper, 0))}. Newest first.` : "";
