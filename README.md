@@ -237,6 +237,27 @@ downloads each zone once), or from Wowhead's image server for a zone that isn't 
 From any terminal: `wowstats` (or `wowstats -n` to build without opening the browser). Or directly:
 `lua dashboard/build.lua [wow folder] [output file]` (defaults: `wow =` in `ledger.cfg`, `data/dashboard.html`).
 
+## Playing on more than one PC
+
+Each PC's WoW saves only the sessions played on it, so play elsewhere shows up as a hole: the Overview's Play
+sessions lists "play this computer never logged", and Gold's How it adds up points at it. To add another PC:
+
+1. Install the addons there too (`install.bat` on that PC, or copy the `addons` folders into its
+   `Interface\AddOns`). Without them nothing is recorded there.
+2. Now and then, copy that PC's `_forever_\WTF` folder into `data\pcs\<any name>\WTF` here (a copy of the WTF
+   folder itself, holding `Account`, works too). Copy it after logging out there, so its files are written.
+3. Run `wowstats`. The build merges every folder under `data\pcs` with this PC's files.
+
+How it merges, per character: Logbook's log lines from every PC in time order (a line in two copies once),
+every session piece, counters added up (records such as the longest fight: the highest), each level's
+snapshot, the trail; MuddyBoots' older history once. Haul sessions, Make or Buy's recipes (each profession's
+skill from the PC where it's highest) and Auctionator's scan days are combined; Stockpile's contents and the
+account row (gold, level) come from the PC where the character was seen last. DropLab and Ledger Link's Neutral
+visits are read from this PC only.
+
+Copy the other PC's files here, not this PC's files onto the other: two copies of the same file share their log
+(that's caught) and their counters (that isn't: they'd count twice). The build warns when two copies share lines.
+
 ## Where the numbers come from
 
 | Section | Source |
@@ -276,6 +297,7 @@ Notes:
 | `dashboard/lib/cbor.lua` | CBOR decoder (Auctionator's prices and QuestieDB's data are CBOR) |
 | `dashboard/lib/sources.lua` | Readers for QuestieDB names, Auctionator and Ledger Link prices, log lines; joins Logbook's log with the history it copied from MuddyBoots |
 | `dashboard/lib/model.lua` | Pure functions computing every figure on the page |
+| `dashboard/lib/merge.lua` | Pure: merges each character's and account's saved files from several PCs (`data/pcs`) |
 | `dashboard/lib/insights.lua` | Pure: market deals, session recaps, items to mail between characters, Faction vs Neutral |
 | `dashboard/template.html` | The page; `build.lua` puts the data where `/*DATA*/null` is |
 | `dashboard/server.py` | Live server: rebuilds on SavedVariables changes, follows the newest combat log, serves the page and screenshots |
@@ -286,7 +308,7 @@ Notes:
 | `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
-| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `server.log` |
+| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `server.log` |
 
 ## Tests
 
