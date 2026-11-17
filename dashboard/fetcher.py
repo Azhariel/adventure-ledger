@@ -2,11 +2,13 @@
 
     python dashboard/fetcher.py          loop forever (the tray starts this)
     python dashboard/fetcher.py --once   one fetch, then exit
+    python dashboard/fetcher.py --match faction|neutral   which house our in-game scans match
 
 Control files in the data folder: fetch_now (run now), fetcher_stop (exit). Status goes to fetcher_status.json."""
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -18,6 +20,8 @@ import market_reduce  # noqa: E402
 import market_store  # noqa: E402
 import server  # noqa: E402  (read_config and the data folder rule)
 
+KIND_HOUSES = {"faction": [110, 111, 112, 113, 114, 115, 119, 120, 123, 124],
+               "neutral": [116, 117, 118, 121, 125]}
 POLL = 5   # seconds between checks for fetch_now / fetcher_stop while waiting
 _lock_handle = None   # held for the process lifetime
 
@@ -108,18 +112,91 @@ def wait_until(when, data, log):
         time.sleep(min(POLL, left))
 
 
+def match_score(book, rows):
+    """How well in-game prices {item: copper} agree with a house's reduced rows {item: {"min": ...}}."""
+    shared = exact = near = 0
+    for item, price in book.items():
+        row = rows.get(item)
+        if row is None:
+            continue
+        shared += 1
+        low = row["min"]
+        if low == price:
+            exact += 1
+        if abs(low - price) <= price * 0.05:
+            near += 1
+    return {"shared": shared, "exact": exact, "near": near}
+
+
+def read_book(wow, kind):
+    """The prices saved in game ({item: copper}), through dump_prices.lua."""
+    out = subprocess.run([server.lua_exe(), os.path.join(HERE, "dump_prices.lua"), wow, kind],
+                         capture_output=True, text=True, check=True).stdout
+    book = {}
+    for line in out.splitlines():
+        item, _, price = line.partition("\t")
+        book[int(item)] = int(price)
+    return book
+
+
+def match_houses(kind, cfg, config):
+    """Compare the saved in-game book with every house of that kind; print which one is ours."""
+    wow = cfg.get("wow")
+    if not wow:
+        print("no wow folder: set wow = your _forever_ folder in ledger.cfg")
+        return 1
+    book = read_book(wow, kind)
+    if not book:
+        if kind == "neutral":
+            print("no Neutral prices saved yet: scan the Neutral AH, /reload, then run this again")
+        else:
+            print("no Auctionator prices saved yet: scan the AH, /reload, then run this again")
+        return 0
+    client = bnet.Client(config)
+    scores = []
+    for house in KIND_HOUSES[kind]:
+        try:
+            auctions, commodities = client.house(house)
+        except Exception as e:
+            print("house %d: failed: %s" % (house, e))
+            continue
+        scores.append((house, match_score(book, market_reduce.reduce(auctions, commodities))))
+    scores.sort(key=lambda hs: hs[1]["exact"], reverse=True)
+    print("%d %s prices saved in game" % (len(book), kind))
+    for house, sc in scores:
+        pct = lambda n: 100 * n // len(book)   # noqa: E731
+        print("house %d: %d shared, %d exact (%d%%), %d within 5%% (%d%%)" % (
+            house, sc["shared"], sc["exact"], pct(sc["exact"]), sc["near"], pct(sc["near"])))
+    if scores:
+        best = scores[0][0]
+        configured = config.faction if kind == "faction" else config.neutral
+        key = "ah_" + kind
+        if best == configured:
+            print("%s = %d matches best" % (key, best))
+        else:
+            print("%s = %d, but house %d matches best: set %s = %d in ledger.cfg" % (
+                key, configured, best, key, best))
+    return 0
+
+
 def main(argv=None, cfg=None, data=None):
     ap = argparse.ArgumentParser(description="Hourly AH fetcher")
     ap.add_argument("--once", action="store_true", help="fetch once and exit")
-    # --match faction|neutral is added in Task 6.
+    ap.add_argument("--match", choices=sorted(KIND_HOUSES),
+                    help="find which Battle.net house matches the prices saved in game, then exit")
     args = ap.parse_args(argv)
     if cfg is None:
         cfg = server.read_config()
     if data is None:
         data = server.DATA
+    config = bnet.Config.from_cfg(cfg)
+    if args.match:   # read-only: no store, status file, log file or lock, so it can run beside the loop
+        if config is None:
+            print("not set up: add bnet_id and bnet_secret to ledger.cfg")
+            return 1
+        return match_houses(args.match, cfg, config)
     os.makedirs(data, exist_ok=True)
     status_path = os.path.join(data, "fetcher_status.json")
-    config = bnet.Config.from_cfg(cfg)
     if config is None:
         write_status(status_path, {"last_ok": None, "last_try": None, "next": None,
                                    "error": "not set up", "houses": {}})

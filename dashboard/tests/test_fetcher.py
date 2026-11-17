@@ -104,5 +104,12 @@ class FetcherTests(unittest.TestCase):
             fetcher._lock_handle = None
 
 
+class MatchScore(unittest.TestCase):
+    def test_match_score(self):
+        book = {1: 100, 2: 200, 3: 300}
+        rows = {1: {"min": 100}, 2: {"min": 205}, 4: {"min": 9}}
+        self.assertEqual(fetcher.match_score(book, rows), {"shared": 2, "exact": 1, "near": 2})
+
+
 if __name__ == "__main__":
     unittest.main()
