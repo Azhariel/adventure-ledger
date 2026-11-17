@@ -3,3 +3,12 @@
 wow = C:\Program Files (x86)\World of Warcraft\_forever_
 # data: where the built page, price logs, neutral_days.txt, zone maps and server.log go (default: <repo>\data).
 # data = D:\ledger-data
+# Auction-house prices from the Battle.net API (optional). Create your own client at https://develop.battle.net
+# (each user needs their own ID and secret; never share or commit them), then set:
+# bnet_id = your-client-id
+# bnet_secret = your-client-secret
+# bnet_region = us
+# ah_ruleset = 1
+# ah_faction = 113
+# ah_neutral = 116
+# ah_every = 60

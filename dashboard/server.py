@@ -14,6 +14,7 @@ Standard library only. Stop it with `wowstats stop` (or end pythonw.exe in Task 
 import argparse
 import glob
 import json
+import logging
 import os
 import queue
 import re
@@ -30,7 +31,8 @@ sys.path.insert(0, HERE)
 
 
 def read_config(path=os.path.join(ROOT, "ledger.cfg")):
-    """ledger.cfg at the repo root: key = value lines (wow = the _forever_ folder, data = generated files)."""
+    """ledger.cfg at the repo root: key = value lines (wow = the _forever_ folder, data = generated files).
+    A # starts a comment at the start of a line, or after whitespace anywhere in it."""
     cfg = {}
     try:
         with open(path, encoding="utf-8") as fh:
@@ -38,8 +40,9 @@ def read_config(path=os.path.join(ROOT, "ledger.cfg")):
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    if v.strip():
-                        cfg[k.strip()] = v.strip()
+                    v = re.split(r"\s#", v, maxsplit=1)[0].strip()   # "ah_every = 60  # minutes"; "a#b" stays whole
+                    if v:
+                        cfg[k.strip()] = v
     except OSError:
         pass
     return cfg
@@ -48,6 +51,7 @@ def read_config(path=os.path.join(ROOT, "ledger.cfg")):
 CONFIG = read_config()
 DATA = os.path.abspath(os.environ.get("LEDGER_DATA") or CONFIG.get("data") or os.path.join(ROOT, "data"))
 os.makedirs(DATA, exist_ok=True)
+import ledgerlog  # noqa: E402
 import livelog  # noqa: E402
 import zones  # noqa: E402
 import urllib.request  # noqa: E402
@@ -61,17 +65,13 @@ SHOT_RE = re.compile(r"^[\w .()-]+\.(jpg|jpeg|png|tga)$", re.I)
 SHOT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "tga": "image/x-tga"}
 
 
+# Set up in main(), not here: fetcher.py imports this module, and a second process holding
+# server.log open stops the live server rotating it on Windows.
+_LOG = logging.getLogger("server")
+
+
 def log(msg):
-    line = time.strftime("%H:%M:%S ") + msg
-    try:
-        print(line, flush=True)
-    except Exception:
-        pass
-    try:
-        with open(os.path.join(DATA, "server.log"), "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-    except OSError:
-        pass
+    _LOG.info(msg)
 
 
 def lua_exe():
@@ -120,6 +120,8 @@ class App:
         self.log_writes = []               # wall times WoW wrote the file (seen by us)
         self.sent_version = -1
         self.build_info = {"ok": None, "at": None, "message": ""}
+        self.started = time.time()
+        self.last_build = None             # {"t", "ok", "seconds", "message"}, for /status
         self.stop = threading.Event()
         self.map_lock = threading.Lock()
 
@@ -142,6 +144,7 @@ class App:
         return tuple(sorted(sig))
 
     def build(self):
+        t0 = time.time()
         out = os.path.join(DATA, "dashboard.html")
         try:
             r = subprocess.run([lua_exe(), os.path.join(HERE, "build.lua"), self.wow, out], cwd=HERE,
@@ -152,7 +155,12 @@ class App:
         except (OSError, subprocess.SubprocessError) as e:
             ok, msg = False, str(e)
         self.build_info = {"ok": ok, "at": time.time(), "message": msg[-500:]}
-        log(("built: " if ok else "BUILD FAILED: ") + msg[-300:])
+        secs = time.time() - t0
+        self.last_build = {"t": time.time(), "ok": ok, "seconds": round(secs, 1), "message": msg[-200:]}
+        if ok:
+            _LOG.info("built in %.1fs: %s", secs, msg[-300:])
+        else:
+            _LOG.warning("BUILD FAILED after %.1fs: %s", secs, msg[-300:])
         self.hub.send("rebuilt" if ok else "buildError", self.build_info)
 
     def watch_sv(self):
@@ -358,6 +366,11 @@ def make_handler(app):
                 except OSError:
                     body = b"<p>dashboard.html isn't built yet. Check server.log.</p>"
                 self._send(200, body, "text/html; charset=utf-8")
+            elif path == "/status":
+                now = time.time()
+                body = {"ok": True, "pid": os.getpid(), "started": app.started,
+                        "uptime": round(now - app.started), "last_build": app.last_build}
+                self._send(200, json.dumps(body).encode(), "application/json")
             elif path == "/live.json":
                 snap, _ = app.snapshot()
                 self._send(200, json.dumps(snap).encode(), "application/json")
@@ -429,6 +442,7 @@ def make_handler(app):
 
 
 def main():
+    ledgerlog.get("server", DATA)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--wow", default=os.environ.get("LEDGER_WOW") or CONFIG.get("wow"),
                     help="the _forever_ folder (default: wow = ... in ledger.cfg)")
@@ -438,12 +452,6 @@ def main():
     if not args.wow:
         ap.error("say where WoW is: set wow = your _forever_ folder in ledger.cfg (repo root), or pass --wow")
     url = "http://127.0.0.1:%d/" % args.port
-    try:
-        logfile = os.path.join(DATA, "server.log")
-        if os.path.getsize(logfile) > 1_000_000:
-            os.remove(logfile)
-    except OSError:
-        pass
 
     app = App(os.path.abspath(args.wow), args.port)
     try:
@@ -456,15 +464,19 @@ def main():
     httpd.daemon_threads = True
     for fn in (app.watch_sv, app.watch_log, app.pusher):
         threading.Thread(target=fn, daemon=True).start()
-    log("serving " + url + " for " + app.wow)
+    log("started (port %d, wow %s, pid %d)" % (args.port, app.wow, os.getpid()))
     if not args.no_open:
         threading.Timer(1.5, webbrowser.open, args=(url,)).start()
+    reason = "stop endpoint"
     try:
         httpd.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
-        pass
+        reason = "keyboard"
+    except Exception as e:
+        reason = str(e) or type(e).__name__
+        _LOG.exception("server crashed")
     app.stop.set()
-    log("stopped")
+    log("stopped (%s)" % reason)
 
 
 if __name__ == "__main__":
