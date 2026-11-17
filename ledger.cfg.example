@@ -3,12 +3,35 @@
 wow = C:\Program Files (x86)\World of Warcraft\_forever_
 # data: where the built page, price logs, neutral_days.txt, zone maps and server.log go (default: <repo>\data).
 # data = D:\ledger-data
-# Auction-house prices from the Battle.net API (optional). Create your own client at https://develop.battle.net
-# (each user needs their own ID and secret; never share or commit them), then set:
+
+# --- Auction house prices from the Battle.net API (optional) ---
+# Without these lines everything else works as before; the tray shows the AH fetcher as "not set up".
+#
+# bnet_id, bnet_secret: create your own client at https://develop.battle.net (each user needs their own; never
+#   share or commit them). Only the client credentials flow is used, so no redirect URL or service URL is needed.
 # bnet_id = your-client-id
 # bnet_secret = your-client-secret
+#
+# bnet_region: the Battle.net region your characters play on: us or eu.
 # bnet_region = us
+#
+# ah_ruleset: the ruleset your characters are on. Forever has rulesets instead of realms:
+#   1 = PvP, 2 = Normal, 3 = Roleplay, 15 = Roleplay PvP.
+#   The API currently returns the same auction houses for every ruleset, so this rarely matters; set it anyway.
 # ah_ruleset = 1
+#
+# ah_faction, ah_neutral: the IDs of the two auction houses you trade at, your faction's and the Blackwater
+#   (goblin) one. The API doesn't say which house is whose, so find them by matching against your own scans:
+#     1. Scan the AH in game (Auctionator), then /reload so the scan is saved.
+#     2. Run  python dashboard\fetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
+#        Gadgetzan or Everlook). It ranks every house by how many prices match yours and names the best one.
+#   The houses come in sets of three (Alliance / Horde / Blackwater): 110/113/116, 111/114/117, 119/120/121,
+#   123/124/125 (112, 115 and 118 are empty). Horde on the PvP ruleset matched 113; its Blackwater house is
+#   believed to be 116 (not yet confirmed by a Neutral scan).
 # ah_faction = 113
 # ah_neutral = 116
+#
+# ah_every: minutes between fetches (default 60). Each fetch downloads both houses (about 15-20 MB). Blizzard
+#   seems to refresh the data about hourly (not documented); a fetch that finds nothing new is logged as
+#   "unchanged" and not stored, so fetching more often than every 30 minutes only adds downloads. Don't set 0.
 # ah_every = 60
