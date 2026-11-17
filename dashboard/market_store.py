@@ -31,8 +31,9 @@ class Store:
         self.db.executescript(SCHEMA)
         if "priced" not in [c[1] for c in self.db.execute("PRAGMA table_info(daily)")]:
             # Older db: every folded hour had a price. `priced` = hours with a price (market is a mean over those).
-            self.db.execute("ALTER TABLE daily ADD COLUMN priced INTEGER")
-            self.db.execute("UPDATE daily SET priced = hours")
+            with self.db:   # commit, or the UPDATE's transaction stays open and holds a write lock
+                self.db.execute("ALTER TABLE daily ADD COLUMN priced INTEGER")
+                self.db.execute("UPDATE daily SET priced = hours")
 
     def record(self, house, t, rows, sold, ids):
         """One snapshot in one transaction. An item that sold out (in `sold`, not in `rows`) gets an
@@ -81,6 +82,7 @@ class Store:
                     "SELECT min, market, units, sold, hours, priced FROM daily WHERE house=? AND day=? AND item=?",
                     (house, day, item)).fetchone()
                 if prev:
+                    prev = prev[:5] + (prev[5] if prev[5] is not None else prev[4],)   # NULL priced: old row
                     # Recompute from both: the stored day holds means over its hours / priced hours.
                     if prev[0] is not None:
                         mins.append(prev[0])

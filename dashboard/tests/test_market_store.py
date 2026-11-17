@@ -1,5 +1,6 @@
 """Tests for market_store.py (SQLite store and daily rollup).   Usage: python dashboard/tests/test_market_store.py"""
 import os
+import sqlite3
 import sys
 import tempfile
 import time
@@ -102,6 +103,30 @@ class StoreTests(unittest.TestCase):
         self.store.rollup(now)
         row_ = self.store.db.execute("SELECT min, market, sold, hours FROM daily ORDER BY day").fetchone()
         self.assertEqual(row_, (None, None, 2, 1))
+
+    def test_migration_is_committed(self):
+        path = os.path.join(self.dir.name, "old.db")
+        db = sqlite3.connect(path)
+        db.executescript("""CREATE TABLE daily (house INTEGER, day TEXT, item INTEGER, min INTEGER, market REAL,
+            units REAL, sold INTEGER, hours INTEGER, PRIMARY KEY (house, day, item));
+            INSERT INTO daily VALUES (113, '2026-01-01', 5, 10, 12.0, 3.0, 2, 3);""")
+        db.commit()
+        db.close()
+        store = ms.Store(path)
+        store.close()
+        db = sqlite3.connect(path)
+        self.assertEqual(db.execute("SELECT hours, priced FROM daily").fetchone(), (3, 3))
+        db.close()
+
+    def test_rollup_tolerates_null_priced(self):
+        now = self._fill()
+        self.store.rollup(now)
+        self.store.db.execute("UPDATE daily SET priced = NULL")
+        self.store.db.commit()
+        self._hour(self.noon + 7200, 80, 140, 30, 2)
+        self.store.rollup(now)
+        days = self.store.db.execute("SELECT min, market, hours FROM daily").fetchall()
+        self.assertEqual(days, [(80, 120, 3)])
 
 
 if __name__ == "__main__":
