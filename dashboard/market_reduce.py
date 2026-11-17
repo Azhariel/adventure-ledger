@@ -24,6 +24,8 @@ def reduce(auctions, commodities):
     for a in auctions:
         item = a["item"]["id"]
         qty = a["quantity"]
+        if qty <= 0:
+            continue   # nothing to sell; 0 would also divide by zero below and fail the whole house
         units[item] = units.get(item, 0) + qty
         listings[item] = listings.get(item, 0) + 1
         prices.setdefault(item, [])
@@ -33,6 +35,8 @@ def reduce(auctions, commodities):
     for c in commodities:
         item = c["item"]["id"]
         qty = c["quantity"]
+        if qty <= 0:
+            continue
         units[item] = units.get(item, 0) + qty
         listings[item] = listings.get(item, 0) + 1
         prices.setdefault(item, []).extend([c["unit_price"]] * qty)
