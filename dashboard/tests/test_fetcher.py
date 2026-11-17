@@ -114,6 +114,34 @@ class FetcherTests(unittest.TestCase):
         self.assertTrue(fetcher.run_once(c, self.store, [113], 8200, LOG)["houses"]["113"]["ok"])
         self.assertEqual(self.snapshots(), 2)
 
+    def test_shrink_after_a_long_gap_is_accepted(self):
+        # The PC was off for a day: the house may really have halved since, so the check doesn't apply.
+        full = [auction(i, 10) for i in range(1000)]
+        c = FakeClient({113: (full, [])})
+        fetcher.run_once(c, self.store, [113], 1000, LOG, every=60)
+        c.data[113] = (full[:400], [])
+        st = fetcher.run_once(c, self.store, [113], 1000 + 86400, LOG, every=60)
+        self.assertTrue(st["houses"]["113"]["ok"])
+        self.assertEqual(self.snapshots(), 2)
+
+    def test_shrink_that_lasts_is_accepted_after_three_skips(self):
+        full = [auction(i, 10) for i in range(1000)]
+        c = FakeClient({113: (full, [])})
+        skips = {}
+        fetcher.run_once(c, self.store, [113], 1000, LOG, every=60, skips=skips)
+        c.data[113] = (full[:400], [])
+        t = 1000
+        with self.assertLogs(LOG, "WARNING"):
+            for _ in range(fetcher.SHRINK_SKIPS):
+                t += 3600
+                self.assertFalse(fetcher.run_once(c, self.store, [113], t, LOG, every=60, skips=skips)
+                                 ["houses"]["113"]["ok"])
+        self.assertEqual(self.snapshots(), 1)
+        t += 3600
+        self.assertTrue(fetcher.run_once(c, self.store, [113], t, LOG, every=60, skips=skips)["houses"]["113"]["ok"])
+        self.assertEqual(self.snapshots(), 2)
+        self.assertEqual(skips.get(113, 0), 0, "a recorded snapshot resets the count")
+
     def test_small_house_may_empty(self):
         c = FakeClient({113: ([auction(i, 10) for i in range(999)], [])})
         fetcher.run_once(c, self.store, [113], 1000, LOG)

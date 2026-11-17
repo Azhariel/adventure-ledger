@@ -23,7 +23,8 @@ import server  # noqa: E402  (read_config and the data folder rule)
 KIND_HOUSES = {"faction": [110, 111, 112, 113, 114, 115, 119, 120, 123, 124],
                "neutral": [116, 117, 118, 121, 125]}
 POLL = 5   # seconds between checks for fetch_now / fetcher_stop while waiting
-SHRINK_FROM = 1000   # a house this big never really halves between two fetches
+SHRINK_FROM = 1000   # a house this big never really halves between two fetches an hour apart
+SHRINK_SKIPS = 3     # ...but if it stays halved this many fetches in a row, it really did
 REPLACE_TRIES = 5   # 0.2 s apart
 BAD_NUMBER = "bad number in ledger.cfg (ah_ruleset, ah_faction, ah_neutral or ah_every)"
 _lock_handle = None   # held for the process lifetime
@@ -74,8 +75,10 @@ def read_status(path):
         return {}
 
 
-def run_once(client, store, houses, now, log, last_ok=None):
-    """Fetch and record every house. One house failing never stops the others."""
+def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None):
+    """Fetch and record every house. One house failing never stops the others.
+    every: minutes between fetches. skips: {house: partial snapshots skipped in a row}, kept by the caller."""
+    skips = {} if skips is None else skips
     out = {"last_ok": last_ok, "last_try": now, "next": None, "error": None, "houses": {}}
     errors = []
     for house in houses:
@@ -84,14 +87,21 @@ def run_once(client, store, houses, now, log, last_ok=None):
             auctions, commodities = client.house(house)
             ids = market_reduce.snapshot_ids(auctions, commodities)
             prev_t, prev_ids = store.last_ids(house)
-            if len(prev_ids) >= SHRINK_FROM and len(ids) < len(prev_ids) / 2:
+            # recent: the last recorded snapshot is at most two fetches old, plus one per fetch skipped since
+            recent = prev_t is not None and now - prev_t <= (2 + skips.get(house, 0)) * every * 60
+            if (recent and skips.get(house, 0) < SHRINK_SKIPS
+                    and len(prev_ids) >= SHRINK_FROM and len(ids) < len(prev_ids) / 2):
                 # Most likely a missing or cut-short list: recording it would count every LONG auction
                 # as sold and forget the previous auctions. Skip it and compare the next one with the old.
-                why = "only %d auctions, had %d: skipped as a partial response" % (len(ids), len(prev_ids))
+                # After a long gap (PC off) or a few skips in a row, the house may really have shrunk.
+                skips[house] = skips.get(house, 0) + 1
+                why = "only %d auctions, had %d: skipped as a partial response (%d of %d)" % (
+                    len(ids), len(prev_ids), skips[house], SHRINK_SKIPS)
                 out["houses"][str(house)] = {"ok": False, "t": None, "items": 0}
                 errors.append("house %s: %s" % (house, why))
                 log.warning("house %s: %s", house, why)
                 continue
+            skips.pop(house, None)
             if prev_t is not None and ids == prev_ids:   # quantities too: a partly bought commodity changes
                 items = store.db.execute("SELECT items FROM snapshot WHERE house=? AND t=?",
                                          (house, prev_t)).fetchone()[0]
@@ -269,11 +279,12 @@ def loop(args, cfg, data, log):
     houses = [config.faction, config.neutral]
     last_ok = read_status(status_path).get("last_ok")
     last_rollup = 0
+    skips = {}
     log.info("fetcher started: %r", config)
     try:
         while True:
             now = int(time.time())
-            status = run_once(client, store, houses, now, log, last_ok)
+            status = run_once(client, store, houses, now, log, last_ok, config.every, skips)
             last_ok = status["last_ok"]
             if now - last_rollup >= 86400:
                 rollup(store, now, log)
