@@ -52,6 +52,15 @@ class Store:
                 "INSERT INTO last_auctions VALUES (?,?,?,?,?)",
                 [(house, aid, item, qty, left) for aid, (item, qty, left) in ids.items()])
 
+    def last_time(self, house):
+        """Time of the latest snapshot, or None."""
+        return self.db.execute("SELECT MAX(t) FROM snapshot WHERE house=?", (house,)).fetchone()[0]
+
+    def items_at(self, house, t):
+        """Items in the snapshot at t (0 if there is none)."""
+        got = self.db.execute("SELECT items FROM snapshot WHERE house=? AND t=?", (house, t)).fetchone()
+        return got[0] if got else 0
+
     def last_ids(self, house):
         """(time of the previous snapshot or None, {auction_id: (item, quantity, time_left)})."""
         got = self.db.execute("SELECT MAX(t) FROM snapshot WHERE house=?", (house,)).fetchone()[0]

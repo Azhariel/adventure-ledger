@@ -139,7 +139,8 @@ and the build moves them to the Neutral side. A Neutral-only day stands out by i
 ### Auction house data from the Battle.net API
 
 Optional. Auctionator only knows the prices you scanned. The AH fetcher asks Blizzard's API for every listing at
-your faction's house and the Neutral one once an hour, and keeps per-item prices in `data/market.db`. Nothing in
+your faction's house and the Neutral one each time Blizzard makes a new snapshot (about hourly; it checks every
+10 minutes and downloads only when there's something new), and keeps per-item prices in `data/market.db`. Nothing in
 the game is automated: it only reads the API.
 
 1. Create your own API client at [develop.battle.net](https://develop.battle.net): log in with your Battle.net
@@ -153,7 +154,7 @@ the game is automated: it only reads the API.
    | `ah_ruleset` | `1`: WoW Forever |
    | `ah_faction` | Your faction's house: `113` matched a Horde player's scans; `--match faction` finds yours |
    | `ah_neutral` | The Neutral house: `116`, not confirmed yet (see below) |
-   | `ah_every` | Minutes between fetches, `60` by default |
+   | `ah_every` | Minutes between checks for a new snapshot, `10` by default |
 
 3. Run `wowstats live`. The tray starts the fetcher with the server.
 

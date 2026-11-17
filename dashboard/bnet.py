@@ -1,5 +1,6 @@
 """Battle.net API client for the WoW Forever auction houses (standard library only)."""
 import base64
+import email.utils
 import json
 import time
 import urllib.error
@@ -19,7 +20,7 @@ class ApiError(Exception):
 
 
 class Config:
-    def __init__(self, client_id, secret, region="us", ruleset=1, faction=113, neutral=116, every=60):
+    def __init__(self, client_id, secret, region="us", ruleset=1, faction=113, neutral=116, every=10):
         self.client_id = client_id
         self.secret = secret
         self.region = region
@@ -34,7 +35,7 @@ class Config:
             return None
         return cls(cfg["bnet_id"], cfg["bnet_secret"], cfg.get("bnet_region", "us"),
                    cfg.get("ah_ruleset", 1), cfg.get("ah_faction", 113),
-                   cfg.get("ah_neutral", 116), cfg.get("ah_every", 60))
+                   cfg.get("ah_neutral", 116), cfg.get("ah_every", 10))
 
     def __repr__(self):   # never show the secret
         return "Config(client_id=...%s, region=%r, ruleset=%d, faction=%d, neutral=%d, every=%d)" % (
@@ -80,17 +81,27 @@ class Client:
         return self._token
 
     def get(self, path):
+        return self.get_since(path, None)[0]
+
+    def get_since(self, path, since):
+        """(body, Last-Modified in epoch seconds or None). With `since` (epoch seconds), asks only for data
+        newer than that: (None, None) when Blizzard answers 304 Not Modified."""
         cfg = self.config
         query = urllib.parse.urlencode({"namespace": "dynamic-forever-" + cfg.region, "locale": "en_US"})
         url = "https://%s.api.blizzard.com%s?%s" % (cfg.region, path, query)
         refreshed = False
         attempt = 0
         while True:
-            req = urllib.request.Request(url, headers={"Authorization": "Bearer " + self._bearer()})
+            headers = {"Authorization": "Bearer " + self._bearer()}
+            if since is not None:
+                headers["If-Modified-Since"] = email.utils.formatdate(since, usegmt=True)
+            req = urllib.request.Request(url, headers=headers)
             try:
                 with self.opener(req, timeout=TIMEOUT) as resp:
-                    return json.loads(resp.read())
+                    return json.loads(resp.read()), http_time(resp.headers.get("Last-Modified"))
             except urllib.error.HTTPError as e:
+                if e.code == 304:
+                    return None, None
                 status = e.code
             except (urllib.error.URLError, OSError):   # includes timeouts
                 status = 0
@@ -112,3 +123,29 @@ class Client:
         auctions = self.get(base).get("auctions") or []
         commodities = self.get(base + "/commodities").get("auctions") or []
         return auctions, commodities
+
+    def house_since(self, house, since):
+        """(auctions, commodities, snapshot time or None), or None when neither list changed after `since`.
+        The snapshot time is Blizzard's Last-Modified, the moment the data was made, not when we fetched it."""
+        base = "/data/wow/ruleset/%d/auctions/%d" % (self.config.ruleset, house)
+        auctions, a_mod = self.get_since(base, since)
+        commodities, c_mod = self.get_since(base + "/commodities", since)
+        if auctions is None and commodities is None:
+            return None
+        # One list is new: the snapshot is both, so fetch the unchanged one whole
+        if auctions is None:
+            auctions, a_mod = self.get_since(base, None)
+        if commodities is None:
+            commodities, c_mod = self.get_since(base + "/commodities", None)
+        mods = [m for m in (a_mod, c_mod) if m is not None]
+        return (auctions.get("auctions") or [], commodities.get("auctions") or [], max(mods) if mods else None)
+
+
+def http_time(value):
+    """An HTTP date ("Tue, 17 Nov 2026 22:24:55 GMT") in epoch seconds; None if missing or unreadable."""
+    if not value:
+        return None
+    try:
+        return int(email.utils.parsedate_to_datetime(value).timestamp())
+    except (TypeError, ValueError, IndexError):
+        return None

@@ -67,7 +67,7 @@ function Format-Clock($Epoch) {
 function Get-TrayState {
     # Pure: colour and tooltip from what the tick saw. $Status is fetcher_status.json (or $null).
     param([bool]$ServerUp, [bool]$ServerProcAlive, [bool]$FetcherUp, [bool]$NotSetUp, $Status,
-          [int]$EveryMin = 60, [double]$Now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+          [int]$EveryMin = 10, [double]$Now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
     if ($ServerUp) { $live = 'Live: on' }
     elseif ($ServerProcAlive) { $live = 'Live: not answering' }
     else { $live = 'Live: stopped' }
@@ -349,9 +349,9 @@ function Update-Tray {
     $fetcherUp = Test-FetcherUp
     $status = Read-FetcherStatus $StatusPath
     $cfg = Read-LedgerConfig (Join-Path $Root 'ledger.cfg')
-    $every = 60
+    $every = 10
     [void][int]::TryParse([string]$cfg['ah_every'], [ref]$every)
-    if ($every -le 0) { $every = 60 }
+    if ($every -le 0) { $every = 10 }
     $state = Get-TrayState -ServerUp $serverUp -ServerProcAlive (Test-Alive $script:ServerProc) -FetcherUp $fetcherUp `
         -NotSetUp (Test-NotSetUp $cfg $status $fetcherUp) -Status $status -EveryMin $every
     if (-not $script:LastState -or $state.Colour -ne $script:LastState.Colour -or $state.Tip -ne $script:LastState.Tip) {

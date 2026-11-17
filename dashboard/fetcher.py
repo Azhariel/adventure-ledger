@@ -23,8 +23,9 @@ import server  # noqa: E402  (read_config and the data folder rule)
 KIND_HOUSES = {"faction": [110, 111, 112, 113, 114, 115, 119, 120, 123, 124],
                "neutral": [116, 117, 118, 121, 125]}
 POLL = 5   # seconds between checks for fetch_now / fetcher_stop while waiting
-SHRINK_FROM = 1000   # a house this big never really halves between two fetches an hour apart
-SHRINK_SKIPS = 3     # ...but if it stays halved this many fetches in a row, it really did
+SNAPSHOT_EVERY = 60   # minutes: Blizzard makes a new snapshot about hourly (seen in Last-Modified; not documented)
+SHRINK_FROM = 1000   # a house this big never really halves between two snapshots an hour apart
+SHRINK_SKIPS = 3     # ...but if it stays halved over this many snapshots in a row, it really did
 REPLACE_TRIES = 5   # 0.2 s apart
 BAD_NUMBER = "bad number in ledger.cfg (ah_ruleset, ah_faction, ah_neutral or ah_every)"
 _lock_handle = None   # held for the process lifetime
@@ -77,44 +78,59 @@ def read_status(path):
 
 def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None):
     """Fetch and record every house. One house failing never stops the others.
-    every: minutes between fetches. skips: {house: partial snapshots skipped in a row}, kept by the caller."""
+    every: minutes between fetches. skips: {house: (partial snapshots skipped in a row, the last one's time)},
+    kept by the caller."""
     skips = {} if skips is None else skips
     out = {"last_ok": last_ok, "last_try": now, "next": None, "error": None, "houses": {}}
     errors = []
     for house in houses:
         started = time.time()
         try:
-            auctions, commodities = client.house(house)
+            prev_t = store.last_time(house)
+            got = client.house_since(house, prev_t)
+            if got is None:   # 304: nothing newer than the last snapshot, nothing downloaded
+                out["houses"][str(house)] = {"ok": True, "t": prev_t, "items": store.items_at(house, prev_t)}
+                log.info("house %s: ok, not modified since %s, %.1fs", house,
+                         time.strftime("%H:%M", time.localtime(prev_t)), time.time() - started)
+                continue
+            auctions, commodities, modified = got
+            # Date the snapshot when Blizzard made it, so sales gaps and hours of the week are right. Fall back
+            # to the fetch time when the header is missing, in the future, or not after the last snapshot.
+            t = modified
+            if t is None or t > now or (prev_t is not None and t <= prev_t):
+                t = now
             ids = market_reduce.snapshot_ids(auctions, commodities)
-            prev_t, prev_ids = store.last_ids(house)
-            # recent: the last recorded snapshot is at most two fetches old, plus one per fetch skipped since
-            recent = prev_t is not None and now - prev_t <= (2 + skips.get(house, 0)) * every * 60
-            if (recent and skips.get(house, 0) < SHRINK_SKIPS
+            prev_ids = store.last_ids(house)[1] if prev_t is not None else {}
+            skipped, skipped_t = skips.get(house, (0, None))
+            before = skipped - 1 if t == skipped_t else skipped   # the same snapshot downloaded again counts once
+            # recent: the last recorded snapshot is at most two snapshots old, plus one per snapshot skipped since
+            recent = prev_t is not None and now - prev_t <= (2 + before) * max(every, SNAPSHOT_EVERY) * 60
+            if (recent and before < SHRINK_SKIPS
                     and len(prev_ids) >= SHRINK_FROM and len(ids) < len(prev_ids) / 2):
                 # Most likely a missing or cut-short list: recording it would count every LONG auction
                 # as sold and forget the previous auctions. Skip it and compare the next one with the old.
-                # After a long gap (PC off) or a few skips in a row, the house may really have shrunk.
-                skips[house] = skips.get(house, 0) + 1
+                # After a long gap (PC off) or a few skipped snapshots in a row, the house may really have
+                # shrunk.
+                skipped = before + 1
+                skips[house] = (skipped, t)
                 why = "only %d auctions, had %d: skipped as a partial response (%d of %d)" % (
-                    len(ids), len(prev_ids), skips[house], SHRINK_SKIPS)
+                    len(ids), len(prev_ids), skipped, SHRINK_SKIPS)
                 out["houses"][str(house)] = {"ok": False, "t": None, "items": 0}
                 errors.append("house %s: %s" % (house, why))
                 log.warning("house %s: %s", house, why)
                 continue
             skips.pop(house, None)
             if prev_t is not None and ids == prev_ids:   # quantities too: a partly bought commodity changes
-                items = store.db.execute("SELECT items FROM snapshot WHERE house=? AND t=?",
-                                         (house, prev_t)).fetchone()[0]
-                out["houses"][str(house)] = {"ok": True, "t": prev_t, "items": items}
-                log.info("house %s: ok, %d items, %d auctions, %.1fs, unchanged", house, items, len(ids),
-                         time.time() - started)
+                out["houses"][str(house)] = {"ok": True, "t": prev_t, "items": store.items_at(house, prev_t)}
+                log.info("house %s: ok, %d auctions, %.1fs, unchanged", house, len(ids), time.time() - started)
                 continue
             rows = market_reduce.reduce(auctions, commodities)
-            sold = market_reduce.estimate_sold(prev_ids, ids, now - prev_t) if prev_t is not None else {}
-            store.record(house, now, rows, sold, ids)
-            out["houses"][str(house)] = {"ok": True, "t": now, "items": len(rows)}
-            log.info("house %s: ok, %d items, %d auctions, %.1fs, recorded, %d units sold", house, len(rows),
-                     len(ids), time.time() - started, sum(sold.values()))
+            sold = market_reduce.estimate_sold(prev_ids, ids, t - prev_t) if prev_t is not None else {}
+            store.record(house, t, rows, sold, ids)
+            out["houses"][str(house)] = {"ok": True, "t": t, "items": len(rows)}
+            log.info("house %s: ok, %d items, %d auctions, %.1fs, recorded as of %s, %d units sold", house,
+                     len(rows), len(ids), time.time() - started, time.strftime("%H:%M", time.localtime(t)),
+                     sum(sold.values()))
         except Exception as e:   # a bad body (ValueError) must not stop the other house or the loop
             out["houses"][str(house)] = {"ok": False, "t": None, "items": 0}
             errors.append("house %s: %s" % (house, e))

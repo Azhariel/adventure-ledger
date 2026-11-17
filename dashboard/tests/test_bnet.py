@@ -14,6 +14,10 @@ GET_PATH = "/data/wow/ruleset/1/auctions/113"
 
 
 class Resp(io.BytesIO):
+    def __init__(self, data, headers=None):
+        super().__init__(data)
+        self.headers = headers or {}
+
     def __enter__(self):
         return self
 
@@ -22,7 +26,7 @@ class Resp(io.BytesIO):
 
 
 class FakeOpener:
-    """Token requests get a token; other requests pop a canned (status, body) from `script`."""
+    """Token requests get a token; other requests pop a canned (status, body[, headers]) from `script`."""
     def __init__(self, script=(), token_status=200):
         self.script = list(script)
         self.token_status = token_status
@@ -32,13 +36,13 @@ class FakeOpener:
         self.requests.append(req)
         if "oauth.battle.net" in req.full_url:
             return self._reply(self.token_status, {"access_token": "tok%d" % (len(self.tokens()) - 1), "expires_in": 1000})
-        status, body = self.script.pop(0)
-        return self._reply(status, body)
+        status, body, *headers = self.script.pop(0)
+        return self._reply(status, body, headers[0] if headers else None)
 
-    def _reply(self, status, body):
-        if status >= 400:   # like the real urlopen
+    def _reply(self, status, body, headers=None):
+        if status >= 300:   # like the real urlopen, which raises for 304 too
             raise urllib.error.HTTPError("u", status, "err", {}, io.BytesIO(b""))
-        return Resp(json.dumps(body).encode())
+        return Resp(json.dumps(body).encode(), headers)
 
     def tokens(self):
         return [r for r in self.requests if "oauth.battle.net" in r.full_url]
@@ -63,7 +67,7 @@ class BnetTest(unittest.TestCase):
 
     def test_from_cfg_defaults(self):
         c = bnet.Config.from_cfg(CFG)
-        self.assertEqual((c.region, c.ruleset, c.faction, c.neutral, c.every), ("us", 1, 113, 116, 60))
+        self.assertEqual((c.region, c.ruleset, c.faction, c.neutral, c.every), ("us", 1, 113, 116, 10))
         self.assertNotIn("s3cret", repr(c))
         self.assertIsNone(bnet.Config.from_cfg({"bnet_secret": "x"}))
 
@@ -130,6 +134,44 @@ class BnetTest(unittest.TestCase):
         op = FakeOpener([(200, {"auctions": [{"id": 1}]}), (200, {"auctions": [{"id": 2}]})])
         self.assertEqual(self.client(op).house(113), ([{"id": 1}], [{"id": 2}]))
         self.assertTrue(op.gets()[1].full_url.split("?")[0].endswith("/auctions/113/commodities"))
+
+
+    # house_since: conditional requests, so a fetch that finds nothing new downloads nothing
+    LM = "Tue, 17 Nov 2026 22:24:55 GMT"
+    LM_T = 1794954295   # the same instant in epoch seconds
+
+    def test_house_since_not_modified(self):
+        op = FakeOpener([(304, None), (304, None)])
+        self.assertIsNone(self.client(op).house_since(113, self.LM_T))
+        self.assertEqual([r.get_header("If-modified-since") for r in op.gets()], [self.LM, self.LM])
+
+    def test_house_since_returns_the_snapshot_time(self):
+        op = FakeOpener([(200, {"auctions": [{"id": 1}]}, {"Last-Modified": self.LM}),
+                         (200, {"auctions": [{"id": 2}]}, {"Last-Modified": self.LM})])
+        self.assertEqual(self.client(op).house_since(113, self.LM_T - 3600),
+                         ([{"id": 1}], [{"id": 2}], self.LM_T))
+
+    def test_house_since_without_a_time_asks_plainly(self):
+        op = FakeOpener([(200, {"auctions": []}), (200, {"auctions": []})])
+        self.assertEqual(self.client(op).house_since(113, None), ([], [], None))
+        self.assertEqual([r.get_header("If-modified-since") for r in op.gets()], [None, None])
+
+    def test_house_since_one_changed_fetches_the_other_whole(self):
+        # a snapshot is both lists: if only one says "changed", the other is downloaded too
+        op = FakeOpener([(304, None), (200, {"auctions": [{"id": 2}]}, {"Last-Modified": self.LM}),
+                         (200, {"auctions": [{"id": 1}]}, {"Last-Modified": self.LM})])
+        self.assertEqual(self.client(op).house_since(113, self.LM_T - 3600),
+                         ([{"id": 1}], [{"id": 2}], self.LM_T))
+        self.assertIsNone(op.gets()[2].get_header("If-modified-since"))
+
+    def test_bad_last_modified_is_ignored(self):
+        op = FakeOpener([(200, {"auctions": []}, {"Last-Modified": "soon"}), (200, {"auctions": []})])
+        self.assertEqual(self.client(op).house_since(113, None), ([], [], None))
+
+    def test_not_modified_is_not_retried(self):
+        op = FakeOpener([(304, None), (304, None)])
+        self.client(op).house_since(113, self.LM_T)
+        self.assertEqual(self.sleeps, [])
 
 
 if __name__ == "__main__":

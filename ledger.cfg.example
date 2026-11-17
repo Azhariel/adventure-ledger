@@ -31,7 +31,8 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 # ah_faction = 113
 # ah_neutral = 116
 #
-# ah_every: minutes between fetches (default 60). Each fetch downloads both houses (about 15-20 MB). Blizzard
-#   seems to refresh the data about hourly (not documented); a fetch that finds nothing new is logged as
-#   "unchanged" and not stored, so fetching more often than every 30 minutes only adds downloads. Don't set 0.
-# ah_every = 60
+# ah_every: minutes between checks (default 10). Blizzard makes a new snapshot about hourly, at no fixed minute
+#   (not documented). Each check asks only for data newer than the last snapshot: when there is none, Blizzard
+#   answers "not modified" and nothing is downloaded. A new snapshot downloads both houses (about 15-20 MB) and is
+#   dated by when Blizzard made it. Checking often catches each snapshot soon after it appears. Don't set 0.
+# ah_every = 10
