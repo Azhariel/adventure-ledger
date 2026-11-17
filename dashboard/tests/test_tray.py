@@ -111,9 +111,10 @@ class TrayHelpersTest(unittest.TestCase):
     def test_read_config_matches_server_rules(self):
         cfg = os.path.join(self.dir, "ledger.cfg")
         with open(cfg, "w", encoding="utf-8") as fh:
-            fh.write("# comment\nwow = C:\\Games\\WoW\\_forever_\nbnet_id =\nah_every = 30\n\nnot a pair\n")
+            fh.write("# comment\nwow = C:\\Games\\WoW\\_forever_\nbnet_id =\nah_every = 30  # minutes\n\nnot a pair\n"
+                     "ah_neutral = # unset\nbnet_region = a#b\n")
         r = ps("Read-LedgerConfig '%s' | ConvertTo-Json" % cfg)
-        self.assertEqual(r, {"wow": "C:\\Games\\WoW\\_forever_", "ah_every": "30"})
+        self.assertEqual(r, {"wow": "C:\\Games\\WoW\\_forever_", "ah_every": "30", "bnet_region": "a#b"})
 
     def test_data_dir_prefers_env_then_config(self):
         r = ps("$env:LEDGER_DATA = '%s'\n$a = Get-DataDir @{ data = 'D:\\elsewhere' }\n"

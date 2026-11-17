@@ -23,6 +23,8 @@ import server  # noqa: E402  (read_config and the data folder rule)
 KIND_HOUSES = {"faction": [110, 111, 112, 113, 114, 115, 119, 120, 123, 124],
                "neutral": [116, 117, 118, 121, 125]}
 POLL = 5   # seconds between checks for fetch_now / fetcher_stop while waiting
+REPLACE_TRIES = 5   # 0.2 s apart
+BAD_NUMBER = "bad number in ledger.cfg (ah_ruleset, ah_faction, ah_neutral or ah_every)"
 _lock_handle = None   # held for the process lifetime
 
 
@@ -46,11 +48,21 @@ def next_run(last_try, every_min, now):
     return max(last_try + every_min * 60, now)
 
 
-def write_status(path, status):
+def write_status(path, status, log=None):
+    """Write atomically. Windows refuses the replace while the tray is reading the file: retry, then skip."""
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(status, fh)
-    os.replace(tmp, path)
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(tmp, path)
+            return True
+        except PermissionError:
+            if attempt < REPLACE_TRIES - 1:
+                time.sleep(0.2)
+    if log is not None:
+        log.warning("could not write %s (in use); trying again next time", os.path.basename(path))
+    return False
 
 
 def read_status(path):
@@ -94,22 +106,41 @@ def run_once(client, store, houses, now, log, last_ok=None):
     return out
 
 
+def remove_flag(path, log):
+    try:
+        os.remove(path)
+    except OSError as e:   # e.g. the tray writing it right now: act on it anyway
+        log.warning("could not remove %s: %s", os.path.basename(path), e)
+
+
 def wait_until(when, data, log):
     """Sleep until `when`; returns "now" for a fetch_now request, "stop" for fetcher_stop, else "time"."""
     now_file = os.path.join(data, "fetch_now")
     stop_file = os.path.join(data, "fetcher_stop")
     while True:
         if os.path.exists(stop_file):
-            os.remove(stop_file)
+            remove_flag(stop_file, log)
             return "stop"
         if os.path.exists(now_file):
-            os.remove(now_file)
+            remove_flag(now_file, log)
             log.info("fetch requested (tray)")
             return "now"
         left = when - time.time()
         if left <= 0:
             return "time"
         time.sleep(min(POLL, left))
+
+
+def rollup(store, now, log):
+    """Fold old hours into days; a failure is logged and retried the next day, never fatal."""
+    try:
+        folded = store.rollup(now)
+    except Exception:
+        log.exception("rollup failed")
+        return 0
+    if folded:
+        log.info("rollup: folded %d hourly rows into days", folded)
+    return folded
 
 
 def match_score(book, rows):
@@ -189,19 +220,38 @@ def main(argv=None, cfg=None, data=None):
         cfg = server.read_config()
     if data is None:
         data = server.DATA
-    config = bnet.Config.from_cfg(cfg)
     if args.match:   # read-only: no store, status file, log file or lock, so it can run beside the loop
+        try:
+            config = bnet.Config.from_cfg(cfg)
+        except ValueError as e:
+            print("%s: %s" % (BAD_NUMBER, e))
+            return 1
         if config is None:
             print("not set up: add bnet_id and bnet_secret to ledger.cfg")
             return 1
         return match_houses(args.match, cfg, config)
     os.makedirs(data, exist_ok=True)
+    log = ledgerlog.get("fetcher", data)   # before anything can fail: under pythonw this is the only trace
+    try:
+        return loop(args, cfg, data, log)
+    except Exception:
+        log.exception("crashed")
+        raise
+
+
+def loop(args, cfg, data, log):
     status_path = os.path.join(data, "fetcher_status.json")
+    try:
+        config = bnet.Config.from_cfg(cfg)
+    except ValueError as e:
+        log.error("%s: %s", BAD_NUMBER, e)
+        write_status(status_path, {"last_ok": None, "last_try": None, "next": None,
+                                   "error": BAD_NUMBER, "houses": {}}, log)
+        return 2
     if config is None:
         write_status(status_path, {"last_ok": None, "last_try": None, "next": None,
-                                   "error": "not set up", "houses": {}})
+                                   "error": "not set up", "houses": {}}, log)
         return 0
-    log = ledgerlog.get("fetcher", data)
     if not acquire_lock(os.path.join(data, "fetcher.lock")):
         log.info("already running")
         return 0
@@ -217,12 +267,10 @@ def main(argv=None, cfg=None, data=None):
             status = run_once(client, store, houses, now, log, last_ok)
             last_ok = status["last_ok"]
             if now - last_rollup >= 86400:
-                folded = store.rollup(now)
+                rollup(store, now, log)
                 last_rollup = now
-                if folded:
-                    log.info("rollup: folded %d hourly rows into days", folded)
             status["next"] = None if args.once else next_run(now, config.every, int(time.time()))
-            write_status(status_path, status)
+            write_status(status_path, status, log)
             if args.once:
                 return 0
             if wait_until(status["next"], data, log) == "stop":

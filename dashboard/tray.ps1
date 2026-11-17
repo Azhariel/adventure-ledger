@@ -23,14 +23,15 @@ $LogMax = 1000000
 $Dot = [char]0x00B7
 
 function Read-LedgerConfig([string]$Path) {
-    # same rules as server.read_config: key = value lines, # comments, empty values ignored
+    # same rules as server.read_config: key = value lines, # comments (whole line, or after whitespace),
+    # empty values ignored
     $cfg = @{}
     if (-not (Test-Path -LiteralPath $Path)) { return $cfg }
     foreach ($line in [IO.File]::ReadAllLines($Path)) {
         $line = $line.Trim()
         if (-not $line -or $line.StartsWith('#') -or $line.IndexOf('=') -lt 0) { continue }
         $i = $line.IndexOf('=')
-        $v = $line.Substring($i + 1).Trim()
+        $v = ($line.Substring($i + 1) -split '\s#', 2)[0].Trim()   # 'ah_every = 60  # minutes'; 'a#b' stays whole
         if ($v) { $cfg[$line.Substring(0, $i).Trim()] = $v }
     }
     return $cfg

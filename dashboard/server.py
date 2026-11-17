@@ -31,7 +31,8 @@ sys.path.insert(0, HERE)
 
 
 def read_config(path=os.path.join(ROOT, "ledger.cfg")):
-    """ledger.cfg at the repo root: key = value lines (wow = the _forever_ folder, data = generated files)."""
+    """ledger.cfg at the repo root: key = value lines (wow = the _forever_ folder, data = generated files).
+    A # starts a comment at the start of a line, or after whitespace anywhere in it."""
     cfg = {}
     try:
         with open(path, encoding="utf-8") as fh:
@@ -39,8 +40,9 @@ def read_config(path=os.path.join(ROOT, "ledger.cfg")):
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    if v.strip():
-                        cfg[k.strip()] = v.strip()
+                    v = re.split(r"\s#", v, maxsplit=1)[0].strip()   # "ah_every = 60  # minutes"; "a#b" stays whole
+                    if v:
+                        cfg[k.strip()] = v
     except OSError:
         pass
     return cfg
