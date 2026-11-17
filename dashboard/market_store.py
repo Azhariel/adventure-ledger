@@ -11,6 +11,7 @@ CREATE INDEX IF NOT EXISTS hourly_item ON hourly (house, item, t);
 CREATE TABLE IF NOT EXISTS daily (
     house INTEGER, day TEXT, item INTEGER,
     min INTEGER, market REAL, units REAL, sold INTEGER, hours INTEGER,
+    priced INTEGER,
     PRIMARY KEY (house, day, item));
 CREATE TABLE IF NOT EXISTS last_auctions (
     house INTEGER, auction_id INTEGER, item INTEGER, quantity INTEGER, time_left TEXT);
@@ -28,15 +29,23 @@ class Store:
         # WAL: a reader in another process does not block the fetcher.
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        if "priced" not in [c[1] for c in self.db.execute("PRAGMA table_info(daily)")]:
+            # Older db: every folded hour had a price. `priced` = hours with a price (market is a mean over those).
+            self.db.execute("ALTER TABLE daily ADD COLUMN priced INTEGER")
+            self.db.execute("UPDATE daily SET priced = hours")
 
     def record(self, house, t, rows, sold, ids):
-        """One snapshot in one transaction. `sold` is kept only for items in `rows`."""
+        """One snapshot in one transaction. An item that sold out (in `sold`, not in `rows`) gets an
+        unpriced row, so its sales are not lost."""
         with self.db:
             self.db.execute("INSERT INTO snapshot VALUES (?,?,?,?)", (house, t, len(rows), len(ids)))
             self.db.executemany(
                 "INSERT INTO hourly VALUES (?,?,?,?,?,?,?,?)",
                 [(house, t, item, r["min"], r["market"], r["units"], r["listings"], sold.get(item, 0))
                  for item, r in rows.items()])
+            self.db.executemany(
+                "INSERT INTO hourly VALUES (?,?,?,NULL,NULL,0,0,?)",
+                [(house, t, item, n) for item, n in sold.items() if n > 0 and item not in rows])
             self.db.execute("DELETE FROM last_auctions WHERE house=?", (house,))
             self.db.executemany(
                 "INSERT INTO last_auctions VALUES (?,?,?,?,?)",
@@ -61,24 +70,30 @@ class Store:
             groups.setdefault((house, local_day(t), item), []).append((mn, market, units, sold))
         with self.db:
             for (house, day, item), hrs in groups.items():
-                prev = self.db.execute(
-                    "SELECT min, market, units, sold, hours FROM daily WHERE house=? AND day=? AND item=?",
-                    (house, day, item)).fetchone()
                 n = len(hrs)
-                mn = min(h[0] for h in hrs)
-                market = sum(h[1] for h in hrs)
+                mins = [h[0] for h in hrs if h[0] is not None]
+                markets = [h[1] for h in hrs if h[1] is not None]
                 units = sum(h[2] for h in hrs)
                 sold = sum(h[3] for h in hrs)
+                market_sum = sum(markets)
+                priced = len(markets)
+                prev = self.db.execute(
+                    "SELECT min, market, units, sold, hours, priced FROM daily WHERE house=? AND day=? AND item=?",
+                    (house, day, item)).fetchone()
                 if prev:
-                    # Recompute from both: the stored day is a mean over prev hours.
-                    mn = min(mn, prev[0])
-                    market += prev[1] * prev[4]
+                    # Recompute from both: the stored day holds means over its hours / priced hours.
+                    if prev[0] is not None:
+                        mins.append(prev[0])
+                    if prev[1] is not None:
+                        market_sum += prev[1] * prev[5]
+                        priced += prev[5]
                     units += prev[2] * prev[4]
                     sold += prev[3]
                     n += prev[4]
                 self.db.execute(
-                    "INSERT OR REPLACE INTO daily VALUES (?,?,?,?,?,?,?,?)",
-                    (house, day, item, mn, market / n, units / n, sold, n))
+                    "INSERT OR REPLACE INTO daily VALUES (?,?,?,?,?,?,?,?,?)",
+                    (house, day, item, min(mins) if mins else None,
+                     market_sum / priced if priced else None, units / n, sold, n, priced))
             self.db.execute("DELETE FROM hourly WHERE t < ?", (cutoff,))
         return len(old)
 

@@ -39,6 +39,11 @@ class StoreTests(unittest.TestCase):
         got = dict(self.store.db.execute("SELECT item, sold FROM hourly"))
         self.assertEqual(got, {1: 0, 2: 5})
 
+    def test_sold_out_item_recorded(self):
+        self.store.record(113, 1000, {2: row(2, 2, 2)}, {7: 3, 2: 1, 8: 0}, {})
+        got = self.store.db.execute("SELECT item, min, market, units, listings, sold FROM hourly ORDER BY item")
+        self.assertEqual(got.fetchall(), [(2, 2, 2, 2, 1, 1), (7, None, None, 0, 0, 3)])
+
     def _hour(self, t, mn, market, units, sold):
         self.store.record(113, t, {2589: row(mn, market, units)}, {2589: sold}, {})
 
@@ -74,6 +79,29 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.rollup(now), 1)
         days = self.store.db.execute("SELECT min, market, units, sold, hours FROM daily").fetchall()
         self.assertEqual(days, [(80, 120, 20, 9, 3)])
+
+    def test_rollup_mixes_unpriced_hour(self):
+        now = self._fill()
+        self.store.record(113, self.noon + 7200, {}, {2589: 5}, {})   # sold out: no price that hour
+        self.assertEqual(self.store.rollup(now), 3)
+        days = self.store.db.execute("SELECT min, market, units, sold, hours FROM daily").fetchall()
+        self.assertEqual(days, [(90, 110, 10, 12, 3)])
+
+    def test_rollup_merges_unpriced_into_priced_day(self):
+        now = self._fill()
+        self.store.rollup(now)
+        self.store.record(113, self.noon + 7200, {}, {2589: 5}, {})
+        self.assertEqual(self.store.rollup(now), 1)
+        days = self.store.db.execute("SELECT min, market, sold, hours, priced FROM daily").fetchall()
+        self.assertEqual(days, [(90, 110, 12, 3, 2)])
+
+    def test_rollup_all_unpriced_day(self):
+        now = self._fill()
+        t = self.noon - 86400
+        self.store.record(113, t, {}, {2589: 2}, {})
+        self.store.rollup(now)
+        row_ = self.store.db.execute("SELECT min, market, sold, hours FROM daily ORDER BY day").fetchone()
+        self.assertEqual(row_, (None, None, 2, 1))
 
 
 if __name__ == "__main__":

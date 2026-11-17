@@ -73,8 +73,7 @@ class FetcherTests(unittest.TestCase):
     def test_sold_uses_previous(self):
         c = FakeClient({113: ([auction(1, 10, qty=4), auction(2, 11)], [])})
         fetcher.run_once(c, self.store, [113], 1000, LOG)
-        # Auction 1 vanished (LONG, so not expired); a new listing keeps item 10 in the snapshot.
-        c.data[113] = ([auction(2, 11), auction(3, 10, qty=1)], [])
+        c.data[113] = ([auction(2, 11)], [])   # auction 1 vanished (LONG, so not expired)
         fetcher.run_once(c, self.store, [113], 1000 + 3600, LOG)
         sold = self.store.db.execute("SELECT sold FROM hourly WHERE item=10 AND t=4600").fetchone()
         self.assertEqual(sold, (4,))
