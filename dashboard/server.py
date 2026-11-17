@@ -115,6 +115,8 @@ class App:
         self.log_writes = []               # wall times WoW wrote the file (seen by us)
         self.sent_version = -1
         self.build_info = {"ok": None, "at": None, "message": ""}
+        self.started = time.time()
+        self.last_build = None             # {"t", "ok", "seconds", "message"}, for /status
         self.stop = threading.Event()
         self.map_lock = threading.Lock()
 
@@ -149,6 +151,7 @@ class App:
             ok, msg = False, str(e)
         self.build_info = {"ok": ok, "at": time.time(), "message": msg[-500:]}
         secs = time.time() - t0
+        self.last_build = {"t": time.time(), "ok": ok, "seconds": round(secs, 1), "message": msg[-200:]}
         if ok:
             _LOG.info("built in %.1fs: %s", secs, msg[-300:])
         else:
@@ -358,6 +361,11 @@ def make_handler(app):
                 except OSError:
                     body = b"<p>dashboard.html isn't built yet. Check server.log.</p>"
                 self._send(200, body, "text/html; charset=utf-8")
+            elif path == "/status":
+                now = time.time()
+                body = {"ok": True, "pid": os.getpid(), "started": app.started,
+                        "uptime": round(now - app.started), "last_build": app.last_build}
+                self._send(200, json.dumps(body).encode(), "application/json")
             elif path == "/live.json":
                 snap, _ = app.snapshot()
                 self._send(200, json.dumps(snap).encode(), "application/json")
