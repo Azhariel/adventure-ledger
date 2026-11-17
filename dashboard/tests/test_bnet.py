@@ -1,0 +1,136 @@
+"""Tests for bnet.py (Battle.net client), with a fake opener: no network.   Usage: python dashboard/tests/test_bnet.py"""
+import io
+import json
+import os
+import sys
+import unittest
+import urllib.error
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import bnet  # noqa: E402
+
+CFG = {"bnet_id": "abcd1234", "bnet_secret": "s3cret"}
+GET_PATH = "/data/wow/ruleset/1/auctions/113"
+
+
+class Resp(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class FakeOpener:
+    """Token requests get a token; other requests pop a canned (status, body) from `script`."""
+    def __init__(self, script=(), token_status=200):
+        self.script = list(script)
+        self.token_status = token_status
+        self.requests = []
+
+    def __call__(self, req, timeout=None):
+        self.requests.append(req)
+        if "oauth.battle.net" in req.full_url:
+            return self._reply(self.token_status, {"access_token": "tok%d" % (len(self.tokens()) - 1), "expires_in": 1000})
+        status, body = self.script.pop(0)
+        return self._reply(status, body)
+
+    def _reply(self, status, body):
+        if status >= 400:   # like the real urlopen
+            raise urllib.error.HTTPError("u", status, "err", {}, io.BytesIO(b""))
+        return Resp(json.dumps(body).encode())
+
+    def tokens(self):
+        return [r for r in self.requests if "oauth.battle.net" in r.full_url]
+
+    def gets(self):
+        return [r for r in self.requests if "oauth.battle.net" not in r.full_url]
+
+
+class Log:
+    def __init__(self):
+        self.lines = []
+
+    def __getattr__(self, level):
+        return lambda msg, *args: self.lines.append(msg % args)
+
+
+class BnetTest(unittest.TestCase):
+    def client(self, opener, **kw):
+        self.sleeps = []
+        self.t = 1000.0
+        return bnet.Client(bnet.Config.from_cfg(CFG), opener=opener, sleep=self.sleeps.append, now=lambda: self.t, **kw)
+
+    def test_from_cfg_defaults(self):
+        c = bnet.Config.from_cfg(CFG)
+        self.assertEqual((c.region, c.ruleset, c.faction, c.neutral, c.every), ("us", 1, 113, 116, 60))
+        self.assertNotIn("s3cret", repr(c))
+        self.assertIsNone(bnet.Config.from_cfg({"bnet_secret": "x"}))
+
+    def test_from_cfg_converts_ints(self):
+        c = bnet.Config.from_cfg(dict(CFG, ah_ruleset="2", ah_faction="114", ah_neutral="117", ah_every="30"))
+        self.assertEqual((c.ruleset, c.faction, c.neutral, c.every), (2, 114, 117, 30))
+
+    def test_token_cached(self):
+        op = FakeOpener([(200, {})] * 3)
+        c = self.client(op)
+        c.get(GET_PATH)
+        c.get(GET_PATH)
+        self.assertEqual(len(op.tokens()), 1)
+        self.t += 1000 - 60 + 1
+        c.get(GET_PATH)
+        self.assertEqual(len(op.tokens()), 2)
+
+    def test_url(self):
+        op = FakeOpener([(200, {})])
+        self.client(op).get(GET_PATH)
+        self.assertEqual(op.gets()[0].full_url, "https://us.api.blizzard.com" + GET_PATH
+                         + "?namespace=dynamic-forever-us&locale=en_US")
+        self.assertEqual(op.gets()[0].get_header("Authorization"), "Bearer tok0")
+
+    def test_401_refreshes_once(self):
+        op = FakeOpener([(401, None), (200, {"ok": 1})])
+        self.assertEqual(self.client(op).get(GET_PATH), {"ok": 1})
+        self.assertEqual(len(op.tokens()), 2)
+
+    def test_401_twice_raises(self):
+        op = FakeOpener([(401, None), (401, None)])
+        with self.assertRaises(bnet.ApiError) as cm:
+            self.client(op).get(GET_PATH)
+        self.assertEqual(cm.exception.status, 401)
+
+    def test_retries_then_raises(self):
+        op = FakeOpener([(503, None)] * 4)
+        c = self.client(op)
+        with self.assertRaises(bnet.ApiError) as cm:
+            c.get(GET_PATH)
+        self.assertEqual(self.sleeps, [5, 15, 45])
+        self.assertEqual((cm.exception.status, cm.exception.path), (503, GET_PATH))
+
+    def test_404_not_retried(self):
+        op = FakeOpener([(404, None)])
+        with self.assertRaises(bnet.ApiError):
+            self.client(op).get(GET_PATH)
+        self.assertEqual(self.sleeps, [])
+
+    def test_token_failure_hides_secret(self):
+        log = Log()
+        c = self.client(FakeOpener(token_status=401), log=log)
+        with self.assertRaises(bnet.ApiError) as cm:
+            c.get(GET_PATH)
+        self.assertNotIn("s3cret", str(cm.exception))
+        self.assertTrue(log.lines)
+        self.assertFalse(any("s3cret" in line or "abcd1234" in line for line in log.lines))
+
+    def test_house_missing_auctions(self):
+        op = FakeOpener([(200, {"id": 112}), (200, {})])
+        self.assertEqual(self.client(op).house(113), ([], []))
+
+    def test_house_returns_both(self):
+        op = FakeOpener([(200, {"auctions": [{"id": 1}]}), (200, {"auctions": [{"id": 2}]})])
+        self.assertEqual(self.client(op).house(113), ([{"id": 1}], [{"id": 2}]))
+        self.assertTrue(op.gets()[1].full_url.split("?")[0].endswith("/auctions/113/commodities"))
+
+
+if __name__ == "__main__":
+    unittest.main()
