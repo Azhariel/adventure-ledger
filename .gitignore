@@ -9,3 +9,5 @@ __pycache__/
 .idea/
 Thumbs.db
 *.stackdump
+# Design notes and plans written while building (kept locally, not shared)
+/docs/superpowers/
