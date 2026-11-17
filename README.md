@@ -176,8 +176,10 @@ Open dashboard, Live server (Start, Stop), AH fetcher (Start, Stop, Fetch now), 
 The logs are `server.log`, `fetcher.log` and `tray.log` in the data folder.
 
 **Other PCs.** Only one PC needs to fetch: the one that's on the most. To use the data elsewhere, copy that PC's
-`data/market.db` into the other PC's `data/` now and then (like the WTF copies below). Hours when the fetching PC is
-off are simply missing. Two databases are not merged: the copy replaces the old one.
+`data/market.db` into the other PC's `data/` now and then (like the WTF copies below). Copy it while the fetcher is
+stopped (tray > AH fetcher > Stop, then Start again after): the database keeps recent writes in a side file
+(`market.db-wal`) while it runs, so a copy taken then can be incomplete. Hours when the fetching PC is off are simply
+missing. Two databases are not merged: the copy replaces the old one.
 
 ### Live (second-monitor mode)
 
