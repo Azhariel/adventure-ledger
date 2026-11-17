@@ -2,11 +2,13 @@
 import json
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+HERE_TESTS = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE_TESTS, ".."))
 import bnet  # noqa: E402
 import fetcher  # noqa: E402
 import market_store  # noqa: E402
@@ -102,6 +104,17 @@ class FetcherTests(unittest.TestCase):
         finally:
             fetcher._lock_handle.close()
             fetcher._lock_handle = None
+
+
+class ImportTests(unittest.TestCase):
+    def test_importing_fetcher_leaves_server_log_alone(self):
+        # Another process holding server.log open stops the live server rotating it (Windows).
+        with tempfile.TemporaryDirectory() as tmp:
+            code = "import logging, fetcher; print(len(logging.getLogger('server').handlers))"
+            out = subprocess.run([sys.executable, "-c", code], cwd=os.path.dirname(HERE_TESTS),
+                                 env=dict(os.environ, LEDGER_DATA=tmp), capture_output=True, text=True, check=True)
+            self.assertEqual(out.stdout.strip(), "0")
+            self.assertFalse(os.path.exists(os.path.join(tmp, "server.log")))
 
 
 class MatchScore(unittest.TestCase):

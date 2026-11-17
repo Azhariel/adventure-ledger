@@ -14,6 +14,7 @@ Standard library only. Stop it with `wowstats stop` (or end pythonw.exe in Task 
 import argparse
 import glob
 import json
+import logging
 import os
 import queue
 import re
@@ -62,7 +63,9 @@ SHOT_RE = re.compile(r"^[\w .()-]+\.(jpg|jpeg|png|tga)$", re.I)
 SHOT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "tga": "image/x-tga"}
 
 
-_LOG = ledgerlog.get("server", DATA)
+# Set up in main(), not here: fetcher.py imports this module, and a second process holding
+# server.log open stops the live server rotating it on Windows.
+_LOG = logging.getLogger("server")
 
 
 def log(msg):
@@ -437,6 +440,7 @@ def make_handler(app):
 
 
 def main():
+    ledgerlog.get("server", DATA)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--wow", default=os.environ.get("LEDGER_WOW") or CONFIG.get("wow"),
                     help="the _forever_ folder (default: wow = ... in ledger.cfg)")
