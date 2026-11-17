@@ -191,7 +191,8 @@ function Open-Dashboard {
 $created = $false
 $Mutex = New-Object Threading.Mutex($true, $MutexName, [ref]$created)
 if (-not $created) {
-    # one tray per user session; a second `wowstats live` just opens the page, like serve.bat did
+    # one tray per PC (a Global\ mutex, across user sessions: they share the port and the data folder);
+    # a second `wowstats live` just opens the page, like serve.bat did
     Log 'already running'
     if (-not $NoOpen) { Open-Dashboard }
     exit 0
