@@ -3,7 +3,7 @@
 --    Not possible on Forever (tested 8 Nov 2026): making WoW write the log sooner. It writes on a fixed 5-minute
 --    timer; LoggingCombat(false/true), /combatlog and /reload neither write it early nor open a new file.
 -- 2. Keeps Neutral auction house prices apart. Auctionator keeps one price book per realm, so a scan at the
---    goblin AH (Gadgetzan, Booty Bay, Everlook) lands in the same book as your faction AH and drags its highs and
+--    goblin AH (Gadgetzan, Booty Bay, Everlook, the Barrens) lands in the same book as your faction AH and drags its highs and
 --    "now" price up. While the AH you opened is neutral, Ledger Link catches Auctionator's price writes and keeps
 --    them in LedgerLinkDB.neutral (same shape: l/h/a per scan day, m = last seen). By default Auctionator's own
 --    book is left untouched by those scans ("/ledger neutral both" also lets them through).
@@ -24,9 +24,12 @@ local function scanDay0()
 end
 
 -- Zones whose auction house is the neutral (goblin) one. uiMapIDs first; English names as a fallback.
-L.NEUTRAL_MAPS = { [1446] = "Tanaris", [1434] = "Stranglethorn Vale", [1452] = "Winterspring" }
+-- The Barrens: Forever added a goblin AH just outside the Crossroads (Booty Bay's book; no subzone name of its
+-- own), and the zone has no faction AH.
+L.NEUTRAL_MAPS = { [1446] = "Tanaris", [1434] = "Stranglethorn Vale", [1452] = "Winterspring",
+    [1413] = "The Barrens" }
 L.NEUTRAL_NAMES = { ["Gadgetzan"] = true, ["Booty Bay"] = true, ["Everlook"] = true,
-    ["Tanaris"] = true, ["Stranglethorn Vale"] = true, ["Winterspring"] = true }
+    ["Tanaris"] = true, ["Stranglethorn Vale"] = true, ["Winterspring"] = true, ["The Barrens"] = true }
 
 local function db()
     LedgerLinkDB = LedgerLinkDB or {}

@@ -25,14 +25,23 @@ def auction(aid, item, qty=4, buyout=400, left="LONG"):
 
 
 class FakeClient:
+    """Like bnet.Client.house_since. data: house -> (auctions, commodities[, snapshot time]) or an exception.
+    With a snapshot time no newer than `since`, answers "not modified" (None), as Blizzard's 304."""
     def __init__(self, data):
-        self.data = data   # house -> (auctions, commodities) or an exception
+        self.data = data
+        self.asked = []   # (house, since) per call
+        self.ignore_since = False
 
-    def house(self, h):
+    def house_since(self, h, since):
+        self.asked.append((h, since))
         got = self.data[h]
         if isinstance(got, Exception):
             raise got
-        return got
+        auctions, commodities, *mod = got
+        mod = mod[0] if mod else None
+        if since is not None and mod is not None and mod <= since and not self.ignore_since:
+            return None
+        return auctions, commodities, mod
 
 
 class FetcherTests(unittest.TestCase):
@@ -147,6 +156,65 @@ class FetcherTests(unittest.TestCase):
         fetcher.run_once(c, self.store, [113], 1000, LOG)
         c.data[113] = ([], [])
         self.assertTrue(fetcher.run_once(c, self.store, [113], 4600, LOG)["houses"]["113"]["ok"])
+        self.assertEqual(self.snapshots(), 2)
+
+    def test_not_modified_records_nothing(self):
+        c = FakeClient({113: ([auction(1, 10)], [], 900)})
+        fetcher.run_once(c, self.store, [113], 1000, LOG)
+        with self.assertLogs(LOG, "INFO") as logs:
+            st = fetcher.run_once(c, self.store, [113], 1600, LOG, last_ok=1000)
+        self.assertEqual(c.asked[-1], (113, 900), "asks for data newer than the last snapshot")
+        self.assertEqual(self.snapshots(), 1)
+        self.assertEqual(st["houses"]["113"], {"ok": True, "t": 900, "items": 1})
+        self.assertEqual(st["last_ok"], 1600, "a 304 is a good fetch")
+        self.assertIn("not modified", logs.output[0])
+
+    def test_snapshot_is_dated_by_blizzard(self):
+        c = FakeClient({113: ([auction(1, 10, qty=4), auction(2, 11)], [], 900)})
+        st = fetcher.run_once(c, self.store, [113], 1000, LOG)
+        self.assertEqual(st["houses"]["113"]["t"], 900)
+        c.data[113] = ([auction(2, 11)], [], 900 + 3600)
+        fetcher.run_once(c, self.store, [113], 1000 + 3600 + 1200, LOG)
+        self.assertEqual(self.store.db.execute("SELECT t FROM snapshot ORDER BY t").fetchall(), [(900,), (4500,)])
+        self.assertEqual(self.store.db.execute("SELECT sold FROM hourly WHERE item=10 AND t=4500").fetchone(), (4,))
+
+    def test_snapshot_time_falls_back_to_the_fetch_time(self):
+        # no Last-Modified, one in the future, or one not after the last snapshot: use the fetch time
+        c = FakeClient({113: ([auction(1, 10)], [], None)})
+        self.assertEqual(fetcher.run_once(c, self.store, [113], 1000, LOG)["houses"]["113"]["t"], 1000)
+        c.data[113] = ([auction(2, 10)], [], 9999)
+        self.assertEqual(fetcher.run_once(c, self.store, [113], 2000, LOG)["houses"]["113"]["t"], 2000)
+        c.ignore_since = True   # a server that answers in full even though nothing is newer
+        c.data[113] = ([auction(3, 10)], [], 1500)
+        self.assertEqual(fetcher.run_once(c, self.store, [113], 3000, LOG)["houses"]["113"]["t"], 3000)
+
+    def test_partial_check_works_with_frequent_fetches(self):
+        # Fetching every 10 minutes, the last snapshot is still about an hour old: still "recent"
+        full = [auction(i, 10) for i in range(1000)]
+        c = FakeClient({113: (full, [], 1000)})
+        fetcher.run_once(c, self.store, [113], 1000, LOG, every=10)
+        c.data[113] = (full[:400], [], 4600)
+        with self.assertLogs(LOG, "WARNING"):
+            self.assertFalse(fetcher.run_once(c, self.store, [113], 4700, LOG, every=10)["houses"]["113"]["ok"])
+
+    def test_same_partial_snapshot_counts_as_one_skip(self):
+        # Re-downloading the same cut-short snapshot every 10 minutes is no new evidence that the house shrank
+        full = [auction(i, 10) for i in range(1000)]
+        c = FakeClient({113: (full, [], 1000)})
+        skips = {}
+        fetcher.run_once(c, self.store, [113], 1000, LOG, every=10, skips=skips)
+        t = 1000
+        with self.assertLogs(LOG, "WARNING"):
+            for snap in range(fetcher.SHRINK_SKIPS):
+                c.data[113] = (full[:400], [], 1000 + 3600 * (snap + 1))
+                for _ in range(4):
+                    t += 600
+                    t = max(t, c.data[113][2] + 60)
+                    self.assertFalse(fetcher.run_once(c, self.store, [113], t, LOG, every=10, skips=skips)
+                                     ["houses"]["113"]["ok"])
+        c.data[113] = (full[:400], [], 1000 + 3600 * (fetcher.SHRINK_SKIPS + 1))
+        t = c.data[113][2] + 60
+        self.assertTrue(fetcher.run_once(c, self.store, [113], t, LOG, every=10, skips=skips)["houses"]["113"]["ok"])
         self.assertEqual(self.snapshots(), 2)
 
     def test_house_failure_logs_traceback(self):

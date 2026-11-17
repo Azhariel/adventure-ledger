@@ -35,8 +35,10 @@ class TrayStateTest(unittest.TestCase):
             "fetcher_stopped": "-ServerUp $true -FetcherUp $false -Status %s" % fresh,
             "fetch_error": "-ServerUp $true -FetcherUp $true -Status @{ last_ok = %d; error = 'house 113: HTTP 503' }"
                            % (now - 600),
-            "overdue": "-ServerUp $true -FetcherUp $true -Status @{ last_ok = %d; error = $null }" % (now - 5401),
-            "just_in_time": "-ServerUp $true -FetcherUp $true -Status @{ last_ok = %d; error = $null }" % (now - 5300),
+            "overdue": "-ServerUp $true -FetcherUp $true -EveryMin 60 -Status @{ last_ok = %d; error = $null }"
+                       % (now - 5401),
+            "just_in_time": "-ServerUp $true -FetcherUp $true -EveryMin 60 -Status @{ last_ok = %d; error = $null }"
+                       % (now - 5300),
             "every_10": "-ServerUp $true -FetcherUp $true -EveryMin 10 -Status @{ last_ok = %d; error = $null }"
                         % (now - 1200),
             "no_fetch_yet": "-ServerUp $true -FetcherUp $true -Status $null",

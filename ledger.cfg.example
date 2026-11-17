@@ -24,14 +24,16 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 #   (goblin) one. The API doesn't say which house is whose, so find them by matching against your own scans:
 #     1. Scan the AH in game (Auctionator), then /reload so the scan is saved.
 #     2. Run  python dashboard\fetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
-#        Gadgetzan or Everlook). It ranks every house by how many prices match yours and names the best one.
+#        Gadgetzan, Everlook or the Barrens AH outside the Crossroads). It ranks every house by how many prices
+#        match yours and names the best one.
 #   The houses come in sets of three (Alliance / Horde / Blackwater): 110/113/116, 111/114/117, 119/120/121,
-#   123/124/125 (112, 115 and 118 are empty). Horde on the PvP ruleset matched 113; its Blackwater house is
-#   believed to be 116 (not yet confirmed by a Neutral scan).
+#   123/124/125 (112, 115 and 118 are empty). Horde on the PvP ruleset matched 113, and its Blackwater house
+#   matched 116.
 # ah_faction = 113
 # ah_neutral = 116
 #
-# ah_every: minutes between fetches (default 60). Each fetch downloads both houses (about 15-20 MB). Blizzard
-#   seems to refresh the data about hourly (not documented); a fetch that finds nothing new is logged as
-#   "unchanged" and not stored, so fetching more often than every 30 minutes only adds downloads. Don't set 0.
-# ah_every = 60
+# ah_every: minutes between checks (default 10). Blizzard makes a new snapshot about hourly, at no fixed minute
+#   (not documented). Each check asks only for data newer than the last snapshot: when there is none, Blizzard
+#   answers "not modified" and nothing is downloaded. A new snapshot downloads both houses (about 15-20 MB) and is
+#   dated by when Blizzard made it. Checking often catches each snapshot soon after it appears. Don't set 0.
+# ah_every = 10

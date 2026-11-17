@@ -87,6 +87,13 @@ test("neutral AH: detected by map id, then by English zone name; capitals aren't
     at(nil, "Booty Bay", "Stranglethorn Vale"); eq(L.IsNeutralHere(), true)
 end)
 
+test("neutral AH: Forever's goblin AH outside the Crossroads (the Barrens) counts", function()
+    local L = load()
+    at(1413); eq(L.IsNeutralHere(), true)
+    at(nil, "", "The Barrens"); eq(L.IsNeutralHere(), true)
+    at(1411, "Valley of Strength", "Orgrimmar"); eq(L.IsNeutralHere(), false)
+end)
+
 test("neutral AH, split: prices go to the Neutral book only; faction AH goes to Auctionator", function()
     local L = load()
     local got = stubAuctionator()
