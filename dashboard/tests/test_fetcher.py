@@ -82,6 +82,51 @@ class FetcherTests(unittest.TestCase):
         sold = self.store.db.execute("SELECT sold FROM hourly WHERE item=10 AND t=4600").fetchone()
         self.assertEqual(sold, (4,))
 
+    def snapshots(self):
+        return self.store.db.execute("SELECT COUNT(*) FROM snapshot").fetchone()[0]
+
+    def test_quantity_change_alone_is_recorded(self):
+        def com(qty):
+            return {"id": 9, "item": {"id": 30}, "quantity": qty, "unit_price": 5, "time_left": "LONG"}
+        c = FakeClient({113: ([], [com(10)])})
+        fetcher.run_once(c, self.store, [113], 1000, LOG)
+        c.data[113] = ([], [com(7)])   # same auction id, 3 units bought
+        st = fetcher.run_once(c, self.store, [113], 4600, LOG)
+        self.assertEqual(self.snapshots(), 2)
+        self.assertEqual(st["houses"]["113"]["t"], 4600)
+        self.assertEqual(self.store.db.execute("SELECT sold FROM hourly WHERE item=30 AND t=4600").fetchone(), (3,))
+
+    def test_shrunken_snapshot_skipped(self):
+        # A missing or cut-short list would make every LONG auction look sold.
+        full = [auction(i, 10) for i in range(1000)]
+        c = FakeClient({113: (full, [])})
+        fetcher.run_once(c, self.store, [113], 1000, LOG)
+        c.data[113] = (full[:499], [])
+        with self.assertLogs(LOG, "WARNING") as logs:
+            st = fetcher.run_once(c, self.store, [113], 4600, LOG, last_ok=1000)
+        self.assertIn("499", logs.output[0])
+        self.assertFalse(st["houses"]["113"]["ok"])
+        self.assertIn("499", st["error"])
+        self.assertEqual(st["last_ok"], 1000)
+        self.assertEqual(self.snapshots(), 1)
+        self.assertEqual(len(self.store.last_ids(113)[1]), 1000)
+        c.data[113] = (full[:500], [])   # half is still believable
+        self.assertTrue(fetcher.run_once(c, self.store, [113], 8200, LOG)["houses"]["113"]["ok"])
+        self.assertEqual(self.snapshots(), 2)
+
+    def test_small_house_may_empty(self):
+        c = FakeClient({113: ([auction(i, 10) for i in range(999)], [])})
+        fetcher.run_once(c, self.store, [113], 1000, LOG)
+        c.data[113] = ([], [])
+        self.assertTrue(fetcher.run_once(c, self.store, [113], 4600, LOG)["houses"]["113"]["ok"])
+        self.assertEqual(self.snapshots(), 2)
+
+    def test_house_failure_logs_traceback(self):
+        c = FakeClient({113: ValueError("not json")})
+        with self.assertLogs(LOG, "ERROR") as logs:
+            fetcher.run_once(c, self.store, [113], 1000, LOG)
+        self.assertIsNotNone(logs.records[0].exc_info)
+
     def test_next_run_after_sleep(self):
         self.assertEqual(fetcher.next_run(1000, 60, 1000 + 5 * 3600), 1000 + 5 * 3600)
         self.assertEqual(fetcher.next_run(1000, 60, 1500), 4600)

@@ -23,6 +23,7 @@ import server  # noqa: E402  (read_config and the data folder rule)
 KIND_HOUSES = {"faction": [110, 111, 112, 113, 114, 115, 119, 120, 123, 124],
                "neutral": [116, 117, 118, 121, 125]}
 POLL = 5   # seconds between checks for fetch_now / fetcher_stop while waiting
+SHRINK_FROM = 1000   # a house this big never really halves between two fetches
 REPLACE_TRIES = 5   # 0.2 s apart
 BAD_NUMBER = "bad number in ledger.cfg (ah_ruleset, ah_faction, ah_neutral or ah_every)"
 _lock_handle = None   # held for the process lifetime
@@ -83,7 +84,15 @@ def run_once(client, store, houses, now, log, last_ok=None):
             auctions, commodities = client.house(house)
             ids = market_reduce.snapshot_ids(auctions, commodities)
             prev_t, prev_ids = store.last_ids(house)
-            if prev_t is not None and set(ids) == set(prev_ids):
+            if len(prev_ids) >= SHRINK_FROM and len(ids) < len(prev_ids) / 2:
+                # Most likely a missing or cut-short list: recording it would count every LONG auction
+                # as sold and forget the previous auctions. Skip it and compare the next one with the old.
+                why = "only %d auctions, had %d: skipped as a partial response" % (len(ids), len(prev_ids))
+                out["houses"][str(house)] = {"ok": False, "t": None, "items": 0}
+                errors.append("house %s: %s" % (house, why))
+                log.warning("house %s: %s", house, why)
+                continue
+            if prev_t is not None and ids == prev_ids:   # quantities too: a partly bought commodity changes
                 items = store.db.execute("SELECT items FROM snapshot WHERE house=? AND t=?",
                                          (house, prev_t)).fetchone()[0]
                 out["houses"][str(house)] = {"ok": True, "t": prev_t, "items": items}
@@ -99,7 +108,7 @@ def run_once(client, store, houses, now, log, last_ok=None):
         except Exception as e:   # a bad body (ValueError) must not stop the other house or the loop
             out["houses"][str(house)] = {"ok": False, "t": None, "items": 0}
             errors.append("house %s: %s" % (house, e))
-            log.error("house %s failed: %s", house, e)
+            log.exception("house %s failed: %s", house, e)
     if any(h["ok"] for h in out["houses"].values()):
         out["last_ok"] = now
     out["error"] = "; ".join(errors) or None
