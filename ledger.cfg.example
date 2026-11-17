@@ -24,10 +24,11 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 #   (goblin) one. The API doesn't say which house is whose, so find them by matching against your own scans:
 #     1. Scan the AH in game (Auctionator), then /reload so the scan is saved.
 #     2. Run  python dashboard\fetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
-#        Gadgetzan or Everlook). It ranks every house by how many prices match yours and names the best one.
+#        Gadgetzan, Everlook or the Barrens AH outside the Crossroads). It ranks every house by how many prices
+#        match yours and names the best one.
 #   The houses come in sets of three (Alliance / Horde / Blackwater): 110/113/116, 111/114/117, 119/120/121,
-#   123/124/125 (112, 115 and 118 are empty). Horde on the PvP ruleset matched 113; its Blackwater house is
-#   believed to be 116 (not yet confirmed by a Neutral scan).
+#   123/124/125 (112, 115 and 118 are empty). Horde on the PvP ruleset matched 113, and its Blackwater house
+#   matched 116.
 # ah_faction = 113
 # ah_neutral = 116
 #

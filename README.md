@@ -153,15 +153,15 @@ the game is automated: it only reads the API.
    | `bnet_region` | `us` (default) |
    | `ah_ruleset` | `1`: WoW Forever |
    | `ah_faction` | Your faction's house: `113` matched a Horde player's scans; `--match faction` finds yours |
-   | `ah_neutral` | The Neutral house: `116`, not confirmed yet (see below) |
+   | `ah_neutral` | The Neutral house: `116` matched a Horde player's Neutral scan; `--match neutral` checks yours |
    | `ah_every` | Minutes between checks for a new snapshot, `10` by default |
 
 3. Run `wowstats live`. The tray starts the fetcher with the server.
 
-The Neutral house id is a guess until it's checked. After your next scan at a goblin AH (and a `/reload`), run
-`python dashboard/fetcher.py --match neutral`. It compares Ledger Link's Neutral prices with every Neutral house and
-says which one matches; if it isn't `116`, set `ah_neutral` to the one it names. `--match faction` does the same for
-your faction's house against Auctionator's latest scan day.
+To check the Neutral house, scan a goblin AH (Booty Bay, Gadgetzan, Everlook, or Forever's one just outside the
+Crossroads in the Barrens), `/reload`, and run `python dashboard/fetcher.py --match neutral`. It compares Ledger
+Link's Neutral prices with every Neutral house and says which one matches; if it isn't `116`, set `ah_neutral` to
+the one it names. `--match faction` does the same for your faction's house against Auctionator's latest scan day.
 
 **The tray icon.** `wowstats live` puts a dot in the notification area. It runs the live server and the fetcher and
 watches both every 5 seconds:
