@@ -136,10 +136,53 @@ Days from before that went into Auctionator's book: list them in `data/neutral_d
 and the build moves them to the Neutral side. A Neutral-only day stands out by its listings: 13 Nov 2026 had about
 180k against 1 to 2.4M on other days.
 
+### Auction house data from the Battle.net API
+
+Optional. Auctionator only knows the prices you scanned. The AH fetcher asks Blizzard's API for every listing at
+your faction's house and the Neutral one once an hour, and keeps per-item prices in `data/market.db`. Nothing in
+the game is automated: it only reads the API.
+
+1. Create your own API client at [develop.battle.net](https://develop.battle.net): log in with your Battle.net
+   account and create a client (any name). Each person needs their own: never share or commit its ID and secret.
+2. Add them to `ledger.cfg` (see `ledger.cfg.example`):
+
+   | Key | What it is |
+   | --- | --- |
+   | `bnet_id`, `bnet_secret` | Your client's ID and secret |
+   | `bnet_region` | `us` (default) |
+   | `ah_ruleset` | `1`: WoW Forever |
+   | `ah_faction` | Your faction's house: `113` matched a Horde player's scans; `--match faction` finds yours |
+   | `ah_neutral` | The Neutral house: `116`, not confirmed yet (see below) |
+   | `ah_every` | Minutes between fetches, `60` by default |
+
+3. Run `wowstats live`. The tray starts the fetcher with the server.
+
+The Neutral house id is a guess until it's checked. After your next scan at a goblin AH (and a `/reload`), run
+`python dashboard/fetcher.py --match neutral`. It compares Ledger Link's Neutral prices with every Neutral house and
+says which one matches; if it isn't `116`, set `ah_neutral` to the one it names. `--match faction` does the same for
+your faction's house against Auctionator's latest scan day.
+
+**The tray icon.** `wowstats live` puts a dot in the notification area. It runs the live server and the fetcher and
+watches both every 5 seconds:
+
+- **green**: both running, and the last fetch is less than 1.5 times `ah_every` old
+- **amber**: one of them stopped, the last fetch failed, or a fetch is overdue
+- **grey**: both stopped
+
+Hover it for the details (`Live: on · AH: last fetch 14:05, next 15:05`); when it's amber the tooltip names the
+cause. Without `bnet_id` the fetcher is "not set up", which never turns the dot amber. Right-click for the menu:
+Open dashboard, Live server (Start, Stop), AH fetcher (Start, Stop, Fetch now), Open logs folder, Start with Windows
+(a shortcut in your Startup folder), Quit (stops both). `wowstats stop` stops the tray, the server and the fetcher.
+The logs are `server.log`, `fetcher.log` and `tray.log` in the data folder.
+
+**Other PCs.** Only one PC needs to fetch: the one that's on the most. To use the data elsewhere, copy that PC's
+`data/market.db` into the other PC's `data/` now and then (like the WTF copies below). Hours when the fetching PC is
+off are simply missing. Two databases are not merged: the copy replaces the old one.
+
 ### Live (second-monitor mode)
 
-`serve.bat` (or `wowstats live`) starts a small local server (Python, standard library only, listening on
-`127.0.0.1:8737` only) and opens the page from it. Then:
+`wowstats live` starts the tray icon (above), which starts a small local server (Python, standard library only,
+listening on `127.0.0.1:8737` only) and opens the page from it. `serve.bat` still starts the server alone. Then:
 
 - **The page refreshes itself** whenever WoW writes SavedVariables (every `/reload` and logout): the server reruns
   `build.lua` and the open page reloads, keeping your view, tab and scroll position.
@@ -304,17 +347,25 @@ Notes:
 | `dashboard/livelog.py` | Pure: turns combat-log lines into the Live module's picture (you, fights, kills, players around you) |
 | `dashboard/zones.py` | uiMapID → Wowhead zone id, and where the map sits in Wowhead's image |
 | `dashboard/build.bat`, `serve.bat` | Build and open the page; start `server.py` without a console window |
+| `dashboard/tray.ps1`, `tray.bat` | The tray icon: starts and watches the live server and the AH fetcher (`tray.bat` starts it hidden) |
+| `dashboard/fetcher.py` | Hourly AH fetcher: Battle.net prices into `market.db`, status in `fetcher_status.json`; `--match` finds your houses |
+| `dashboard/bnet.py` | Battle.net API client (token, auctions and commodities, retries) |
+| `dashboard/market_reduce.py` | Pure: one price row per item from a snapshot, and estimated sales between two snapshots |
+| `dashboard/market_store.py` | SQLite store for the hourly rows; folds hours older than 30 days into days |
+| `dashboard/ledgerlog.py` | Dated, rotating logs for the server and the fetcher |
+| `dashboard/dump_prices.lua` | Prints the prices saved in game, for `fetcher.py --match` |
 | `addons/` | Logbook, Ledger Link, Make or Buy, Stockpile, Haul, DropLab (each with its own README and tests) |
 | `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
-| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `server.log` |
+| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `market.db`, `fetcher_status.json`, `server.log`, `fetcher.log`, `tray.log` |
 
 ## Tests
 
 ```
 lua dashboard/tests/run.lua
 python dashboard/tests/test_live.py
+python dashboard/tests/test_tray.py      # also test_bnet, test_fetcher, test_ledgerlog, test_market_*
 cd addons/<Addon> && lua tests/run.lua      # each addon has its own suite
 ```
 

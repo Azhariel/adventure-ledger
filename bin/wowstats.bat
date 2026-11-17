@@ -3,8 +3,9 @@ REM wowstats: builds the WoW Forever "Adventure Ledger" dashboard and opens it.
 REM Log out of WoW (or /reload) first: SavedVariables are only written then.
 REM   wowstats       build and open
 REM   wowstats -n    build only (don't open the browser)
-REM   wowstats live  start the live server (page refreshes itself on /reload; Live module from the combat log)
-REM   wowstats stop  stop the live server
+REM   wowstats live  start the tray icon, which runs the live server (page refreshes itself on /reload; Live module
+REM                  from the combat log) and the hourly AH fetcher, and opens the page
+REM   wowstats stop  stop the tray, the live server and the AH fetcher
 REM Put a one-line shim on your PATH that calls this file:  @call "<repo>\bin\wowstats.bat" %*
 setlocal
 set "REPO=%~dp0.."
@@ -13,11 +14,12 @@ set "LUA=%LOCALAPPDATA%\Programs\Lua\bin\lua.exe"
 if not exist "%LUA%" set "LUA=lua"
 
 if /i "%~1"=="live" (
-    call "%DASH%\serve.bat"
+    call "%DASH%\tray.bat"
     exit /b 0
 )
 if /i "%~1"=="stop" (
-    powershell -NoProfile -Command "try { Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8737/stop -Headers @{ 'X-Ledger' = 'stop' } | Out-Null; 'Live server stopped.' } catch { 'Live server was not running.' }"
+    REM asks the tray (tray_stop file), the server (/stop) and the fetcher (fetcher_stop file) to stop
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%DASH%\tray.ps1" -Stop
     exit /b 0
 )
 
