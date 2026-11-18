@@ -153,7 +153,7 @@ the game is automated: it only reads the API.
    | `bnet_region` | `us` (default) |
    | `ah_houses` | The houses to fetch, e.g. `PvP 113, PvP 116`: ruleset name, then house id, comma-separated. The side follows from the id. `113` (Horde) and `116` (Neutral) matched on PvP; `--match` finds yours. The old `ah_ruleset`, `ah_faction` and `ah_neutral` still work when this is unset |
    | `ah_every` | Minutes between checks for a new snapshot, `10` by default |
-   | `ah_reset` | The weekly reset, day and hour on your clock: `Tue 12`, `tuesday 12:00` (minutes are ignored). Default: Tuesday at the local hour of 15:00 UTC, the US reset. Set it if Forever resets at another time |
+   | `ah_reset` | The weekly reset, day and hour on your clock: `Tue 12`, `tuesday 12:00` (whole hours only; other minutes get a warning and the default). Default: Tuesday at the local hour of 15:00 UTC, the US reset. Set it if Forever resets at another time |
 
 3. Run `wowstats live`. The tray starts the fetcher with the server.
 

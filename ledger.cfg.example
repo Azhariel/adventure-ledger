@@ -33,7 +33,7 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 # ah_houses = PvP 113, PvP 116
 #
 # ah_reset: the weekly reset, as a day and an hour on your own clock: Tue 12, tuesday 12:00 (English day names or
-#   3-letter abbreviations, any case; minutes are ignored). Default: Tuesday at the local hour of 15:00 UTC, the US
+#   3-letter abbreviations, any case; whole hours only). Default: Tuesday at the local hour of 15:00 UTC, the US
 #   reset. Set it if Forever resets at another time. The dashboard outlines this hour in every grid.
 # ah_reset = Tue 12
 #

@@ -1610,6 +1610,17 @@ test("trends.parseReset: default, names, hours and bad text", function()
         "the warning names the computed default")
 end)
 
+test("trends.parseReset: minutes must be :00", function()
+    local warm = function(h) return h - 3, 0 end
+    local a, wa = TR.parseReset("Tue 12", warm); eq(a.hour, 12); eq(wa, nil)
+    local b, wb = TR.parseReset("Tue 12:00", warm); eq(b.hour, 12); eq(wb, nil)
+    for _, bad in ipairs({ "Tue 12:30", "Tue 12:99", "Tue 12:0", "Tue 24" }) do
+        local r, w = TR.parseReset(bad, warm)
+        eq(r.dow, 1); eq(r.hour, 12)
+        eq(w, 'ah_reset: couldn\'t read "' .. bad .. '"; using Tue 12:00. Write it like: ah_reset = Tue 12:00', bad)
+    end
+end)
+
 test("trends.parseReset: default wraps the day", function()
     local d = TR.parseReset(nil, function(h) return 23, -1 end)
     eq(d.dow, 0); eq(d.hour, 23)

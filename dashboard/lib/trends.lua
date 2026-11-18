@@ -28,8 +28,8 @@ function T.parseReset(text, utcHourToLocal)
     end
     local hour = hh and tonumber(hh)
     local rest = hh and tostring(text):match("^%s*%a+%s+%d%d?(.*)$") or ""
-    local minutes = rest:match("^:(%d%d)%s*$")
-    if dow and hour and hour <= 23 and (rest:match("^%s*$") or minutes) then
+    -- the grid is hourly, so only a whole hour is accepted: "Tue 12" or "Tue 12:00"
+    if dow and hour and hour <= 23 and (rest:match("^%s*$") or rest:match("^:00%s*$")) then
         return { dow = dow, hour = hour }, nil
     end
     local d = defaultReset(utcHourToLocal)
