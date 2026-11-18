@@ -95,34 +95,43 @@ local function best(runs)
     return out
 end
 
--- Best runs of cheap (buy) and pricey (sell) hours; nil when the grid isn't trustworthy.
+-- Best runs of cheap (buy) and pricey (sell) hours; nil when the grid isn't trustworthy. The week is a loop, so a
+-- run carries across midnight and from Sunday into Monday: { dow, from, to } with to = from + length (25 = 01:00 the
+-- next day).
 function T.strip(week)
     if not week or (week.own ~= true and week.enough ~= true) then return nil end
     local sell, buy = {}, {}
-    for dow = 0, 6 do
-        for _, kind in ipairs({ "sell", "buy" }) do
-            local runs = kind == "sell" and sell or buy
-            local start, score = nil, 0
-            local function close(h)
-                if start and h - start >= T.C.STRIP_MIN_HOURS then
-                    runs[#runs + 1] = { dow = dow, from = start, to = h, score = score }
-                end
-                start, score = nil, 0
-            end
-            for h = 0, 23 do
-                local i = dow * 24 + h + 1
-                local p, n = week.p and week.p[i], week.n and week.n[i]
-                local hit = type(p) == "number" and type(n) == "number" and n >= T.C.MIN_N
-                    and (kind == "sell" and p >= T.C.STRIP_PCT or kind == "buy" and p <= -T.C.STRIP_PCT)
-                if hit then
-                    start = start or h
-                    score = score + math.abs(p)
-                else
-                    close(h)
-                end
-            end
-            close(24)
+    for _, kind in ipairs({ "sell", "buy" }) do
+        local runs = kind == "sell" and sell or buy
+        local function hit(c)
+            local p, n = week.p and week.p[c + 1], week.n and week.n[c + 1]
+            return type(p) == "number" and type(n) == "number" and n >= T.C.MIN_N
+                and (kind == "sell" and p >= T.C.STRIP_PCT or kind == "buy" and p <= -T.C.STRIP_PCT), p
         end
+        -- start the scan just after a miss, so no run is cut by the scan's own start
+        local gap
+        for c = 0, CELLS - 1 do
+            if not hit(c) then gap = c break end
+        end
+        local start, len, score = nil, 0, 0
+        local function close()
+            if start and len >= T.C.STRIP_MIN_HOURS then
+                local from = start % 24
+                runs[#runs + 1] = { dow = math.floor(start / 24), from = from, to = from + len, score = score }
+            end
+            start, len, score = nil, 0, 0
+        end
+        for k = 1, CELLS do
+            local c = gap and (gap + k) % CELLS or k - 1
+            local ok, p = hit(c)
+            if ok then
+                start = start or c
+                len, score = len + 1, score + math.abs(p)
+            else
+                close()
+            end
+        end
+        close()
     end
     return { sell = best(sell), buy = best(buy) }
 end

@@ -2222,22 +2222,29 @@ function heatGrid(week, opts = {}) {
 // from DATA.trends.stripRule. Null when the week can't be trusted (not its own grid, or a family grid short of data).
 function computeStrip(week, rule = stripRule()) {
   if (!week || (week.own !== true && week.enough !== true)) return null;
-  const sell = [], buy = [];
-  for (let dow = 0; dow < 7; dow++) {
-    for (const kind of ["sell", "buy"]) {
-      const runs = kind === "sell" ? sell : buy;
-      let start = null, score = 0;
-      const close = h => {
-        if (start != null && h - start >= rule.STRIP_MIN_HOURS) runs.push({ dow, from: start, to: h, score });
-        start = null; score = 0;
-      };
-      for (let h = 0; h < 24; h++) {
-        const i = dow * 24 + h, p = cellNum(week.p && week.p[i]), n = cellNum(week.n && week.n[i]);
-        const hit = p != null && n != null && n >= rule.MIN_N && (kind === "sell" ? p >= rule.STRIP_PCT : p <= -rule.STRIP_PCT);
-        if (hit) { if (start == null) start = h; score += Math.abs(p); } else close(h);
+  const sell = [], buy = [], CELLS = 168;
+  for (const kind of ["sell", "buy"]) {
+    const runs = kind === "sell" ? sell : buy;
+    const at = c => {
+      const p = cellNum(week.p && week.p[c]), n = cellNum(week.n && week.n[c]);
+      return p != null && n != null && n >= rule.MIN_N && (kind === "sell" ? p >= rule.STRIP_PCT : p <= -rule.STRIP_PCT) ? p : null;
+    };
+    // the week is a loop: scan from just after a miss, so runs carry across midnight and from Sunday into Monday
+    let gap = null;
+    for (let c = 0; c < CELLS; c++) if (at(c) == null) { gap = c; break; }
+    let start = null, len = 0, score = 0;
+    const close = () => {
+      if (start != null && len >= rule.STRIP_MIN_HOURS) {
+        const from = start % 24;
+        runs.push({ dow: Math.floor(start / 24), from, to: from + len, score });
       }
-      close(24);
+      start = null; len = 0; score = 0;
+    };
+    for (let k = 1; k <= CELLS; k++) {
+      const c = gap != null ? (gap + k) % CELLS : k - 1, p = at(c);
+      if (p != null) { if (start == null) start = c; len++; score += Math.abs(p); } else close();
     }
+    close();
   }
   const best = runs => runs.sort((a, b) => b.score - a.score || a.dow - b.dow || a.from - b.from)
     .slice(0, rule.STRIP_RUNS).map(r => ({ dow: r.dow, from: r.from, to: r.to }));
@@ -2247,7 +2254,9 @@ function computeStrip(week, rule = stripRule()) {
 // "Sell: Tue 19–23, Wed 20–22 · Buy: Sun 4–9" ("" when there's nothing to say)
 function stripText(strip) {
   if (!strip) return "";
-  const runs = list => (list || []).map(r => `${WEEKDAYS[r.dow]} ${r.from}–${r.to}`).join(", ");
+  // to runs past 24 when the window crosses midnight: "Mon 23–Tue 1"
+  const end = r => r.to <= 24 ? r.to : `${WEEKDAYS[(r.dow + Math.floor(r.to / 24)) % 7]} ${r.to % 24}`;
+  const runs = list => (list || []).map(r => r.to - r.from >= 168 ? "all week" : `${WEEKDAYS[r.dow]} ${r.from}–${end(r)}`).join(", ");
   return [strip.sell && strip.sell.length && `<span class="sell">Sell: ${runs(strip.sell)}</span>`,
     strip.buy && strip.buy.length && `<span class="buy">Buy: ${runs(strip.buy)}</span>`].filter(Boolean).join(" · ");
 }

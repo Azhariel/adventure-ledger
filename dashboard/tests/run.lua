@@ -1660,6 +1660,21 @@ test("trends.strip: best sell and buy runs", function()
     eq(#s.buy, 1); eq(s.buy[1].dow, 6); eq(s.buy[1].from, 4); eq(s.buy[1].to, 9)
 end)
 
+test("trends.strip: runs carry across midnight and the week's end", function()
+    local g = grid(function(g)
+        for _, c in ipairs({ cell(0, 23), cell(1, 0) }) do g.p[c], g.s[c], g.n[c] = 0.10, 1, 3 end
+        for _, c in ipairs({ cell(6, 22), cell(6, 23), cell(0, 0) }) do g.p[c], g.s[c], g.n[c] = -0.10, 1, 3 end
+    end)
+    g.own = true
+    local s = TR.strip(g)
+    eq(#s.sell, 1); eq(s.sell[1].dow, 0); eq(s.sell[1].from, 23); eq(s.sell[1].to, 25)
+    eq(#s.buy, 1); eq(s.buy[1].dow, 6); eq(s.buy[1].from, 22); eq(s.buy[1].to, 25)
+    local all = grid(function(g) for i = 1, 168 do g.p[i], g.s[i], g.n[i] = 0.10, 1, 3 end end)
+    all.own = true
+    local w = TR.strip(all)
+    eq(#w.sell, 1); eq(w.sell[1].dow, 0); eq(w.sell[1].from, 0); eq(w.sell[1].to, 168); eq(#w.buy, 0)
+end)
+
 test("trends.strip: nil below the cell share", function()
     local g = grid(); g.own = false; g.enough = false
     eq(TR.strip(g), nil)
