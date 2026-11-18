@@ -2281,7 +2281,7 @@ function trendsHouse() {
 const DAY_MS = 86400000;
 const DR = { open: false, id: null, key: null, range: "14", api: false, from: null, hist: () => null };
 const drCharts = [];
-const HIST = new Map();   // "houseId:itemId" -> { state: "loading" | "ok" | "fail", data }: one fetch per page load
+const HIST = new Map();   // "houseId:itemId" -> { state: "loading" | "ok" | "fail", data }: fetched once per page load unless it failed
 const charHouses = c => c && c.houses && !Array.isArray(c.houses) ? c.houses : {};
 function defaultPair() {
   const f = (DATA && DATA.trends && DATA.trends.default) || null;
@@ -2346,7 +2346,8 @@ const resetLegend = () => { const r = DATA && DATA.reset; return `<span><i class
 
 function loadHistory(houseId, id) {
   const k = houseId + ":" + id;
-  if (HIST.has(k)) return HIST.get(k);
+  const had = HIST.get(k);
+  if (had && had.state !== "fail") return had;   // a failed fetch is tried again on the next open or range change
   const e = { state: "loading", data: null };
   HIST.set(k, e);
   fetch(`/history?house=${encodeURIComponent(houseId)}&item=${encodeURIComponent(id)}`)
