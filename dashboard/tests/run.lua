@@ -1298,6 +1298,75 @@ test("houses: fallbacks, nil inputs, ties and accounts without characters", func
     eq(f, "A Horde", "a tie goes to the first row")
 end)
 
+----------------------------------------------------------------------------------------------------
+-- Reconciliation of scans with API snapshots
+
+local R = require("reconcile")
+
+test("reconcile: newer API snapshot wins, sold out included", function()
+    local book = { vendor = { [1] = 5 }, last = 7, prices = {
+        [1] = { now = 100, seenAt = 1000, days = { { day = 1 } } },
+        [3] = { now = 70, seenAt = 1000, days = {} } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95, units = 4 }, [2] = { market = 50 } } }
+    local m = R.merge(book, api, function(p) return p.seenAt end)
+    eq(m.prices[1].now, 90); eq(m.prices[1].nowFrom, "api"); eq(m.prices[1].nowAt, 2000)
+    eq(m.prices[1].market, 95); eq(m.prices[1].units, 4); eq(m.prices[1].seenAt, 1000)
+    truthy(m.prices[2]); eq(m.prices[2].now, nil); eq(#m.prices[2].days, 0); eq(m.prices[2].market, 50)
+    eq(m.prices[3].now, nil, "sold out in the newer snapshot"); eq(m.prices[3].nowFrom, "api")
+    eq(m.vendor, book.vendor); eq(m.last, 7); eq(m.apiLatest, 2000)
+    eq(book.prices[1].now, 100, "the book is not mutated"); eq(book.prices[1].market, nil)
+end)
+
+test("reconcile: newer scan wins over an older snapshot", function()
+    local book = { prices = { [1] = { now = 100, seenAt = 3000, days = {} } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95 } } }
+    local m = R.merge(book, api, function(p) return p.seenAt end)
+    eq(m.prices[1].now, 100); eq(m.prices[1].nowFrom, "scan"); eq(m.prices[1].nowAt, 3000); eq(m.prices[1].market, 95)
+end)
+
+test("reconcile: no api returns the book unchanged (same table)", function()
+    local book = { prices = {} }
+    eq(R.merge(book, nil, function() end), book)
+end)
+
+test("reconcile: Auctionator day stamped by the last faction visit of that day", function()
+    local D, h = 2000, 3600
+    local base = S.dayToTime(D)
+    local p = { days = { { day = D } } }
+    local visits = {
+        { t = base + 10 * h, kind = "faction" },
+        { t = base + 12 * h, kind = "neutral" },
+        { t = base + 11 * h, kind = "faction", realm = "CAMWOW US2 Realm 2 PvP" },
+        { t = base + 13 * h, kind = "faction", realm = "CAMWOW US2 Realm 1 Normal" },
+        { t = base - 2 * h, kind = "faction" } }
+    eq(R.scanAt(p, visits, "PvP", "faction", S.dayToTime, S.timeToDay), base + 11 * h)
+    eq(R.scanAt(p, {}, "PvP", "faction", S.dayToTime, S.timeToDay), S.dayToTime(D + 1) - 1)
+    eq(R.scanAt({ days = {} }, visits, "PvP", "faction", S.dayToTime, S.timeToDay), nil)
+    eq(R.scanAt({ seenAt = 42, days = {} }, visits, "PvP", "faction", S.dayToTime, S.timeToDay), 42)
+    eq(R.scanAt(p, { { t = base + 9 * h, kind = "faction" } }, "PvP", "faction", S.dayToTime, S.timeToDay), base + 9 * h, "no realm counts")
+end)
+
+test("reconcile: agreement against the nearest recent snapshot", function()
+    local h = 3600
+    local t0 = S.dayToTime(2000)
+    local scan = t0 + 19 * h + 41 * 60
+    local at = function(p) return p.seenAt end
+    local book = { prices = {
+        [1] = { now = 100, seenAt = scan, days = { { day = 2000 } } },
+        [2] = { now = 200, seenAt = scan - 60, days = { { day = 2000 } } },
+        [3] = { now = 1000, seenAt = scan - 120, days = { { day = 2000 } } },
+        [4] = { now = 5, seenAt = scan - 86400, days = { { day = 1999 } } } } }
+    local api = { recent = {
+        { t = t0 + 19 * h + 24 * 60, min = { [1] = 100, [2] = 200, [3] = 1040, [4] = 5 } },
+        { t = t0 + 15 * h, min = { [1] = 1 } } } }
+    local a = R.agreement(book, api, at)
+    eq(a.apiAt, t0 + 19 * h + 24 * 60); eq(a.scanAt, scan)
+    eq(a.shared, 3); eq(a.exact, 2); eq(a.near, 3)
+    local far = { recent = { { t = scan - 5 * h, min = { [1] = 100 } }, { t = scan + 5 * h, min = { [1] = 100 } } } }
+    eq(R.agreement(book, far, at), nil)
+    eq(R.agreement(book, { recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then
