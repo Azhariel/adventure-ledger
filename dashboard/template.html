@@ -1894,7 +1894,7 @@ const dealListed = d => {
 };
 // Sell windows' Extra: over market on what sells today (the build's sells); legacy rows count all you have
 const extraCell = x => x.sells == null ? money(x.extra)
-  : `<span data-sort="${x.extra}" title="${x.sells < x.count ? `Selling ${x.sells} of your ${x.count}` : `Selling all ${x.count} you have`} today (about ${x.soldPerDay} sell a day)">${money(x.extra)}</span>`;
+  : `<span data-sort="${x.extra}" title="${x.sells < x.count ? `Selling ${x.sells} of your ${x.count}` : `Selling all ${x.count} you have`} today (about ${short(x.soldPerDay)} sell a day)">${money(x.extra)}</span>`;
 // When the house's API snapshot was taken (DATA.priceSources, from the build); "" when there is none
 const apiAsOf = (key, sources) => {
   const s = (sources || []).find(x => x.key === key);

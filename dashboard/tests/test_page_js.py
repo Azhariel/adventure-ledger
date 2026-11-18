@@ -356,13 +356,13 @@ process.stdout.write(JSON.stringify([lonePill({ lone: true, cheap: 1 }), dealLis
         self.assertEqual((bare, scans, none), ("4", "9", ""))
 
     def test_sell_window_extra_cell(self):
-        js = page_js(["extraCell"], "const money = v => v + 'c';") + """
+        js = page_js(["extraCell"], "const money = v => v + 'c'; const short = v => 'S' + v;") + """
 process.stdout.write(JSON.stringify([extraCell({ extra: 3000, sells: 6, count: 40, soldPerDay: 6.5 }),
   extraCell({ extra: 1500, sells: 3, count: 3, soldPerDay: 10 }), extraCell({ extra: 200, count: 2 })]));
 """
         capped, all_, legacy = json.loads(run_node(js))
-        self.assertEqual(capped, '<span data-sort="3000" title="Selling 6 of your 40 today (about 6.5 sell a day)">3000c</span>')
-        self.assertEqual(all_, '<span data-sort="1500" title="Selling all 3 you have today (about 10 sell a day)">1500c</span>')
+        self.assertEqual(capped, '<span data-sort="3000" title="Selling 6 of your 40 today (about S6.5 sell a day)">3000c</span>')
+        self.assertEqual(all_, '<span data-sort="1500" title="Selling all 3 you have today (about S10 sell a day)">1500c</span>')
         self.assertEqual(legacy, "200c")
 
     def test_now_at_falls_back_to_the_tab_snapshot(self):
