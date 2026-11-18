@@ -166,6 +166,7 @@ svg.spark { display: block; margin-left: auto; }
 .heat .hr { text-align: left; white-space: nowrap; overflow: visible; }
 .heat .dl { color: var(--muted); align-self: center; }
 .heat .cell { height: 20px; border-radius: 3px; background: var(--bg); }
+.heat .rw, .wk .rw { display: contents; }
 .heat .tot { text-align: right; align-self: center; color: var(--muted); }
 @media (max-width: 860px) { .heat { grid-template-columns: 28px repeat(24, minmax(0, 1fr)) 48px; gap: 2px; } .heat .cell { height: 14px; } }
 /* hour of the week at the auction house: pink cheaper than usual, green pricier, blue volume; blank = too little data */
@@ -482,7 +483,8 @@ tr.flash td { animation: flash .8s ease-out; }
           <select id="trendsHouse" aria-label="Auction house"></select>
           <div class="chips" id="trendsChips"></div>
           <input type="search" class="search" id="trendsSearch" list="trendsItems" placeholder="Find an item at this house" autocomplete="off">
-          <datalist id="trendsItems"></datalist></div></article>
+          <datalist id="trendsItems"></datalist></div>
+        <p class="hint" id="trendsFind" hidden></p></article>
       <article class="panel w6"><div class="ph"><h2 id="trendsLeftTitle"></h2></div><p class="hint" id="trendsLeftHint"></p>
         <div id="trendsLeft"></div><p class="strip" id="trendsStrip" hidden></p></article>
       <article class="panel w6"><div class="ph"><h2 id="trendsRightTitle"></h2></div><p class="hint" id="trendsRightHint"></p>
@@ -1159,8 +1161,8 @@ function drawSys() {
     ...((DATA.pcs || []).length > 1 ? [["pcs", DATA.pcs.join(", ")]] : []),
     // each auction house's prices: the API's latest snapshot, the latest in-game scan, how well they agree
     ...(DATA.priceSources || []).map(s => [s.key, [
-      s.apiAt && `API ${clock(s.apiAt)}`,
-      s.scanAt && `scan ${clock(s.scanAt)}`,
+      s.apiAt && `API ${when(s.apiAt)}`,
+      s.scanAt && `scan ${when(s.scanAt)}`,
       s.agreement && s.agreement.shared && `${Math.round(100 * s.agreement.exact / s.agreement.shared)}% match`,
     ].filter(Boolean).join(" · ") || "no data"]),
   ];
@@ -1325,13 +1327,13 @@ function renderWhen(spans) {
   el("whenHint").textContent = `Time logged in, by weekday and hour on your clock, since ${DAYFMT.format(new Date(first * 1000))} (about ${plural(weeks, "week")}). Darker means more; hover an hour for its total.`;
   el("whenMeta").textContent = `most: ${DAYS[best.d]} ${hh(best.h)}`;
   const purple = css("--purple");
-  const head = `<span></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}<span class="tot">total</span>`;
-  const rows = grid.map((row, d) => `<span class="dl">${DAYS[d]}</span>` + row.map((v, h) => {
+  const head = `<div class="rw" role="row"><span role="columnheader" aria-label="Weekday"></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr" role="columnheader" aria-label="${hh(h)}">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}<span class="tot" role="columnheader">total</span></div>`;
+  const rows = grid.map((row, d) => `<div class="rw" role="row"><span class="dl" role="rowheader">${DAYS[d]}</span>` + row.map((v, h) => {
     const k = v / max;
     // a floor so a few minutes still shows against the empty cells
     const bg = v > 0 ? `background:${alpha(purple, (0.18 + 0.82 * k).toFixed(3))}` : "";
     return `<span class="cell" role="cell" style="${bg}" title="${LONG[d]} ${hh(h)}–${hh(h + 1)}: ${v ? dur(v) : "never"} in total"></span>`;
-  }).join("") + `<span class="tot">${dur(row.reduce((a, b) => a + b, 0))}</span>`).join("");
+  }).join("") + `<span class="tot" role="cell">${dur(row.reduce((a, b) => a + b, 0))}</span></div>`).join("");
   el("whenGrid").innerHTML = head + rows;
 }
 
@@ -2168,6 +2170,20 @@ const stripRule = () => (DATA && DATA.trends && DATA.trends.stripRule) || { MIN_
 const hour2 = h => `${String(h).padStart(2, "0")}:00`;
 const nowCell = () => { const d = new Date(); return ((d.getDay() + 6) % 7) * 24 + d.getHours(); };
 const pctVsUsual = p => { const r = Math.round(p * 100); return `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(r)}%`; };
+// y bounds for a money axis: a series flatter than 10c gets a window of at least 2c around it, so whole-copper ticks don't repeat;
+// otherwise nothing (undefined bounds keep Chart.js's own)
+function moneyAxis(values) {
+  const v = (values || []).filter(x => typeof x === "number" && isFinite(x));
+  if (!v.length) return {};
+  const lo = Math.min(...v), hi = Math.max(...v);
+  return hi - lo >= 10 ? {} : { min: Math.max(0, lo - 1), max: hi + 1 };
+}
+// a forecast that lands outside a quarter to four times the last price says nothing useful
+function forecastShown(last, end) {
+  if (!(last > 0) || !isFinite(end)) return false;
+  const r = end / last;
+  return r >= 0.25 && r <= 4;
+}
 const perWeek = s => s >= 10 ? NUM.format(Math.round(s)) : String(Math.round(s * 10) / 10);
 
 // heatGrid(week, { kind, reset, title }): 7 rows Mon–Sun by 24 hours, with a legend under it.
@@ -2203,12 +2219,12 @@ function heatGrid(week, opts = {}) {
     if (i === resetAt) parts.push("weekly reset");
     return parts.join(" · ");
   };
-  const head = `<span></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}`;
-  const rows = WEEKDAYS.map((name, d) => `<span class="dl">${name}</span>` + Array.from({ length: 24 }, (_, h) => {
+  const head = `<div class="rw" role="row"><span role="columnheader" aria-label="Weekday"></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr" role="columnheader" aria-label="${hour2(h)}">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}</div>`;
+  const rows = WEEKDAYS.map((name, d) => `<div class="rw" role="row"><span class="dl" role="rowheader">${name}</span>` + Array.from({ length: 24 }, (_, h) => {
     const i = d * 24 + h;
     const bg = blank(i) ? "" : ` style="background:${colour(at(vals, i))}"`;
     return `<span class="cell${i === resetAt ? " reset" : ""}" role="cell"${bg} title="${esc(tip(d, h, i))}"></span>`;
-  }).join("")).join("");
+  }).join("") + `</div>`).join("");
   const legend = kind === "price"
     ? `<span><i class="ramp" style="background:linear-gradient(90deg, var(--pink), var(--raise), var(--green))"></i>−25% cheaper (buy) · usual · +25% pricier (sell)</span>`
     : `<span><i class="ramp" style="background:linear-gradient(90deg, color-mix(in srgb, var(--cyan) 15%, var(--raise)), var(--cyan))"></i>${kind === "sold" ? "fewer to more sold" : "fewer to more listed"}${max ? ` (top ${kind === "sold" ? perWeek(max) + "/wk" : NUM.format(Math.round(max))})` : ""}</span>`;
@@ -2429,8 +2445,9 @@ function drawHeader() {
       cell("Trend", trend != null ? signedPct(trend) : dash, "vs a week ago"),
     ] : []),
   ].join("");
-  el("drNote").hidden = DR.api;
-  el("drNote").textContent = DR.api ? "" : `no API data for this item at ${label}`;
+  const noApi = !DR.api && !!DATA.trends;
+  el("drNote").hidden = !noApi;
+  el("drNote").textContent = !noApi ? "" : `no API data for this item at ${label}`;
   const sh = (T && T.shifted) || (tab && tab.shifted);
   el("drShift").hidden = !(sh && sh.dir);
   el("drShift").innerHTML = !(sh && sh.dir) ? "" : (() => {
@@ -2506,6 +2523,8 @@ function drawPrice() {
   if (hasMk) ds.push({ label: "Market value", data: list.map(p => ({ x: p.x, y: p.mk })), borderColor: mcol, backgroundColor: mcol, borderWidth: 2, pointRadius: pr, tension: .2, spanGaps: false });
   const pad = hourly ? 0 : DAY_MS / 2, xmin = list[0].x - pad, xmax = list[list.length - 1].x + pad;
   const o = timeOpts(v => moneyText(v), { zoom: true });
+  Object.assign(o.scales.y, moneyAxis(list.flatMap(p => [p.lo, p.mk])));
+  o.scales.y.ticks.precision = 0;
   // ticks at local midnights, spaced to fit; within two days, hours
   o.scales.x = { type: "linear", min: xmin, max: Math.max(xmax, xmin + 3600000),
     afterBuildTicks: ax => {
@@ -2562,6 +2581,7 @@ function modTrends() {
   if (trendsFam !== "house" && !fams.some(f => f.key === trendsFam)) trendsFam = "house";
   el("trendsChips").innerHTML = [["house", "Whole house"]].concat(fams.map(f => [f.key, f.label]))
     .map(([k, l]) => `<button type="button" class="chip" data-k="${esc(k)}" aria-pressed="${k === trendsFam}">${esc(l)}</button>`).join("");
+  el("trendsFind").hidden = true;
   el("trendsItems").innerHTML = Object.values(items).map(it => it.name).sort().map(n => `<option value="${esc(n)}"></option>`).join("");
   const fam = trendsFam === "house" ? null : fams.find(f => f.key === trendsFam);
   const famOf = id => fams.find(f => (f.ids || []).includes(id));
@@ -3247,26 +3267,32 @@ function inspect(id, side = house) {
   const days = (active.days || []);
   const fc = FC.holt(days.map(d => d[1]), 7);
   const lastD = lastOf(days);
-  if (fc && lastD) {
+  const fcEnd = fc && lastOf(fc.f), fcOk = !!(fc && lastD && fcEnd && forecastShown(lastD[1], fcEnd.y));
+  if (fcOk) {
     const pts = [{ x: mid(lastD[0]), y: lastD[1], lo: lastD[1], hi: lastD[1] }].concat(fc.f.map(f => ({ x: mid(lastD[0] + f.k * DAY), y: f.y, lo: f.lo, hi: f.hi })));
     ds.push({ label: "Band hi", data: pts.map(p => ({ x: p.x, y: p.hi })), borderWidth: 0, pointRadius: 0, fill: "+1", backgroundColor: alpha(fcol, .14) });
     ds.push({ label: "Band lo", data: pts.map(p => ({ x: p.x, y: p.lo })), borderWidth: 0, pointRadius: 0 });
     ds.push({ label: `${activeName} forecast`, data: pts, borderColor: fcol, borderDash: [6, 5], borderWidth: 2, pointRadius: 0 });
-    const end = lastOf(fc.f);
+    const end = fcEnd;
     el("itemMeta").innerHTML = `${activeName}, 7 days: <span style="color:var(--pink)">${moneyText(end.y)}</span> (${signedPctText(end.y / lastD[1] - 1)})`;
     el("itemMethod").textContent = `forecast: damped Holt on log daily lows (α ${fc.alpha.toFixed(1)}, β ${fc.beta.toFixed(2)}, φ 0.85), ${fc.n} scan days; band ≈ 80%`;
+  } else if (fc && lastD) {
+    el("itemMeta").textContent = "forecast: too uncertain";
+    el("itemMethod").textContent = "the damped Holt forecast ends more than 4 times above or below the last daily low, so it is not drawn";
   } else {
     el("itemMeta").textContent = "";
     el("itemMethod").textContent = "forecast needs 3 scan days at this house";
   }
   el("itemLegend").innerHTML = [F && `<span><i style="background:var(--faction)"></i>Faction</span>`, N && `<span><i style="background:var(--neutral)"></i>Neutral</span>`,
     `<span><i style="background:var(--dim)"></i>solid: daily low · dotted: daily high · rings: your saves</span>`,
-    fc ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span>` : "", resetLegend()].filter(Boolean).join("");
+    fcOk ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span>` : "", resetLegend()].filter(Boolean).join("");
   const xs = ds.flatMap(d => d.data.map(p => p.x)).concat(lds0(F, N, mid));
   const xr = xs.length ? { min: Math.min(...xs) - DAY * 500, max: Math.max(...xs) + DAY * 500 } : {};
   const fixY = { afterFit: ax => { ax.width = 68; } };
   const o = timeOpts(v => moneyText(v));
   Object.assign(o.scales.x, xr); Object.assign(o.scales.y, fixY);
+  Object.assign(o.scales.y, moneyAxis(ds.filter(d => d.type !== "scatter" && !/^Band/.test(d.label)).flatMap(d => d.data.map(pt => pt.y))));
+  o.scales.y.ticks.precision = 0;
   o.plugins.legend = { display: false };
   chart("itemChart", { type: "line", data: { datasets: ds }, options: o, plugins: [resetLines] }, inspCharts);
   // Listings: a second chart rather than a second axis
@@ -3351,14 +3377,17 @@ document.addEventListener("keydown", e => {
 document.addEventListener("change", e => {
   if (e.target.id === "trendsHouse") { store.set(TRENDS_HOUSE_KEY, e.target.value); go(route, { keepScroll: true }); }
 });
+document.addEventListener("change", e => {
+  // Trends: picking a name from the list, or Enter, opens that item at the house in view; an unknown name says so
+  if (e.target.id !== "trendsSearch") return;
+  const raw = e.target.value.trim(), q = raw.toLowerCase(), key = trendsHouse();
+  const hit = q && Object.entries(DATA.trends.houses[key].items || {}).find(([, it]) => String(it.name).toLowerCase() === q);
+  el("trendsFind").hidden = !q || !!hit;
+  el("trendsFind").textContent = !q || hit ? "" : `No prices for "${raw}" at ${houseLabel(key)}.`;
+  if (hit) openDrawer(Number(hit[0]), key, e.target);
+});
 document.addEventListener("input", e => {
-  // Trends: picking a name from the list (or typing one in full) opens that item at the house in view
-  if (e.target.id === "trendsSearch") {
-    const q = e.target.value.trim().toLowerCase(), key = trendsHouse();
-    const hit = q && Object.entries(DATA.trends.houses[key].items || {}).find(([, it]) => String(it.name).toLowerCase() === q);
-    if (hit) openDrawer(Number(hit[0]), key, e.target);
-    return;
-  }
+  if (e.target.id === "trendsSearch") { el("trendsFind").hidden = true; return; }
   const inp = e.target.closest("input[data-table]");
   if (inp && tableState[inp.dataset.table]) {
     tableState[inp.dataset.table].query = inp.value.trim();

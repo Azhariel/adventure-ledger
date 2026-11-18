@@ -224,3 +224,31 @@ process.stdout.write(JSON.stringify([when(86400), typeof FC.holt, pctVsUsual(0.1
         self.assertEqual(json.loads(run_node(js)), ["D", "function", "+10%"])
         with self.assertRaises(AssertionError):
             page_js(["noSuchThing"])
+
+    def test_pct_vs_usual_tiny(self):
+        js = page_js(["pctVsUsual"]) + """
+process.stdout.write(JSON.stringify([0.004, -0.004, 0, 0.06, -0.06].map(pctVsUsual)));
+"""
+        got = json.loads(run_node(js))
+        self.assertEqual(got, ["±0%", "±0%", "±0%", "+6%", "−6%"])
+        self.assertFalse([g for g in got[:3] if g.startswith("+") or g.startswith("−")])
+
+    def test_money_axis_flat_series(self):
+        js = page_js(["moneyAxis"]) + """
+process.stdout.write(JSON.stringify([moneyAxis([1, 1, 1]), moneyAxis([1, 11]), moneyAxis([5, 400]), moneyAxis([7]), moneyAxis([])]));
+"""
+        flat, wide, wider, one, none = json.loads(run_node(js))
+        self.assertGreaterEqual(flat["max"] - flat["min"], 2)
+        self.assertLessEqual(flat["min"], 1)
+        self.assertGreaterEqual(flat["max"], 1)
+        self.assertGreaterEqual(one["max"] - one["min"], 2)
+        for spread in (wide, wider, none):
+            self.assertIsNone(spread.get("min"))
+            self.assertIsNone(spread.get("max"))
+
+    def test_forecast_sane(self):
+        js = page_js(["forecastShown"]) + """
+process.stdout.write(JSON.stringify([forecastShown(100, 110), forecastShown(100, 24), forecastShown(100, 25), forecastShown(100, 401),
+  forecastShown(100, 400), forecastShown(0, 5), forecastShown(100, NaN)]));
+"""
+        self.assertEqual(json.loads(run_node(js)), [True, False, True, False, True, False, False])
