@@ -30,6 +30,17 @@ pushd "%DASH%"
 set "RC=%ERRORLEVEL%"
 popd
 if not "%RC%"=="0" exit /b %RC%
+REM the build may have changed the wanted list (market_wanted.tsv): run the engine again and rebuild only if it
+REM wrote a new market.lua ("unchanged", "no data" or a failure keep the page just built)
+set "MK="
+for /f "delims=" %%r in ('python "%DASH%\market.py"') do set "MK=%%r"
+if not "%MK%"=="written" goto built
+pushd "%DASH%"
+"%LUA%" build.lua
+set "RC=%ERRORLEVEL%"
+popd
+if not "%RC%"=="0" exit /b %RC%
+:built
 
 if /i "%~1"=="-n" exit /b 0
 REM If the live server is running, open the page from it (the file:// copy has no Live module).
