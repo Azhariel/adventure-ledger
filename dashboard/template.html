@@ -1085,7 +1085,7 @@ function drawSys() {
       s.apiAt && `API ${clock(s.apiAt)}`,
       s.scanAt && `scan ${clock(s.scanAt)}`,
       s.agreement && s.agreement.shared && `${Math.round(100 * s.agreement.exact / s.agreement.shared)}% match`,
-    ].filter(Boolean).join(" · ")]),
+    ].filter(Boolean).join(" · ") || "no data"]),
   ];
   el("sys").innerHTML = rows.map(([k, v]) => `<div><span>${esc(k)}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join("");
 }

@@ -270,7 +270,7 @@ function Build.data(wow, opts)
         end
     end
     -- Every account first (every PC's copy of its folder): each character's market depends on all of them
-    local houseAccts, ledgers, vendor, allChars = {}, {}, {}, {}
+    local houseAccts, ledgers, vendor, allChars, atrs = {}, {}, {}, {}, {}
     for _, c in ipairs(charDirs) do
         if not accounts[c.account] then
             local dirs = accountDirs[c.account]
@@ -282,6 +282,7 @@ function Build.data(wow, opts)
                 -- Auctionator's vendor prices aren't per house: one cache for every market
                 for id, v in pairs(atr and atr.vendor or {}) do vendor[id] = vendor[id] or v end
                 ledgers[#ledgers + 1] = ledger
+                atrs[#atrs + 1] = atr
                 mine[#mine + 1] = { auctionator = atr, ledger = ledger }
                 local lbAcct = sv(d, "Logbook.lua", "LogbookDB")
                 logbooks[#logbooks + 1] = lbAcct
@@ -318,9 +319,39 @@ function Build.data(wow, opts)
     end
     -- The default pair (the last character played's houses) feeds the market pages
     local factionKey, neutralKey = H.default(allChars)
+    -- No character with both realm and faction (old data, MuddyBoots rows only): the first faction house that has
+    -- a book, so the market pages stay as they were
+    local rawFaction, rawNeutral
+    if not factionKey then
+        local sides, neutrals = {}, {}
+        for key in pairs(raw) do
+            if key:match(" Neutral$") then neutrals[#neutrals + 1] = key else sides[#sides + 1] = key end
+        end
+        table.sort(sides); table.sort(neutrals)
+        if sides[1] then
+            factionKey, neutralKey = sides[1], H.key(sides[1]:match("^(.*) %S+$"), "Neutral")
+        else
+            -- not even one faction house can be told: Auctionator's largest book and Ledger Link's legacy Neutral
+            -- book, as before houses existed (unkeyed, so never merged with API data)
+            neutralKey = neutrals[1]
+            local m = Mg.markets(atrs)
+            rawFaction = m and { prices = m.prices, vendor = {} } or nil
+            if not neutralKey then
+                local legacy = {}
+                for _, l in ipairs(ledgers) do
+                    if l.legacy then legacy[#legacy + 1] = { prices = l.legacy, vendor = {} } end
+                end
+                rawNeutral = Mg.markets(legacy)
+            end
+        end
+    end
+    rawFaction = factionKey and raw[factionKey] or rawFaction
+    rawNeutral = neutralKey and raw[neutralKey] or rawNeutral
     -- Neutral scans that reached Auctionator's book before Ledger Link kept them apart (neutral_days.txt)
-    if factionKey and raw[factionKey] then
-        raw[factionKey], raw[neutralKey] = I.splitNeutralDays(raw[factionKey], raw[neutralKey], opts.neutralDays)
+    if rawFaction then
+        rawFaction, rawNeutral = I.splitNeutralDays(rawFaction, rawNeutral, opts.neutralDays)
+        if factionKey then raw[factionKey] = rawFaction end
+        if neutralKey then raw[neutralKey] = rawNeutral end
     end
     -- Ledger Link's visits (every account, every PC) date Auctionator's day-only scans
     local visits, seenVisit, nlast, nmode = {}, {}, nil, nil
@@ -368,20 +399,23 @@ function Build.data(wow, opts)
         result.priceSources[#result.priceSources + 1] = { key = key, apiAt = api and api.latest or nil, scanAt = latest,
             agreement = book and api and R.agreement(book, api, scanAt) or nil }
     end
-    local market = factionKey and merged[factionKey] or { prices = {}, vendor = vendor }
+    local market = factionKey and merged[factionKey] or rawFaction or { prices = {}, vendor = vendor }
+    market.vendor = vendor
     -- The Neutral tab shows whenever Ledger Link is saving, also before its first Neutral scan (an empty raw book
     -- still carries the days the split looked at)
-    local neutral = neutralKey and (merged[neutralKey] or raw[neutralKey]) or nil
+    local neutral = neutralKey and merged[neutralKey] or rawNeutral
     if not neutral and #ledgers > 0 then neutral = { prices = {}, vendor = vendor } end
     if neutral then
         neutral.vendor = vendor
         neutral.last, neutral.visits, neutral.mode = nlast, visits, nmode
     end
     for _, g in ipairs(groups) do g.market = market end
-    -- A character's own faction house; without one (no book, no API data, no faction), the default pair's
+    -- A character's own faction house, empty when that house has no book and no API data (never another house's
+    -- prices); the default pair's only when the house can't be told (no realm or faction)
     local function charMarket(realm, faction)
         local key = H.forChar(realm, faction)
-        return key and merged[key] or market
+        if not key then return market end
+        return merged[key] or { prices = {}, vendor = vendor }
     end
 
     for _, c in ipairs(charDirs) do
@@ -557,7 +591,7 @@ function Build.data(wow, opts)
             end
         end
         -- in-game scans only: the default pair's raw book, before the API's prices were laid over it
-        local lines = I.priceLogLines(factionKey and raw[factionKey], opts.priceLog.last, result.generated)
+        local lines = I.priceLogLines(rawFaction, opts.priceLog.last, result.generated)
         if lines ~= "" then
             opts.priceLog.append(lines)
             for id, list in pairs((I.parsePriceLog(lines))) do
@@ -572,7 +606,7 @@ function Build.data(wow, opts)
         local nseen = {}
         if opts.neutralLog then
             nseen = opts.neutralLog.seen
-            local lines = I.priceLogLines(neutralKey and raw[neutralKey], opts.neutralLog.last, result.generated)
+            local lines = I.priceLogLines(rawNeutral, opts.neutralLog.last, result.generated)
             if lines ~= "" then
                 opts.neutralLog.append(lines)
                 for id, list in pairs((I.parsePriceLog(lines))) do

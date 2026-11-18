@@ -1271,8 +1271,8 @@ test("two rulesets: each character uses its own house", function()
     end
     local acct = dir .. "/WTF/Account/ACC"
     mkdir(acct .. "/SavedVariables"); mkdir(acct .. "/91/Hero-Realm/SavedVariables")
-    U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-PvP"] = { name = "Hero", realm = "PvP", bags = { [2592] = 1 }, bank = {}, mail = {} }, ["Alt-Normal"] = { name = "Alt", realm = "Normal", bags = { [2592] = 1 }, bank = {}, mail = {} } } }')
-    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "PvP", faction = "Horde", level = 12, lastSeen = 50 }, G2 = { name = "Alt", realm = "Normal", faction = "Alliance", level = 3, lastSeen = 40 } } }')
+    U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-PvP"] = { name = "Hero", realm = "PvP", bags = { [2592] = 1 }, bank = {}, mail = {} }, ["Alt-Normal"] = { name = "Alt", realm = "Normal", bags = { [2592] = 1 }, bank = {}, mail = {} }, ["Third-Hardcore"] = { name = "Third", realm = "Hardcore", bags = { [2592] = 1 }, bank = {}, mail = {} } } }')
+    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "PvP", faction = "Horde", level = 12, lastSeen = 50 }, G2 = { name = "Alt", realm = "Normal", faction = "Alliance", level = 3, lastSeen = 40 }, G3 = { name = "Third", realm = "Hardcore", faction = "Horde", level = 1, lastSeen = 30 } } }')
     U.writeFile(acct .. "/SavedVariables/Auctionator.lua", 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, PvP = { ["2592"] = { m = 100, h = { ["2500"] = 100 } } }, Normal = { ["2592"] = { m = 300, h = { ["2500"] = 300 } } } }')
     local listDirs = function(p)
         if p:match("/WTF/Account$") then return { "ACC" } end
@@ -1284,6 +1284,7 @@ test("two rulesets: each character uses its own house", function()
     local byName = {}
     for _, r in ipairs(data.account.characters) do byName[r.name] = r end
     eq(byName.Hero.items, 100, "PvP Horde's book"); eq(byName.Alt.items, 300, "Normal Alliance's book")
+    eq(byName.Third.items, 0, "Hardcore Horde has no book: an empty market, never another house's")
     eq(data.marketTab.items["2592"].now, 100, "the default pair is the last character played: PvP Horde")
     eq(#data.priceSources, 2); eq(data.priceSources[1].key, "Normal Alliance"); eq(data.priceSources[2].key, "PvP Horde")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
@@ -1300,6 +1301,69 @@ test("market.lua broken file: the page is still written", function()
     truthy(U.readFile(out), "page written")
     eq(#data.priceSources, 0)
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+-- One account folder with the given account-wide SavedVariables ({ [file] = source }); returns the WoW folder,
+-- listDirs and a cleanup function
+local function accountFixture(tag, files)
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_" .. tag .. "_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    local acct = dir .. "/WTF/Account/ACC"
+    for _, p in ipairs({ acct .. "/SavedVariables", acct .. "/91/Hero-Realm/SavedVariables" }) do
+        if windows then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. p .. '"') end
+    end
+    for file, src in pairs(files) do U.writeFile(acct .. "/SavedVariables/" .. file, src) end
+    local listDirs = function(p)
+        if p:match("/WTF/Account$") then return { "ACC" } end
+        if p:match("/ACC$") then return { "91", "SavedVariables" } end
+        if p:match("/91$") then return { "Hero-Realm" } end
+        return {}
+    end
+    return dir, listDirs, function()
+        if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+    end
+end
+
+test("no character with a faction: the market pages stay as they were", function()
+    local Build = require("build")
+    local files = {
+        ["Stockpile.lua"] = 'StockpileDB = { version = 1, chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [2592] = 4 }, bank = {}, mail = {} } } }',
+        ["MuddyBoots.lua"] = 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", level = 12, money = 5000, lastSeen = 50 } } }',
+        ["Auctionator.lua"] = 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, R = { ["2592"] = { m = 100, h = { ["2500"] = 120, ["2501"] = 100 } } } }',
+        ["LedgerLink.lua"] = 'LedgerLinkDB = { neutral = { ["2592"] = { m = 80, h = { ["2501"] = 80 } } } }',
+    }
+    local wow, listDirs, cleanup = accountFixture("nofaction", files)
+    local data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = wow .. "/none" })
+    eq(data.market.scanDays, 2); eq(data.marketTab.items["2592"].now, 100, "Auctionator's book, as before houses")
+    eq(data.account.characters[1].items, 400)
+    eq(data.neutralTab.items["2592"].now, 80, "Ledger Link's legacy Neutral book")
+    eq(#data.priceSources, 0, "no house can be told")
+    cleanup()
+    -- Ledger Link's own books name their side: one faction house there is the default pair, with its Neutral
+    files["LedgerLink.lua"] = 'LedgerLinkDB = { books = { R = { Horde = { ["2592"] = { m = 110, t = 9, h = { ["2501"] = 110 } } },'
+        .. ' Neutral = { ["2592"] = { m = 70, t = 9, h = { ["2501"] = 70 } } } } } }'
+    wow, listDirs, cleanup = accountFixture("onehouse", files)
+    data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = wow .. "/none" })
+    eq(data.marketTab.items["2592"].now, 110, "R Horde from Ledger Link"); eq(data.neutralTab.items["2592"].now, 70)
+    cleanup()
+end)
+
+test("Neutral price log keeps the scan when the API is newer", function()
+    local Build = require("build")
+    local day = S.dayToTime(2501)
+    local wow, listDirs, cleanup = accountFixture("neutrallog", {
+        ["MuddyBoots.lua"] = 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", faction = "Horde", level = 12, lastSeen = 50 } } }',
+        ["LedgerLink.lua"] = ('LedgerLinkDB = { books = { R = { Neutral = { ["2592"] = { m = 80, t = %d, h = { ["2501"] = 80 } } } } } }')
+            :format(day + 3600),
+    })
+    local logged = {}
+    local data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = wow .. "/none",
+        market = { houses = { [116] = { id = 116, key = "R Neutral", latest = day + 2 * 3600, items = { [2592] = { now = 60 } }, recent = {} } } },
+        neutralLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end } })
+    eq(data.neutralTab.items["2592"].now, 60, "the newer snapshot"); eq(data.neutralTab.items["2592"].nowFrom, "api")
+    eq(#logged, 1); truthy(logged[1]:find("\t2592\t80\n"), "the log keeps the scan: " .. logged[1])
+    truthy(not logged[1]:find("\t60\n"), "API prices never reach the Neutral log")
+    cleanup()
 end)
 
 test("houses: books keyed by ruleset and side; legacy Neutral follows the account's ruleset", function()
