@@ -24,6 +24,16 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(mp.week_start(t), at(0, 0))
         self.assertEqual(mp.cell(t), (2, 20))
 
+    def test_week_contrib_zero_price(self):
+        t = at(0, 10)
+        self.assertEqual(mp.week_contrib([(t, 0, 1), (t + 3600, 0, 0)]), {})
+        mixed = [(t, 0, 0), (t + 3600, 100, 0), (t + 7200, 100, 0)]
+        self.assertEqual(sorted(mp.week_contrib(mixed)), [(0, 11), (0, 12)])
+
+    def test_week_start_near_epoch(self):
+        self.assertGreaterEqual(mp.week_start(3600), 0)
+        self.assertEqual(len(mp.cell(3600)), 2)
+
     def test_contrib_relative_to_week_median(self):
         prices = {(d, h): 100 for d in range(7) for h in (10, 20)}
         prices[(1, 20)] = 120

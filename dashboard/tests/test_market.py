@@ -50,6 +50,11 @@ class MarketTests(unittest.TestCase):
         rows = hours(START, 7 * 24, 100) + hours(START + 7 * 86400, 7 * 24, 110)
         self.assertAlmostEqual(m.trend(B(rows, rows[-1][0]), rows[-1][0]), 0.08, delta=0.01)
 
+    def test_trend_with_zero_market_a_week_ago_is_none(self):
+        rows = hours(START, 7 * 24, 0) + hours(START + 7 * 86400, 7 * 24, 100)
+        now = rows[-1][0]
+        self.assertIsNone(m.trend(B(rows, now), now))
+
     def test_shifted_up_after_a_real_jump(self):
         jump = START + 12 * 86400
         rows = hours(START, 12 * 24, 100) + hours(jump, 36, 190, sold=1)
@@ -254,6 +259,25 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.run_(), "unchanged")
         self.assertEqual(os.stat(self.out).st_mtime_ns, before)
 
+    def test_run_survives_zero_prices(self):
+        for i in range(10 * 24):
+            t = self.NOW - 10 * 86400 + i * 3600
+            self.store.record(113, t + 60, {3000: {"min": 0, "market": 0, "units": 5, "listings": 3}}, {3000: 1}, {})
+        self.assertEqual(self.run_(), "written")
+        with open(self.out, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn('["market"]=110', text)
+        self.assertIn("[3000]", text)
+        item = text.split("[3000]", 1)[1].split("[2589]", 1)[0]
+        self.assertNotIn('["trend"]', item)
+
+    def test_stamp_carries_format(self):
+        db = m.open_ro(self.db)
+        try:
+            self.assertTrue(m.stamp(db, {}, "").startswith("-- sig: f=2|"))
+        finally:
+            db.close()
+
     def test_run_leaves_the_item_week_out(self):
         self.assertEqual(self.run_(), "written")
         with open(self.out, encoding="utf-8") as fh:
@@ -437,7 +461,7 @@ class SeriesTests(unittest.TestCase):
             self.assertEqual(head, m.stamp(db, {113: "PvP Horde"}, "PvP Horde\t777\n"))
         finally:
             db.close()
-        self.assertRegex(head, r"^-- sig: 113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
+        self.assertRegex(head, r"^-- sig: f=2\|113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
 
     def test_missing_wanted_file_still_writes(self):
         self.assertEqual(self.run_(), "written")
