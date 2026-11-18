@@ -263,8 +263,9 @@ function Build.writeAtomic(path, text)
     local f, err = io.open(tmp, "wb")
     if not f then return nil, err end
     local ok, werr = f:write(text)
-    f:close()
+    local cok, cerr = f:close()
     if not ok then os.remove(tmp); return nil, werr end
+    if not cok then os.remove(tmp); return nil, cerr end
     os.remove(path)
     local rok, rerr = os.rename(tmp, path)
     if not rok then os.remove(tmp); return nil, rerr end
@@ -704,6 +705,12 @@ function Build.data(wow, opts)
                 result.deals[key] = list
                 for i = 1, math.min(#list, Sg.C.WANTED_LIST) do also[list[i].id] = true end
             end
+        end
+        -- the faction house has no API data (only the other house does): its list is the scans' Buy low rows, so
+        -- the page keeps showing it
+        if factionKey and not result.deals[factionKey] then
+            result.deals[factionKey] = Sg.deals(merged[factionKey] or market, I.CUT.faction, acctNameOf, owned,
+                result.market.buy)
         end
         -- a holder's own faction house; nil (the default house) when its realm or faction can't be told
         local houseById = {}

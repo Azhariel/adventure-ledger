@@ -489,7 +489,7 @@ I.FAMILIES = {
         7080, 7082, 12803, 12808, 7972, 5498, 5500, 7971, 13926, 774, 818, 1210, 1206, 1529, 1705, 3864, 7909, 7910,
         12361, 12363, 12364, 12799, 12800 } },
 }
-I.MOVERS = { limit = 30, minNow = 20, minLow = 10, minAvailable = 20, minRise = 0.5 }
+I.MOVERS = { minNow = 20, minLow = 10, minAvailable = 20, minRise = 0.5 }
 
 -- One item's figures: launch low (lowest daily low), peak (highest daily low: a one-off high listing isn't a price
 -- anyone paid), change of today's price against the low, supply now vs the first day
@@ -567,7 +567,7 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
         end
     end
     local moveBasis
-    out.rising, out.falling, moveBasis = Signals.movers(prices, scanRule, cfg.limit)
+    out.rising, out.falling, moveBasis = Signals.movers(prices, scanRule)
     for _, id in ipairs(out.rising) do add(id) end
     for _, id in ipairs(out.falling) do add(id) end
 

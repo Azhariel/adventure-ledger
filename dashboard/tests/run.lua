@@ -911,6 +911,14 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
     eq(api.account.characters[1].items, 380, "the account rows use the merged market value: 4 Wool Cloth at 95")
     eq(api.characters[1].inventory.items[1].unit, 95, "held items are valued at market value, not the lowest price")
+    -- API data for the Neutral house only: the faction house has none, but its scan-based Buy low list still shows
+    local onlyN = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+        market = { houses = { [116] = { id = 116, key = "R Neutral", latest = day + 15 * 3600,
+            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function() end } })
+    eq(type(onlyN.deals), "table", "an API house exists: the page shows Deals")
+    eq(type(onlyN.deals["R Horde"]), "table", "the faction house has no API data: its list is the scans' (maybe empty)")
+    eq(#onlyN.deals["R Horde"], #onlyN.market.buy, "the scan-based Buy low rows, as before")
     -- a market_wanted.tsv that can't be written (locked, read-only) is a warning, never a failed build
     local locked = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
