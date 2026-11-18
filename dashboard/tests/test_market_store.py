@@ -1,4 +1,5 @@
 """Tests for market_store.py (SQLite store and daily rollup).   Usage: python dashboard/tests/test_market_store.py"""
+import math
 import os
 import sqlite3
 import sys
@@ -7,6 +8,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import market_profile as mp  # noqa: E402
 import market_store as ms  # noqa: E402
 
 
@@ -103,6 +105,47 @@ class StoreTests(unittest.TestCase):
         self.store.rollup(now)
         row_ = self.store.db.execute("SELECT min, market, sold, hours FROM daily ORDER BY day").fetchone()
         self.assertEqual(row_, (None, None, 2, 1))
+
+    def _week_rows(self, wk, bump=True):
+        """Hourly rows for one week (Monday 00:00 = wk): 100 at 10:00 and 20:00 daily, +20% on Tuesday 20:00."""
+        for d in range(7):
+            for h in (10, 20):
+                t = int(time.mktime(time.localtime(wk + d * 86400 + 3600 * 12)[:3] + (h, 0, 0, 0, 0, -1)))
+                self._hour(t, 90, 120 if (bump and d == 1 and h == 20) else 100, 10, 1)
+
+    def test_rollup_keeps_whole_weeks(self):
+        now = int(time.time())
+        ages = range(1, 46, 2)   # days ago: some fall in the 30-37 day margin the old cutoff would have deleted
+        for a in ages:
+            self._hour(now - a * 86400, 90, 100, 10, 1)
+        cutoff = mp.week_start(now - 30 * 86400)
+        self.store.rollup(now)
+        ts = [r[0] for r in self.store.db.execute("SELECT t FROM hourly")]
+        self.assertTrue(ts and min(ts) >= cutoff)
+        self.assertEqual(len(ts), sum(1 for a in ages if now - a * 86400 >= cutoff))
+
+    def test_rollup_fills_profile_and_decays(self):
+        w1 = mp.week_start(int(time.time())) - 6 * mp.WEEK
+        self._week_rows(w1)
+        self.store.rollup(w1 + 6 * mp.WEEK)
+        self._week_rows(w1 + mp.WEEK)
+        self.store.rollup(w1 + 7 * mp.WEEK)
+        upto, prof = self.store.profile(113)
+        self.assertEqual(upto, mp.week_start(w1 + mp.WEEK))
+        wp, w, ws, n = prof[2589][(1, 20)]
+        self.assertAlmostEqual(w, 1 + mp.decay(1))
+        self.assertAlmostEqual(wp / w, math.log(1.2))
+        self.assertEqual(n, 2)
+        self.assertAlmostEqual(ws, 1 + mp.decay(1))
+
+    def test_rollup_profile_idempotent(self):
+        w1 = mp.week_start(int(time.time())) - 6 * mp.WEEK
+        self._week_rows(w1)
+        self.store.rollup(w1 + 6 * mp.WEEK)
+        before = self.store.profile(113)
+        self.store.rollup(w1 + 6 * mp.WEEK)
+        self.assertEqual(self.store.profile(113), before)
+        self.assertEqual(self.store.profile(116), (None, {}))
 
     def test_migration_is_committed(self):
         path = os.path.join(self.dir.name, "old.db")
