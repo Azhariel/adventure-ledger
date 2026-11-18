@@ -289,6 +289,32 @@ def item_summary(buckets, recent, last, day_means, now):
 # ---------------------------------------------------------------- I/O (sqlite in, market.lua out)
 
 
+def history(db, house, item, now):
+    """One item's rows for the drawer's longer ranges: hourly (up to the latest snapshot), daily (the daily table
+    plus the days hourly still holds, hourly winning) and its week grid. Reads only; empty for an unknown item."""
+    snap = db.execute("SELECT MAX(t) FROM snapshot WHERE house=?", (house,)).fetchone()[0]
+    rows = []
+    if snap is not None:
+        rows = [tuple(r) for r in db.execute(
+            "SELECT t, min, market, units, listings, sold FROM hourly WHERE house=? AND item=? AND t<=? ORDER BY t",
+            (house, item, snap))]
+    days = {}
+    if _has(db, "daily"):
+        for day, mn, market in db.execute(
+                "SELECT day, min, market FROM daily WHERE house=? AND item=?", (house, item)):
+            days[day] = [day, mn, None if market is None else round(market)]
+    if rows:
+        means, lows = day_values(day_buckets(rows))   # every day hourly still holds; it wins over the daily table
+        for day in sorted(set(means) | set(lows)):
+            days[day] = [day, lows.get(day), None if day not in means else round(means[day])]
+    upto, stored = (market_store.read_profile(db, house, [item])
+                    if _has(db, "profile") and _has(db, "profile_state") else (None, {}))
+    return {"house": house, "item": item,
+            "hourly": [[t, mn, market, units] for t, mn, market, units, _l, _s in rows],
+            "daily": [days[d] for d in sorted(days)],
+            "week": item_week(stored.get(item), upto, rows, now)}
+
+
 def to_lua(value):
     """A Lua table constructor for dicts, lists, numbers, strings and bools. None is skipped in a dict and is
     nil in a list; NaN and inf are never written (Lua cannot read them back), so they are skipped the same way."""

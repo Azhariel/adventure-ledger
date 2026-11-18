@@ -1,10 +1,13 @@
 """Tests for livelog.py (the combat-log reader).   Usage (from the Dashboard folder):  python tests/test_live.py
 Lines are real WoW Forever combat-log lines (8 Nov 2026), trimmed to the ones each case needs."""
+import http.client
+import json
 import os
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -273,6 +276,22 @@ class MarketWatch(unittest.TestCase):
         self.app.watch_sv()
         self.assertEqual(order, ["engine", "build"])
 
+    def test_market_tick_reruns_on_wanted_change(self):
+        app = self.app
+        built = []
+        app.build = lambda: built.append(1)
+        sig = app.market_signature()
+        app.market_tick("stale")                         # the first engine run and build
+        self.assertEqual(built, [1])
+        self.assertEqual(app.market_tick(sig), sig)      # nothing changed: nothing runs
+        self.assertEqual(built, [1])
+        with open(os.path.join(self.data, "market_wanted.tsv"), "w", encoding="utf-8") as fh:
+            fh.write("PvP Horde\t1\n")
+        new = app.market_signature()
+        self.assertNotEqual(new, sig)
+        self.assertEqual(app.market_tick(sig), new)      # one tick: engine and build
+        self.assertEqual(built, [1, 1])
+
     def test_signature_is_empty_without_a_db(self):
         old = server.DATA
         server.DATA = tempfile.mkdtemp()
@@ -280,6 +299,71 @@ class MarketWatch(unittest.TestCase):
             self.assertEqual(server.App("wow", 0).market_signature(), "")
         finally:
             server.DATA = old
+
+
+class HistoryEndpoint(unittest.TestCase):
+    def setUp(self):
+        self.data = tempfile.mkdtemp()
+        self.old = server.DATA
+        server.DATA = self.data
+        self.app = server.App("wow", 0)
+        self.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(self.app))
+        self.app.port = self.httpd.server_address[1]
+        self.httpd.RequestHandlerClass = server.make_handler(self.app)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        server.DATA = self.old
+
+    def get(self, query, host=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.app.port)
+        conn.request("GET", "/history" + query, headers={"Host": host or "127.0.0.1:%d" % self.app.port})
+        r = conn.getresponse()
+        body = r.read()
+        conn.close()
+        return r.status, r.getheader("Cache-Control"), body
+
+    def make_db(self):
+        store = market_store.Store(os.path.join(self.data, "market.db"))
+        store.record(113, T0, ROW, {}, {})
+        store.close()
+
+    def test_history_endpoint_bad_params(self):
+        self.make_db()
+        for q in ("?house=x&item=1", "?house=113", "?house=113&item=-1", "?house=0&item=1", ""):
+            with self.subTest(q=q):
+                self.assertEqual(self.get(q)[0], 400)
+
+    def test_history_no_db_404(self):
+        self.assertEqual(self.get("?house=113&item=1")[0], 404)
+
+    def test_history_returns_rows_and_never_writes(self):
+        self.make_db()
+        before = os.stat(os.path.join(self.data, "market.db")).st_mtime_ns
+        code, cache, body = self.get("?house=113&item=1")
+        self.assertEqual((code, cache), (200, "no-store"))
+        got = json.loads(body)
+        self.assertEqual(got["hourly"], [[T0, 5, 5, 1]])
+        self.assertEqual(os.stat(os.path.join(self.data, "market.db")).st_mtime_ns, before)
+
+    def test_history_unknown_item_empty(self):
+        self.make_db()
+        code, _, body = self.get("?house=113&item=424242")
+        self.assertEqual(code, 200)
+        got = json.loads(body)
+        self.assertEqual((got["hourly"], got["daily"], got["week"]), ([], [], None))
+
+    def test_history_wrong_host_403(self):
+        self.make_db()
+        self.assertEqual(self.get("?house=113&item=1", host="evil.example:80")[0], 403)
+
+    def test_history_failure_is_503(self):
+        self.make_db()
+        with mock.patch.object(server.market, "history", side_effect=RuntimeError("boom")):
+            with self.assertLogs("server", "ERROR"):
+                self.assertEqual(self.get("?house=113&item=1")[0], 503)
 
 
 if __name__ == "__main__":

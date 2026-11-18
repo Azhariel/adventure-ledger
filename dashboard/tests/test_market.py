@@ -305,6 +305,47 @@ class RunTests(unittest.TestCase):
         self.assertEqual(m.signature(m.open_ro(self.db)), "113:%d:" % (self.NOW))
 
 
+class HistoryTests(unittest.TestCase):
+    NOW = START + 20 * 86400
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.store = ms.Store(os.path.join(self.dir, "market.db"))
+        for i in range(48):
+            self.store.record(113, self.NOW - (47 - i) * 3600,
+                              {2589: {"min": 100, "market": 110, "units": 5, "listings": 3}}, {2589: 1}, {})
+        self.store.db.execute("INSERT INTO daily VALUES (113, '2026-09-01', 2589, 90, 95.4, 4, 2, 24, 24)")
+        self.store.db.commit()
+        self.db = m.open_ro(os.path.join(self.dir, "market.db"))
+
+    def tearDown(self):
+        self.db.close()
+        self.store.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_history_shapes(self):
+        h = m.history(self.db, 113, 2589, self.NOW)
+        self.assertEqual((h["house"], h["item"]), (113, 2589))
+        self.assertEqual(len(h["hourly"]), 48)
+        self.assertEqual(h["hourly"][-1], [self.NOW, 100, 110, 5])
+        self.assertEqual(h["daily"][0], ["2026-09-01", 90, 95])           # the daily table, oldest first
+        self.assertTrue(all(d[2] == 110 and d[1] == 100 for d in h["daily"][1:]))   # hourly days
+        self.assertEqual([d[0] for d in h["daily"]], sorted(d[0] for d in h["daily"]))
+        self.assertIs(h["week"]["own"], False)
+
+    def test_history_hourly_wins_over_daily(self):
+        day = h_day = m.market_store.local_day(self.NOW)
+        self.store.db.execute("INSERT INTO daily VALUES (113, ?, 2589, 1, 1, 1, 0, 24, 24)", (day,))
+        self.store.db.commit()
+        got = {d[0]: d for d in m.history(self.db, 113, 2589, self.NOW)["daily"]}
+        self.assertEqual(got[h_day][2], 110)
+
+    def test_history_unknown_is_empty(self):
+        h = m.history(self.db, 113, 999, self.NOW)
+        self.assertEqual((h["hourly"], h["daily"], h["week"]), ([], [], None))
+        self.assertEqual(m.history(self.db, 5, 2589, self.NOW)["hourly"], [])
+
+
 class SeriesTests(unittest.TestCase):
     """market.lua's grids, series and sparklines (wanted items only for the heavy ones)."""
     NOW = START + 20 * 86400
