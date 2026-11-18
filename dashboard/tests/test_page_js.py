@@ -355,6 +355,16 @@ process.stdout.write(JSON.stringify([lonePill({ lone: true, cheap: 1 }), dealLis
         self.assertEqual(counted, '<span data-sort="3" title="3 within 10% of the lowest price, 77 listed in all">3 / 77</span>')
         self.assertEqual((bare, scans, none), ("4", "9", ""))
 
+    def test_sell_window_extra_cell(self):
+        js = page_js(["extraCell"], "const money = v => v + 'c';") + """
+process.stdout.write(JSON.stringify([extraCell({ extra: 3000, sells: 6, count: 40, soldPerDay: 6.5 }),
+  extraCell({ extra: 1500, sells: 3, count: 3, soldPerDay: 10 }), extraCell({ extra: 200, count: 2 })]));
+"""
+        capped, all_, legacy = json.loads(run_node(js))
+        self.assertEqual(capped, '<span data-sort="3000" title="Selling 6 of your 40 today (about 6.5 sell a day)">3000c</span>')
+        self.assertEqual(all_, '<span data-sort="1500" title="Selling all 3 you have today (about 10 sell a day)">1500c</span>')
+        self.assertEqual(legacy, "200c")
+
     def test_neutral_header_says_where_faction_prices_come_from(self):
         js = page_js(["factionPricesNote"]) + """
 process.stdout.write(JSON.stringify([factionPricesNote({ DEAL_BELOW: 0.5 }), factionPricesNote(undefined)]));

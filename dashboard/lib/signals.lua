@@ -88,7 +88,7 @@ local function held(w) return (w.bags or 0) + (w.bank or 0) + (w.mail or 0) end
 -- holders: { { id = charId, name, holds = { [item] = { bags, bank, mail } } } }. houseOf(charId): the faction house
 -- key the character sells at, nil when it can't be told (then defaultKey, as the character pages do). books:
 -- { [key] = merged book }. legacySell: I.market's sell list or nil (judged at defaultKey).
--- Returns { id, name, key, now, market, pct, soldPerDay, count, extra, where = { { name, bags, bank, mail } },
+-- Returns { id, name, key, now, market, pct, soldPerDay, count, sells, extra, where = { { name, bags, bank, mail } },
 -- basis = "api" } by extra copper, then the legacy rows (key = defaultKey, basis = "scans").
 function Sg.sellWindows(holders, houseOf, books, nameOf, legacySell, defaultKey)
     local C = Sg.C
@@ -120,8 +120,11 @@ function Sg.sellWindows(holders, houseOf, books, nameOf, legacySell, defaultKey)
                     if held(a) ~= held(b) then return held(a) > held(b) end
                     return a.name < b.name
                 end)
+                -- what sells in a day at this house (SELL_MIN_SOLD keeps it at 1 or more), not everything held
+                local sells = math.min(count, math.floor(sold))
                 api[#api + 1] = { id = id, name = nameOf(id), key = key, now = now, market = market,
-                    pct = now / market - 1, soldPerDay = sold, count = count, extra = (now - market) * count,
+                    pct = now / market - 1, soldPerDay = sold, count = count, sells = sells,
+                    extra = (now - market) * sells,
                     where = where, basis = "api" }
             end
         end

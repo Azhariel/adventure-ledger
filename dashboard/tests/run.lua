@@ -2035,11 +2035,23 @@ test("signals.sellWindows: per holder's house", function()
     local r = list[1]
     eq(r.id, 7); eq(r.key, "PvP Horde"); eq(r.basis, "api"); eq(r.name, "Item 7")
     eq(r.now, 1500); eq(r.market, 1000); near(r.pct, 0.5); eq(r.soldPerDay, 3)
-    eq(r.count, 15, "A's 10 and B's 5; C sells elsewhere"); eq(r.extra, 7500)
+    eq(r.count, 15, "A's 10 and B's 5; C sells elsewhere"); eq(r.sells, 3, "about 3 sell a day")
+    eq(r.extra, 1500, "500 over market on the 3 that sell today, not all 15")
     eq(#r.where, 2); eq(r.where[1].name, "A"); eq(r.where[1].bags, 10)
     eq(r.where[2].name, "B"); eq(r.where[2].bags, 2); eq(r.where[2].bank, 3)
     local l = list[2]
     eq(l.id, 8); eq(l.key, "PvP Horde"); eq(l.basis, "scans"); eq(l.count, 2); eq(l.extra, 200); eq(l.where[1].name, "B")
+end)
+
+test("signals.sellWindows: extra counts what sells in a day", function()
+    local holders = { { id = "a", name = "A", holds = { [7] = { bags = 40 }, [8] = { bags = 3 } } } }
+    local books = { ["PvP Horde"] = { prices = {
+        [7] = { now = 1500, market = 1000, soldPerDay = 6.5 },
+        [8] = { now = 1500, market = 1000, soldPerDay = 10 } } } }
+    local by = {}
+    for _, r in ipairs(Sg.sellWindows(holders, function() return "PvP Horde" end, books, itemName, nil, nil)) do by[r.id] = r end
+    eq(by[7].sells, 6, "a whole day's sales: 6 of the 40"); eq(by[7].extra, 3000)
+    eq(by[8].sells, 3, "all 3 held sell today"); eq(by[8].extra, 1500)
 end)
 
 test("signals.sellWindows: not selling or not high enough", function()

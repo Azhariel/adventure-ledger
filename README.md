@@ -123,7 +123,8 @@ for each item whose price changed, so each /reload after an AH scan is another p
     stray listing and says *one cheap listing?*. The house pill shows how old the API snapshot is.
   - **Sell windows**: things any of your characters hold, priced 25% or more over market value at the house they'd
     sell at and still selling (1 or more a day) and at least 50c above it each, with the extra
-    gold over market value, who holds them, and whether
+    gold over market value on what sells in a day (*Extra today*: the day's sales, up to all you hold), who holds
+    them, and whether
     this hour of the week usually prices the item (or its family) well.
 - **Stockpile** (all characters): now, launch low (lowest daily low), change against it, peak (highest daily
   low), supply (listed now vs the first scan day; fewer = green), trend, value, and a signal: *selling window*

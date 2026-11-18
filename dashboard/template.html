@@ -1892,6 +1892,9 @@ const dealListed = d => {
   const v = d.basis === "api" ? d.units : d.available;
   return v != null ? String(v) : "";
 };
+// Sell windows' Extra: over market on what sells today (the build's sells); legacy rows count all you have
+const extraCell = x => x.sells == null ? money(x.extra)
+  : `<span data-sort="${x.extra}" title="${x.sells < x.count ? `Selling ${x.sells} of your ${x.count}` : `Selling all ${x.count} you have`} today (about ${x.soldPerDay} sell a day)">${money(x.extra)}</span>`;
 // When the house's API snapshot was taken (DATA.priceSources, from the build); "" when there is none
 const apiAsOf = (key, sources) => {
   const s = (sources || []).find(x => x.key === key);
@@ -1899,7 +1902,7 @@ const apiAsOf = (key, sources) => {
 };
 function sellWinHintText(rule) {
   const over = rulePct(rule && rule.SELL_ABOVE != null ? rule.SELL_ABOVE - 1 : null);
-  return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
+  return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. Extra today: over market on what sells in a day, up to all you have. This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
 }
 // Movers: the API's rule (Sg.C's RISE / FALL / MOVER_MIN_SOLD), with today's launch-low / peak rule for items the API has no trend for;
 // without API data (no rule) today's hints
@@ -1969,13 +1972,13 @@ function renderSellWindows(list, rule) {
     return `<span class="${cls}" data-sort="${u.p}" title="This hour of the week usually prices it ${esc(pctVsUsual(u.p))} against its usual">${v} (${pctVsUsual(u.p)})</span>` + hourFamPill(u);
   };
   const head = [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Market", n: 1 }, { t: "Over", n: 1 }, { t: "Sold/day", n: 1 }, { t: "You have", n: 1 },
-    { t: "Where" }, { t: "Extra", n: 1 }, { t: "This hour", n: 1 }].concat(multi ? [{ t: "House" }] : []);
+    { t: "Where" }, { t: "Extra today", n: 1 }, { t: "This hour", n: 1 }].concat(multi ? [{ t: "House" }] : []);
   table("sellWinTable", head, list.map(x => {
     const api = x.basis === "api";
     const cells = [whItem(x.id, x.name), nowMoney(x), api ? money(x.market) : `${money(x.usual)} ${scansPill}`,
       `<span class="pos" data-sort="${x.pct}">+${pctTxt(x.pct)}</span>`, api ? soldCell(x.soldPerDay) : "",
       `<span data-sort="${x.count}">${x.count}</span>`, `<span class="muted">${whereText(x) || esc((x.holders || []).join(", "))}</span>`,
-      money(x.extra), hourCell(x.id, x.key)];
+      extraCell(x), hourCell(x.id, x.key)];
     if (multi) cells.push(`<span class="pill ${isNeutralKey(x.key) ? "neutral" : "faction"}">${esc(houseLabel(x.key))}</span>`);
     return rowId(x.id, cells, x.key);
   }), "Nothing you hold is priced well over its market value right now.", { defaultCol: 7, onRender: () => pickRows(mktItem) });
