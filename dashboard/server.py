@@ -114,6 +114,7 @@ class App:
         self.hub = Hub()
         self.lock = threading.Lock()
         self.build_lock = threading.Lock()   # one build at a time: SavedVariables and market triggers can coincide
+        self.engine_lock = threading.Lock()  # one market engine run at a time: startup and the market tick
         self.state = livelog.LiveState()
         self.log_path = None
         self.log_pos = 0
@@ -150,11 +151,8 @@ class App:
             self._build()
 
     def _build(self):
+        """build.lua only: it reads the market.lua the engine last wrote, so a build never waits for the engine."""
         t0 = time.time()
-        try:
-            market.run(os.path.join(DATA, "market.db"), os.path.join(DATA, "market.lua"), read_config())
-        except Exception:   # noqa: BLE001  the market page is optional: never let it stop the build
-            _LOG.exception("market engine failed")
         out = os.path.join(DATA, "dashboard.html")
         try:
             r = subprocess.run([lua_exe(), os.path.join(HERE, "build.lua"), self.wow, out], cwd=HERE,
@@ -173,6 +171,20 @@ class App:
             _LOG.warning("BUILD FAILED after %.1fs: %s", secs, msg[-300:])
         self.hub.send("rebuilt" if ok else "buildError", self.build_info)
 
+    def run_engine(self):
+        """market.db -> market.lua, outside the build lock (it takes seconds on a month of data). Returns what
+        market.run returned, or None when it failed: the market page is optional, so a failure is only logged."""
+        with self.engine_lock:
+            t0 = time.time()
+            try:
+                got = market.run(os.path.join(DATA, "market.db"), os.path.join(DATA, "market.lua"), read_config())
+            except Exception:   # noqa: BLE001
+                _LOG.exception("market engine failed")
+                return None
+            if got == "written":
+                _LOG.info("market engine wrote market.lua in %.1fs", time.time() - t0)
+            return got
+
     def market_signature(self):
         """What the engine would stamp market.lua with now: '' without a db."""
         try:
@@ -187,19 +199,21 @@ class App:
             return ""
 
     def market_tick(self, last):
-        """One poll: rebuild when the fetcher added a snapshot (or the rollup moved the profile)."""
+        """One poll: when the fetcher added a snapshot (or the rollup moved the profile), run the engine, then
+        rebuild if it wrote market.lua. A failed run is not retried until the db changes again."""
         sig = self.market_signature()
-        if sig != last:
+        if sig != last and self.run_engine() == "written":
             self.build()
         return sig
 
     def watch_market(self):
-        last = self.market_signature()   # watch_sv does the first build
+        last = self.market_signature()   # watch_sv runs the engine and the first build
         while not self.stop.wait(SV_POLL):
             last = self.market_tick(last)
 
     def watch_sv(self):
         last = self.sv_signature()
+        self.run_engine()   # once at startup; after that only the market tick runs it
         self.build()
         while not self.stop.wait(SV_POLL):
             sig = self.sv_signature()

@@ -2,9 +2,11 @@
 Lines are real WoW Forever combat-log lines (8 Nov 2026), trimmed to the ones each case needs."""
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import livelog  # noqa: E402
@@ -171,33 +173,68 @@ class Others(unittest.TestCase):
         self.assertIsNone(s.snapshot(0)["me"])
 
 
+ROW = {1: {"min": 5, "market": 5, "units": 1, "listings": 1}}
+T0 = 1794000000   # a real time: the engine's week maths cannot go back to 1970 on Windows
+
+
 class MarketWatch(unittest.TestCase):
-    def test_new_snapshot_triggers_build(self):
-        data = tempfile.mkdtemp()
-        old = server.DATA
-        server.DATA = data
-        try:
-            store = market_store.Store(os.path.join(data, "market.db"))
-            store.record(113, 1000, {1: {"min": 5, "market": 5, "units": 1, "listings": 1}}, {}, {})
-            app = server.App("wow", 0)
-            calls = []
-            app.build = lambda: calls.append(1)
-            sig = app.market_signature()
-            self.assertEqual(app.market_tick(sig), sig)
-            self.assertEqual(calls, [])                      # nothing new: no build
-            store.record(113, 4600, {1: {"min": 5, "market": 5, "units": 1, "listings": 1}}, {}, {})
-            new = app.market_tick(sig)
-            self.assertNotEqual(new, sig)
-            self.assertEqual(calls, [1])                     # a new snapshot: one build
-            self.assertEqual(app.market_tick(new), new)
-            self.assertEqual(calls, [1])
-            # a rollup moves profile_state.upto, which also counts as a change
-            store.db.execute("INSERT INTO profile_state VALUES (113, 5)")
-            store.db.commit()
-            self.assertNotEqual(app.market_signature(), new)
-            store.close()
-        finally:
-            server.DATA = old
+    def setUp(self):
+        self.data = tempfile.mkdtemp()
+        self.old = server.DATA
+        server.DATA = self.data
+        self.store = market_store.Store(os.path.join(self.data, "market.db"))
+        self.store.record(113, T0, ROW, {}, {})
+        self.app = server.App("wow", 0)
+
+    def tearDown(self):
+        self.store.close()
+        server.DATA = self.old
+
+    def test_new_snapshot_runs_the_engine_then_builds(self):
+        app, store = self.app, self.store
+        calls = []
+        app.build = lambda: calls.append(1)
+        sig = app.market_signature()
+        self.assertEqual(app.market_tick(sig), sig)
+        self.assertEqual(calls, [])                      # nothing new: no build
+        store.record(113, T0 + 3600, ROW, {}, {})
+        new = app.market_tick(sig)
+        self.assertNotEqual(new, sig)
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "market.lua")))   # the tick ran the engine
+        self.assertEqual(calls, [1])                     # a new snapshot: one build
+        self.assertEqual(app.market_tick(new), new)
+        self.assertEqual(calls, [1])
+        # a rollup moves profile_state.upto, which also counts as a change
+        store.db.execute("INSERT INTO profile_state VALUES (113, 5)")
+        store.db.commit()
+        self.assertNotEqual(app.market_signature(), new)
+
+    def test_no_rebuild_when_the_engine_wrote_nothing(self):
+        calls = []
+        self.app.build = lambda: calls.append(1)
+        with mock.patch.object(server.market, "run", return_value="unchanged") as run:
+            self.app.market_tick("stale")
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(calls, [])
+
+    def lua_ok(self):
+        return mock.patch.object(server.subprocess, "run",
+                                 return_value=subprocess.CompletedProcess([], 0, stdout="built", stderr=""))
+
+    def test_build_never_runs_the_engine(self):
+        with mock.patch.object(server.market, "run") as run, self.lua_ok() as lua:
+            self.app.build()
+        run.assert_not_called()
+        self.assertEqual(lua.call_count, 1)
+        self.assertTrue(self.app.last_build["ok"])
+
+    def test_startup_runs_the_engine_before_the_first_build(self):
+        order = []
+        self.app.run_engine = lambda: order.append("engine")
+        self.app.build = lambda: order.append("build")
+        self.app.stop.set()                              # leave the poll loop at once
+        self.app.watch_sv()
+        self.assertEqual(order, ["engine", "build"])
 
     def test_signature_is_empty_without_a_db(self):
         old = server.DATA
