@@ -4,6 +4,7 @@ min/market are None for an hour the item was sold out; sold is an int. Days are 
 `buckets` are one item's rows summed per (local day, window segment): see day_buckets. The long windows
 (market value, trend, sales, history) read buckets, so a month of hours never passes through Python."""
 import collections
+import datetime
 import math
 import os
 import pathlib
@@ -32,6 +33,9 @@ C = {
     "WEEK_MIN_WEEKS": 2,
     "WEEK_MIN_N": 2,
     "WEEK_MIN_CELLS": 0.6,
+    "SERIES_DAYS": 14,        # hourly series window per item
+    "SPARK_DAYS": 14,
+    "SERIES_MAX_ITEMS": 400,  # per house: items with hourly/daily series (by soldPerDay, descending)
 }
 
 DAY = 86400
@@ -170,7 +174,7 @@ def item_week(stored, upto, rows, now):
         if upto is None or wk > upto:
             by_week.setdefault(wk, []).append((t, market, sold))
     spans = bool(rows) and rows[-1][0] - rows[0][0] >= C["WEEK_MIN_WEEKS"] * 7 * DAY
-    if not (spans or stored):
+    if not (stored or any(r[2] is not None for r in rows)):
         return None
     F = mp.decay((cur - upto) / mp.WEEK) if stored else 0
     W, WP, WS, N = {}, {}, {}, {}
@@ -183,21 +187,20 @@ def item_week(stored, upto, rows, now):
             WP[key] = WP.get(key, 0) + f * lr
             WS[key] = WS.get(key, 0) + f * sold
             N[key] = N.get(key, 0) + n
-    p, s, n_out = [None] * CELLS, [None] * CELLS, [0] * CELLS
+    p, s, n_out = [False] * CELLS, [False] * CELLS, [0] * CELLS
     for key, w in W.items():
         i = key[0] * 24 + key[1]
         n_out[i] = N[key]
         if w > 0:
             p[i] = round(math.exp(WP[key] / w) - 1, 3)
             s[i] = round(WS[key] / w, 1)
-    if sum(1 for n in n_out if n >= C["WEEK_MIN_N"]) < C["WEEK_MIN_CELLS"] * CELLS:
-        return None
-    return {"p": p, "s": s, "n": n_out}
+    own = bool(spans or stored) and sum(1 for n in n_out if n >= C["WEEK_MIN_N"]) >= C["WEEK_MIN_CELLS"] * CELLS
+    return {"p": p, "s": s, "n": n_out, "own": own}
 
 
 def house_week(snapshots, sold_by_t):
     """Whole-house hour-of-week shape. snapshots = [(t, auctions)], sold_by_t = {t: units sold in that hour}.
-    listings = mean auctions per cell; sold = sold per cell per week seen. Cells without data are None."""
+    listings = mean auctions per cell; sold = sold per cell per week seen. Cells without data are False."""
     auc, sold, weeks = {}, {}, set()
     for t, a in snapshots:
         auc.setdefault(mp.cell(t), []).append(a)
@@ -205,12 +208,45 @@ def house_week(snapshots, sold_by_t):
     for t, s in sold_by_t.items():
         sold[mp.cell(t)] = sold.get(mp.cell(t), 0) + s
         weeks.add(mp.week_start(t))
-    listings, sold_out = [None] * CELLS, [None] * CELLS
+    listings, sold_out = [False] * CELLS, [False] * CELLS
     for (d, h), v in auc.items():
         listings[d * 24 + h] = round(sum(v) / len(v), 1)
     for (d, h), v in sold.items():
         sold_out[d * 24 + h] = round(v / len(weeks), 1)
     return {"listings": listings, "sold": sold_out}
+
+
+def read_wanted(text):
+    """market_wanted.tsv ("<house key>\t<item id>" per line) -> {house key: {item ids}}. Bad lines are skipped."""
+    out = {}
+    for line in text.splitlines():
+        key, tab, item = line.partition("\t")
+        if not tab:
+            continue
+        try:
+            out.setdefault(key, set()).add(int(item))
+        except ValueError:
+            pass
+    return out
+
+
+def align(ts, rows, field):
+    """Values of `rows` ((t, ...) tuples) at each time in `ts` (field 1 = min, 2 = market); missing is False."""
+    by_t = {r[0]: r[field] for r in rows}
+    return [False if by_t.get(t) is None else by_t[t] for t in ts]
+
+
+def _last_days(now, n):
+    today = datetime.date.fromtimestamp(now)
+    return [(today - datetime.timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+
+
+def spark_days(now):
+    return _last_days(now, C["SPARK_DAYS"])
+
+
+def daily_days(now):
+    return _last_days(now, C["HIST_DAYS"])
 
 
 def item_summary(buckets, recent, last, day_means, now):

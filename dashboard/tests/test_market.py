@@ -93,12 +93,50 @@ class MarketTests(unittest.TestCase):
 
     def test_item_week_needs_two_weeks_and_most_cells(self):
         short = self._week_rows(9)
-        self.assertIsNone(m.item_week(None, None, short, short[-1][0]))
+        self.assertIs(m.item_week(None, None, short, short[-1][0])["own"], False)
         rows = self._week_rows(15)
         got = m.item_week(None, None, rows, rows[-1][0])
-        self.assertIsNotNone(got)
+        self.assertIs(got["own"], True)
         self.assertEqual(len(got["p"]), 168)
         self.assertAlmostEqual(got["p"][1 * 24 + 20], 0.2, delta=0.02)
+
+    def test_item_week_partial_returns_cells_not_none(self):
+        rows = self._week_rows(3)
+        got = m.item_week(None, None, rows, rows[-1][0])
+        self.assertIs(got["own"], False)
+        self.assertTrue(any(v is not False for v in got["p"]))
+        self.assertEqual(len(got["n"]), 168)
+
+    def test_item_week_own_after_two_weeks(self):
+        rows = self._week_rows(15)
+        self.assertIs(m.item_week(None, None, rows, rows[-1][0])["own"], True)
+
+    def test_item_week_nothing_is_none(self):
+        self.assertIsNone(m.item_week({}, None, [], START))
+
+    def test_week_arrays_use_false_not_none(self):
+        got = m.item_week(None, None, self._week_rows(3), START + 3 * 86400)
+        self.assertNotIn(None, got["p"])
+        self.assertNotIn(None, got["s"])
+        hw = m.house_week([(START, 40)], {START: 4})
+        self.assertNotIn(None, hw["listings"])
+        self.assertNotIn(None, hw["sold"])
+
+    def test_read_wanted_bad_lines(self):
+        text = "PvP Horde" + chr(9) + "2447" + chr(10) + chr(10) + "broken" + chr(10) + "PvP Horde" + chr(9) + "x" + chr(10) + "PvP Neutral" + chr(9) + "765" + chr(10)
+        self.assertEqual(m.read_wanted(text), {"PvP Horde": {2447}, "PvP Neutral": {765}})
+
+    def test_align_fills_false(self):
+        self.assertEqual(m.align([10, 20, 30], [(10, 5, 6), (30, None, 7)], 1), [5, False, False])
+        self.assertEqual(m.align([10, 30], [(10, 5, 6), (30, None, 7)], 2), [6, 7])
+
+    def test_spark_and_daily_days(self):
+        now = START + 40 * 86400
+        d = m.spark_days(now)
+        self.assertEqual(len(d), 14)
+        self.assertEqual(d[-1], ms.local_day(now))
+        self.assertEqual(len(m.daily_days(now)), 60)
+        self.assertEqual(m.daily_days(now)[-1], ms.local_day(now))
 
     def test_item_week_combines_stored_and_recent(self):
         recent_start = START + 14 * 86400
