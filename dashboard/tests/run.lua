@@ -1587,14 +1587,18 @@ test("trends.familyWeek: weighted by units sold", function()
     eq(f.p[2], false); eq(f.members, 2)
 end)
 
-test("trends.familyWeek: partial members", function()
-    local a = grid(function(g) g.p[1], g.s[1], g.n[1] = 0.1, 1, 1 end)
-    local b = grid()
-    local f = TR.familyWeek({ a, b })
-    eq(f.p[1], false); eq(f.enough, false); eq(f.members, 2)
+test("trends.familyWeek: members counts only those with a usable cell", function()
+    local a = grid(function(g) g.p[1], g.s[1], g.n[1] = 0.1, 1, 3 end)
+    local low = grid(function(g) g.p[2], g.s[2], g.n[2] = 0.1, 1, 1 end)
+    local f = TR.familyWeek({ a, low })
+    eq(f.p[2], false); eq(f.enough, false); eq(f.members, 1)
+    local empty = grid(); empty.own = true
+    local g = TR.familyWeek({ a, empty })
+    eq(g.members, 1); eq(g.ownCount, 0)
+    eq(TR.familyWeek({ empty, low }), nil)
     eq(TR.familyWeek({}), nil)
-    local own = grid(); own.own = true
-    eq(TR.familyWeek({ own, b }).ownCount, 1)
+    local own = grid(function(g) g.p[1], g.s[1], g.n[1] = 0.1, 1, 3 end); own.own = true
+    eq(TR.familyWeek({ own, empty }).ownCount, 1)
 end)
 
 test("trends.strip: best sell and buy runs", function()

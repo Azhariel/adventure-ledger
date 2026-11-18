@@ -38,21 +38,31 @@ end
 -- Merges member week grids into one family grid, weighted by units sold (+1 so unsold cells still count).
 function T.familyWeek(members)
     if not members or #members == 0 then return nil end
-    local f = { p = {}, s = {}, n = {}, members = #members, ownCount = 0 }
-    for _, m in ipairs(members) do
-        if m and m.own == true then f.ownCount = f.ownCount + 1 end
+    local f = { p = {}, s = {}, n = {}, members = 0, ownCount = 0 }
+    local function usable(m, i)
+        local mp, mn = m and m.p and m.p[i], m and m.n and m.n[i]
+        return type(mp) == "number" and type(mn) == "number" and mn >= T.C.MIN_N
     end
+    for _, m in ipairs(members) do
+        local any = false
+        for i = 1, CELLS do
+            if usable(m, i) then any = true break end
+        end
+        if any then
+            f.members = f.members + 1
+            if m.own == true then f.ownCount = f.ownCount + 1 end
+        end
+    end
+    if f.members == 0 then return nil end
     local filled = 0
     for i = 1, CELLS do
         local sum, wsum, s, n, any = 0, 0, 0, 0, false
         for _, m in ipairs(members) do
-            local mp = m and m.p and m.p[i]
-            local mn = m and m.n and m.n[i]
-            if type(mp) == "number" and type(mn) == "number" and mn >= T.C.MIN_N then
+            if usable(m, i) then
                 local ms = (m.s and type(m.s[i]) == "number") and m.s[i] or 0
-                sum = sum + mp * (ms + 1)
+                sum = sum + m.p[i] * (ms + 1)
                 wsum = wsum + ms + 1
-                s, n, any = s + ms, n + mn, true
+                s, n, any = s + ms, n + m.n[i], true
             end
         end
         if any then
