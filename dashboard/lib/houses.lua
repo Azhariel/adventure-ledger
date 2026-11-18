@@ -1,0 +1,109 @@
+-- House keys: which auction house ("PvP Horde", "PvP Neutral") each price book describes.
+-- Auctionator's book is keyed by ruleset only and the faction comes from the account's characters; Ledger Link
+-- records the side itself. Pure functions: build.lua passes in what it read.
+local M = require("model")
+
+local H = {}
+
+function H.key(ruleset, side)
+    return ruleset .. " " .. side
+end
+
+-- Characters usable for the faction rules, sorted by ruleset .. faction so every tie-break is deterministic.
+local function usable(chars)
+    local out = {}
+    for _, c in ipairs(chars or {}) do
+        if c.realm and c.faction then
+            out[#out + 1] = { ruleset = M.ruleset(c.realm), faction = c.faction }
+        end
+    end
+    table.sort(out, function(a, b) return (a.ruleset .. a.faction) < (b.ruleset .. b.faction) end)
+    return out
+end
+
+-- Most common value of field among sorted chars; the first in sort order wins a tie.
+local function mostCommon(chars, field)
+    local count, best, bestN = {}, nil, 0
+    for _, c in ipairs(chars) do
+        count[c[field]] = (count[c[field]] or 0) + 1
+    end
+    for _, c in ipairs(chars) do
+        if count[c[field]] > bestN then best, bestN = c[field], count[c[field]] end
+    end
+    return best
+end
+
+local function sortedKeys(t)
+    local keys = {}
+    for k in pairs(t or {}) do keys[#keys + 1] = k end
+    table.sort(keys)
+    return keys
+end
+
+-- accounts: { { auctionator = {books}|nil, ledger = S.ledger result|nil, chars = { { realm, faction } } } }
+-- Returns { [houseKey] = { priceBook, ... } }.
+function H.collect(accounts, warn)
+    warn = warn or function() end
+    local out = {}
+    local function add(key, book)
+        out[key] = out[key] or {}
+        out[key][#out[key] + 1] = book
+    end
+    for _, acc in ipairs(accounts or {}) do
+        local chars = usable(acc.chars)
+        if acc.auctionator and acc.auctionator.books then
+            for _, ruleset in ipairs(sortedKeys(acc.auctionator.books)) do
+                local seen, n, only = {}, 0, nil
+                for _, c in ipairs(chars) do
+                    if c.ruleset == ruleset and not seen[c.faction] then
+                        seen[c.faction] = true; n = n + 1; only = c.faction
+                    end
+                end
+                local faction = only
+                if n == 0 then faction = mostCommon(chars, "faction") end
+                if n > 1 then
+                    warn("both factions play " .. ruleset .. ": faction prices come from Ledger Link's books only")
+                elseif not faction then
+                    warn("Auctionator's " .. ruleset .. " book: this account has no characters to tell which faction it belongs to")
+                else
+                    add(H.key(ruleset, faction), acc.auctionator.books[ruleset])
+                end
+            end
+        end
+        if acc.ledger then
+            for _, realm in ipairs(sortedKeys(acc.ledger.books)) do
+                for _, side in ipairs(sortedKeys(acc.ledger.books[realm])) do
+                    add(H.key(M.ruleset(realm), side), acc.ledger.books[realm][side])
+                end
+            end
+            if acc.ledger.legacy then
+                local ruleset = mostCommon(chars, "ruleset")
+                if ruleset then
+                    add(H.key(ruleset, "Neutral"), acc.ledger.legacy)
+                else
+                    warn("Ledger Link's legacy Neutral book: this account has no characters to tell which ruleset it belongs to")
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- The character's own house and the Neutral one of its ruleset; nil when the realm or faction is missing.
+function H.forChar(realm, faction)
+    if not realm then return nil, nil end
+    local ruleset = M.ruleset(realm)
+    return faction and H.key(ruleset, faction) or nil, H.key(ruleset, "Neutral")
+end
+
+-- Houses of the most recently seen character (first row wins a tie).
+function H.default(rows)
+    local best
+    for _, r in ipairs(rows or {}) do
+        if r.realm and r.faction and (not best or (r.lastSeen or 0) > (best.lastSeen or 0)) then best = r end
+    end
+    if not best then return nil, nil end
+    return H.forChar(best.realm, best.faction)
+end
+
+return H

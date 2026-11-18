@@ -1243,6 +1243,61 @@ test("end to end: another PC's WTF in data/pcs adds its sessions, money and play
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 
+test("houses: books keyed by ruleset and side; legacy Neutral follows the account's ruleset", function()
+    local H = require("houses")
+    local book = function(p) return { [2592] = { now = p, days = {} } } end
+    local warned = {}
+    local got = H.collect({ {
+        auctionator = { books = { PvP = book(100) } },
+        ledger = { books = { PvP = { Neutral = book(90), Horde = book(101) } }, legacy = book(80) },
+        chars = { { realm = "CAMWOW US2 Realm 2 PvP", faction = "Horde" } } } }, function(w) warned[#warned + 1] = w end)
+    eq(#got["PvP Horde"], 2); eq(#got["PvP Neutral"], 2); eq(#warned, 0)
+    eq(select(1, H.forChar("CAMWOW US2 Realm 2 PvP", "Horde")), "PvP Horde")
+    eq(select(2, H.forChar("CAMWOW US2 Realm 2 PvP", "Horde")), "PvP Neutral")
+end)
+
+test("houses: both factions on one ruleset skip Auctionator's book and warn", function()
+    local H = require("houses")
+    local warned = {}
+    local got = H.collect({ { auctionator = { books = { PvP = { [1] = { now = 1, days = {} } } } },
+        chars = { { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Alliance" } } } },
+        function(w) warned[#warned + 1] = w end)
+    eq(got["PvP Horde"], nil); eq(#warned, 1)
+end)
+
+test("houses: default pair is the last character played", function()
+    local H = require("houses")
+    local f, n = H.default({ { realm = "PvP", faction = "Horde", lastSeen = 5 }, { realm = "Normal", faction = "Alliance", lastSeen = 9 } })
+    eq(f, "Normal Alliance"); eq(n, "Normal Neutral")
+end)
+
+test("houses: fallbacks, nil inputs, ties and accounts without characters", function()
+    local H = require("houses")
+    local book = { [1] = { now = 1, days = {} } }
+    local warned = {}
+    local warn = function(w) warned[#warned + 1] = w end
+    -- no character on the ruleset: the account's most common faction
+    local got = H.collect({ { auctionator = { books = { Normal = book } },
+        chars = { { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Alliance" } } } }, warn)
+    truthy(got["Normal Horde"]); eq(#warned, 0)
+    -- tie: the character sorting first by ruleset .. faction decides
+    got = H.collect({ { auctionator = { books = { Normal = book } },
+        chars = { { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Alliance" } } } }, warn)
+    truthy(got["Normal Alliance"])
+    -- characters without realm or faction are ignored; nil auctionator and nil ledger are fine
+    got = H.collect({ { chars = { { realm = nil, faction = "Horde" }, { realm = "PvP" } } }, { auctionator = { books = {} } } }, warn)
+    eq(next(got), nil); eq(#warned, 0)
+    -- no characters: Auctionator's book and the legacy book are skipped, one warning each
+    got = H.collect({ { auctionator = { books = { PvP = book } }, ledger = { books = {}, legacy = book }, chars = {} } }, warn)
+    eq(next(got), nil); eq(#warned, 2)
+    -- forChar and default with missing data
+    local f, n = H.forChar("PvP", nil); eq(f, nil); eq(n, "PvP Neutral")
+    f, n = H.forChar(nil, "Horde"); eq(f, nil); eq(n, nil)
+    f, n = H.default({ { realm = "PvP", lastSeen = 3 }, { faction = "Horde", lastSeen = 4 } }); eq(f, nil); eq(n, nil)
+    f = H.default({ { realm = "A", faction = "Horde", lastSeen = 5 }, { realm = "B", faction = "Horde", lastSeen = 5 } })
+    eq(f, "A Horde", "a tie goes to the first row")
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then
