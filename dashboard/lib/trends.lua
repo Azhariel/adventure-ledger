@@ -36,12 +36,14 @@ function T.parseReset(text, utcHourToLocal)
 end
 
 -- Merges member week grids into one family grid, weighted by units sold (+1 so unsold cells still count).
+-- Members pool their observations: any member cell with a price counts, and a family cell fills once the counted
+-- members' observations there reach MIN_N together (each item sees about one per cell per week).
 function T.familyWeek(members)
     if not members or #members == 0 then return nil end
     local f = { p = {}, s = {}, n = {}, members = 0, ownCount = 0 }
     local function usable(m, i)
         local mp, mn = m and m.p and m.p[i], m and m.n and m.n[i]
-        return type(mp) == "number" and type(mn) == "number" and mn >= T.C.MIN_N
+        return type(mp) == "number" and type(mn) == "number" and mn >= 1
     end
     for _, m in ipairs(members) do
         local any = false
@@ -56,16 +58,16 @@ function T.familyWeek(members)
     if f.members == 0 then return nil end
     local filled = 0
     for i = 1, CELLS do
-        local sum, wsum, s, n, any = 0, 0, 0, 0, false
+        local sum, wsum, s, n = 0, 0, 0, 0
         for _, m in ipairs(members) do
             if usable(m, i) then
                 local ms = (m.s and type(m.s[i]) == "number") and m.s[i] or 0
                 sum = sum + m.p[i] * (ms + 1)
                 wsum = wsum + ms + 1
-                s, n, any = s + ms, n + m.n[i], true
+                s, n = s + ms, n + m.n[i]
             end
         end
-        if any then
+        if n >= T.C.MIN_N then
             f.p[i], f.s[i], f.n[i] = sum / wsum, s, n
             filled = filled + 1
         else
