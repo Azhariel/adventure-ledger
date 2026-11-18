@@ -196,9 +196,11 @@ The live server serves `GET /history?house=<id>&item=<id>` (localhost only, read
 days and daily rows for all time, straight from `market.db`.
 
 Each build writes `data/market_wanted.tsv`: the page lists the items it needs (family members, items you hold,
-items you've traded), and the engine picks the list up on its next run (the live server reruns it within a
-poll). Detailed price lines are capped at 400 items per house; other items show their numbers, and their history
-comes from the live server.
+items you've traded). `wowstats` then runs the engine again and rebuilds when the list changed what it wrote (the
+live server reruns it within a poll). Detailed price lines are capped at 400 items per house; other items show
+their numbers, and their history comes from the live server. To keep the page small, hourly prices are embedded
+only for the 60 best-selling items you hold; for the rest the 14-day view draws daily prices in the file and
+hourly ones from the live server.
 
 ### Live (second-monitor mode)
 
