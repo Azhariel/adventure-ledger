@@ -363,7 +363,7 @@ process.stdout.write(JSON.stringify([extraCell({ extra: 3000, sells: 6, count: 4
         capped, all_, legacy = json.loads(run_node(js))
         self.assertEqual(capped, '<span data-sort="3000" title="Selling 6 of your 40 today (about S6.5 sell a day)">3000c</span>')
         self.assertEqual(all_, '<span data-sort="1500" title="Selling all 3 you have today (about S10 sell a day)">1500c</span>')
-        self.assertEqual(legacy, "200c")
+        self.assertEqual(legacy, '<span data-sort="200" title="Everything you hold: this row is priced from your scans">200c</span>')
 
     def test_now_at_falls_back_to_the_tab_snapshot(self):
         js = page_js(["nowAtOf"]) + """

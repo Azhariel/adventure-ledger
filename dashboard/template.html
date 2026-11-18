@@ -1892,8 +1892,8 @@ const dealListed = d => {
   const v = d.basis === "api" ? d.units : d.available;
   return v != null ? String(v) : "";
 };
-// Sell windows' Extra: over market on what sells today (the build's sells); legacy rows count all you have
-const extraCell = x => x.sells == null ? money(x.extra)
+// Sell windows' Extra: over market on what sells today (the build's sells); legacy (scans) rows count all you hold
+const extraCell = x => x.sells == null ? `<span data-sort="${x.extra}" title="Everything you hold: this row is priced from your scans">${money(x.extra)}</span>`
   : `<span data-sort="${x.extra}" title="${x.sells < x.count ? `Selling ${x.sells} of your ${x.count}` : `Selling all ${x.count} you have`} today (about ${short(x.soldPerDay)} sell a day)">${money(x.extra)}</span>`;
 // When the house's API snapshot was taken (DATA.priceSources, from the build); "" when there is none
 const apiAsOf = (key, sources) => {
@@ -1902,7 +1902,7 @@ const apiAsOf = (key, sources) => {
 };
 function sellWinHintText(rule) {
   const over = rulePct(rule && rule.SELL_ABOVE != null ? rule.SELL_ABOVE - 1 : null);
-  return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. Extra today: over market on what sells in a day, up to all you have. This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
+  return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. Extra today: over market on what sells in a day, up to all you have (rows marked scans count everything you hold). This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
 }
 // Movers: the API's rule (Sg.C's RISE / FALL / MOVER_MIN_SOLD), with today's launch-low / peak rule for items the API has no trend for;
 // without API data (no rule) today's hints
