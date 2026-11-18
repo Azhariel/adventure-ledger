@@ -21,6 +21,8 @@ local function load(opts)
     _G.print = function(s) st.printed[#st.printed + 1] = s end
     _G.SlashCmdList = {}
     _G.time = os.time
+    _G.GetRealmName = opts.realm or function() return "PvP" end
+    _G.UnitFactionGroup = opts.faction or function() return "Horde" end
     _G.C_Timer = {
         After = function(_, fn) fn() end,
         NewTicker = function(sec, fn)
@@ -101,14 +103,14 @@ test("neutral AH, split: prices go to the Neutral book only; faction AH goes to 
     Auctionator.Database:SetPrice("2447", 500, 12)
     Auctionator.Database:SetPrice("2447", 400, 3)
     eq(#got, 0, "Auctionator untouched")
-    local e = LedgerLinkDB.neutral["2447"]
+    local e = LedgerLinkDB.books.PvP.Neutral["2447"]
     local day = tostring(math.floor((os.time() - os.time({ year = 2020, month = 1, day = 1, hour = 0 })) / 86400))
     eq(e.m, 400); eq(e.h[day], 500); eq(e.l[day], 400); eq(e.a[day], 12)
     eq(LedgerLinkDB.visits[1].kind, "neutral")
     at(1453, "", "Stormwind City"); L.OnAuctionShow(1794200100)
     Auctionator.Database:SetPrice("2447", 300, 40)
     eq(#got, 1); eq(got[1][2], 300)
-    eq(LedgerLinkDB.neutral["2447"].m, 400, "faction scan leaves the Neutral book alone")
+    eq(LedgerLinkDB.books.PvP.Neutral["2447"].m, 400, "faction scan leaves the Neutral book alone")
     L.HookAuctionator(); Auctionator.Database:SetPrice("765", 10, 1)
     eq(#got, 2, "hooked once: no double wrapping")
 end)
@@ -118,10 +120,39 @@ test("neutral AH, both and off modes", function()
     local got = stubAuctionator()
     at(1434); L.OnAuctionShow()
     Auctionator.Database:SetPrice("2447", 500, 1)
-    eq(#got, 1); eq(LedgerLinkDB.neutral["2447"].m, 500)
+    eq(#got, 1); eq(LedgerLinkDB.books.PvP.Neutral["2447"].m, 500)
     L.Command("neutral off"); eq(LedgerLinkDB.neutralMode, "off")
     Auctionator.Database:SetPrice("765", 50, 1)
-    eq(#got, 2); eq(LedgerLinkDB.neutral["765"], nil)
+    eq(#got, 2); eq(LedgerLinkDB.books.PvP.Neutral["765"], nil)
+end)
+
+test("books: neutral and faction scans land under realm and side; visits carry both", function()
+    local L = load(); local got = stubAuctionator()
+    at(1446); L.OnAuctionShow(1794200000)
+    Auctionator.Database:SetPrice("2447", 400, 3)
+    eq(#got, 0); eq(LedgerLinkDB.books.PvP.Neutral["2447"].m, 400)
+    eq(LedgerLinkDB.visits[1].realm, "PvP"); eq(LedgerLinkDB.visits[1].faction, "Horde")
+    at(1411, "", "Orgrimmar"); L.OnAuctionShow(1794200100)
+    Auctionator.Database:SetPrice("2447", 300, 40)
+    eq(#got, 1, "faction scan still reaches Auctionator")
+    eq(LedgerLinkDB.books.PvP.Horde["2447"].m, 300)
+    eq(LedgerLinkDB.books.PvP.Neutral["2447"].m, 400)
+end)
+
+test("migration: the old unkeyed Neutral book moves under this realm once", function()
+    local L, st = load({ db = { neutral = { ["765"] = { l = {}, h = { ["2500"] = 9 }, a = {}, m = 9, t = 5 } } } })
+    st.fire()
+    eq(LedgerLinkDB.neutral, nil); eq(LedgerLinkDB.books.PvP.Neutral["765"].m, 9)
+    st.fire(); eq(LedgerLinkDB.books.PvP.Neutral["765"].m, 9, "idempotent")
+end)
+
+test("migration: merging into an existing book keeps the newer price and unions the days", function()
+    local L, st = load({ db = {
+        neutral = { ["1"] = { l = { ["10"] = 5 }, h = { ["10"] = 20, ["11"] = 7 }, a = { ["10"] = 2 }, m = 7, t = 100 } },
+        books = { PvP = { Neutral = { ["1"] = { l = { ["10"] = 8 }, h = { ["10"] = 15 }, a = { ["10"] = 6 }, m = 9, t = 50 } } } } } })
+    st.fire()
+    local e = LedgerLinkDB.books.PvP.Neutral["1"]
+    eq(e.m, 7); eq(e.t, 100); eq(e.l["10"], 5); eq(e.h["10"], 20); eq(e.a["10"], 6); eq(e.h["11"], 7)
 end)
 
 for _, t in ipairs(tests) do

@@ -2,13 +2,17 @@
 -- 1. Turns the combat log on at every login (WoW switches it off at logout), so the Live tab always has data.
 --    Not possible on Forever (tested 8 Nov 2026): making WoW write the log sooner. It writes on a fixed 5-minute
 --    timer; LoggingCombat(false/true), /combatlog and /reload neither write it early nor open a new file.
--- 2. Keeps Neutral auction house prices apart. Auctionator keeps one price book per realm, so a scan at the
---    goblin AH (Gadgetzan, Booty Bay, Everlook, the Barrens) lands in the same book as your faction AH and drags its highs and
---    "now" price up. While the AH you opened is neutral, Ledger Link catches Auctionator's price writes and keeps
---    them in LedgerLinkDB.neutral (same shape: l/h/a per scan day, m = last seen). By default Auctionator's own
---    book is left untouched by those scans ("/ledger neutral both" also lets them through).
+-- 2. Keeps auction house prices apart, per ruleset (realm) and side. Auctionator keeps one price book per realm,
+--    so a scan at the goblin AH (Gadgetzan, Booty Bay, Everlook, the Barrens) lands in the same book as your
+--    faction AH and drags its highs and "now" price up. Ledger Link catches Auctionator's price writes and keeps
+--    them in LedgerLinkDB.books[realm][side][item] (same shape as Auctionator's: l/h/a per scan day, m = last
+--    seen, t = when), where realm = GetRealmName() ("PvP" on Forever) and side is "Neutral" while the AH you
+--    opened is neutral, else your faction. Faction scans are always copied into the faction book and still reach
+--    Auctionator. By default Auctionator's own book is left untouched by Neutral scans ("/ledger neutral both"
+--    also lets them through). Visits are tagged with realm and faction. The old LedgerLinkDB.neutral book is
+--    moved under the current realm at login.
 -- Public (ns.LedgerLink, for tests): Ensure(), Command(msg), IsNeutralHere(), OnAuctionShow(), HookAuctionator(),
---   RecordNeutral(dbKey, price, available, now).
+--   Record(side, dbKey, price, available, now), Migrate().
 local ADDON, ns = ...
 local L = {}
 ns.LedgerLink = L
@@ -81,12 +85,24 @@ local function scanDay(now)
     return tostring(math.floor((now - scanDay0()) / 86400))
 end
 
--- Same bookkeeping as Auctionator's DatabaseMixin:SetPrice, into LedgerLinkDB.neutral
-function L.RecordNeutral(dbKey, price, available, now)
+local function realmName()
+    return GetRealmName and GetRealmName() or "?"
+end
+
+-- books[realm][side], created on demand
+local function bookFor(realm, side)
+    local d = db()
+    d.books = d.books or {}
+    d.books[realm] = d.books[realm] or {}
+    d.books[realm][side] = d.books[realm][side] or {}
+    return d.books[realm][side]
+end
+
+-- Same bookkeeping as Auctionator's DatabaseMixin:SetPrice, into books[realm][side]
+function L.Record(side, dbKey, price, available, now)
     now = now or time()
     local d = db()
-    d.neutral = d.neutral or {}
-    local book = d.neutral
+    local book = bookFor(realmName(), side)
     local e = book[dbKey]
     if not e then
         e = { l = {}, h = {}, a = {}, m = 0 }
@@ -111,6 +127,32 @@ function L.RecordNeutral(dbKey, price, available, now)
     d.neutralLast = now
 end
 
+-- Moves the old unkeyed Neutral book (LedgerLinkDB.neutral) under this realm's Neutral book. Per item the newer
+-- scan wins m/t (an entry without t is older); the day maps are unioned (on a shared day: lower l, higher h,
+-- larger a). Runs at every login; a no-op once the old book is gone.
+function L.Migrate()
+    local d = db()
+    local old = d.neutral
+    if not old then return end
+    local book = bookFor(realmName(), "Neutral")
+    for key, src in pairs(old) do
+        local dst = book[key]
+        if not dst then
+            book[key] = src
+        else
+            if (src.t or -1) > (dst.t or -1) then dst.m, dst.t = src.m, src.t end
+            for _, f in ipairs({ "l", "h", "a" }) do
+                dst[f] = dst[f] or {}
+                for day, v in pairs(src[f] or {}) do
+                    local cur = dst[f][day]
+                    if cur == nil or (f == "l" and v < cur) or (f ~= "l" and v > cur) then dst[f][day] = v end
+                end
+            end
+        end
+    end
+    d.neutral = nil
+end
+
 -- Wraps Auctionator.Database:SetPrice on the live instance (Auctionator mixes its methods into the object, so
 -- the instance is what ProcessScan calls). Safe to call again: it wraps once.
 function L.HookAuctionator()
@@ -121,9 +163,15 @@ function L.HookAuctionator()
     local original = dbo.SetPrice
     dbo.SetPrice = function(self, dbKey, price, available, ...)
         local mode = db().neutralMode
-        if L.atNeutral and mode ~= "off" then
-            pcall(L.RecordNeutral, dbKey, price, available)
-            if mode == "split" then return end
+        if L.atNeutral then
+            if mode ~= "off" then
+                pcall(L.Record, "Neutral", dbKey, price, available)
+                if mode == "split" then return end
+            end
+        else
+            -- a faction AH: Auctionator keeps its book; we keep a copy so the dashboard can read it per side
+            local faction = UnitFactionGroup and UnitFactionGroup("player")
+            if faction then pcall(L.Record, faction, dbKey, price, available) end
         end
         return original(self, dbKey, price, available, ...)
     end
@@ -137,7 +185,8 @@ function L.OnAuctionShow(now)
     L.HookAuctionator()
     local d = db()
     d.visits = d.visits or {}
-    table.insert(d.visits, { t = now or time(), kind = neutral and "neutral" or "faction", zone = where })
+    table.insert(d.visits, { t = now or time(), kind = neutral and "neutral" or "faction", zone = where,
+        realm = realmName(), faction = UnitFactionGroup and UnitFactionGroup("player") or nil })
     while #d.visits > MAX_VISITS do table.remove(d.visits, 1) end
     if neutral and d.neutralMode ~= "off" and not d.quiet then
         say(("neutral auction house (%s): prices go to the Ledger's Neutral book%s."):format(where or "?",
@@ -147,7 +196,8 @@ end
 
 local function neutralCount()
     local n = 0
-    for _ in pairs(db().neutral or {}) do n = n + 1 end
+    local books = db().books
+    for _ in pairs(books and books[realmName()] and books[realmName()].Neutral or {}) do n = n + 1 end
     return n
 end
 
@@ -190,6 +240,7 @@ frame:SetScript("OnEvent", function(_, event)
     if event == "AUCTION_HOUSE_SHOW" then
         L.OnAuctionShow()
     else
+        L.Migrate()
         C_Timer.After(1, L.Ensure)
     end
 end)
