@@ -848,17 +848,40 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     truthy(page:find('"name":"Hero"', 1, true), "data embedded")
     truthy(not page:find("/*DATA*/", 1, true), "placeholder replaced")
     eq(data.marketTab.items["2592"].now, 100, "no market data: the scan's price, as before")
+    eq(data.trends, nil, "no market data: no Trends")
+    truthy(data.reset and data.reset.dow and data.reset.hour, "the reset is there without API data too")
     -- The API's newer snapshot of R Horde. Ledger Link saw a faction visit at 10:00 on the last scan day (when
     -- Auctionator's price was taken) and a Neutral one at 20:00, which must not stamp the faction book's scan.
     local day = S.dayToTime(2501)
     U.writeFile(acct .. "/SavedVariables/LedgerLink.lua", ([[LedgerLinkDB = { visits = {
         { t = %d, kind = "faction", realm = "R", faction = "Horde" }, { t = %d, kind = "neutral", realm = "R" } } }]])
         :format(day + 10 * 3600, day + 20 * 3600))
-    local logged = {}
-    local api = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+    -- the wanted list also takes what any character holds (Alt's Mining Pick) or sold on the AH (Hero's Woolen Bag)
+    U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [2592] = 4 }, bank = {}, mail = {} }, ["Alt-R"] = { name = "Alt", realm = "R", bags = { [2592] = 1, [2901] = 1 }, bank = {}, mail = {} } } }')
+    U.writeFile(charSV .. "/MuddyBoots.lua", [[MuddyBootsCharDB = { char = { name = "Hero", realm = "R", guid = "G1", level = 12, class = "PRIEST",
+        first = { level = 11 } }, sessions = { { start = 5, played0 = 3500, played1 = 7200, last = 50 } },
+        counts = { xp = { all = 300, kill = 100, quest = 200 } },
+        log = { "10|3600|1|1|1|zo|Elwynn", "20|3610|1|1|1|xp|100|kill|Wolf", "30|3620|1|1|1|mn|50|loot", "40|5400|1|1|1|lv|12",
+            "45|5405|1|1|1|ah|sold|950|Woolen Bag", "45|5405|1|1|1|mn|950|auction|Woolen Bag" } }]])
+    local logged, wanted = {}, {}
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
-            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
-        priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end } })
+            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false } } }, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end },
+        reset = "Wed 9", wanted = function(text) wanted[#wanted + 1] = text end })
+    local th = api.trends and api.trends.houses["R Horde"]
+    truthy(th, "Trends for the API's house")
+    eq(#th.families, #I.FAMILIES); eq(th.families[3].key, "cloth"); eq(th.families[3].ids[1], 2592)
+    eq(th.items["2592"].name, "Wool Cloth"); eq(th.items["2592"].spark[2], 90); eq(th.items["2592"].spark[3], false)
+    eq(api.trends.default, "R Horde")
+    eq(api.reset.dow, 2, "Wed"); eq(api.reset.hour, 9); eq(api.trends.reset, api.reset)
+    eq(#wanted, 1, "one wanted list per build")
+    truthy(wanted[1]:find("R Horde\t2592\n", 1, true), "the held item is wanted: " .. wanted[1]:sub(1, 80))
+    truthy(wanted[1]:find("R Horde\t2901\n", 1, true), "an alt's held item is wanted")
+    truthy(wanted[1]:find("R Horde\t4241\n", 1, true), "an item sold on the AH is wanted")
+    truthy(wanted[1]:find("R Horde\t2447\n", 1, true), "a family member is wanted")
+    truthy(wanted[1]:find("R Neutral\t2592\n", 1, true), "the character's Neutral house too")
+    eq(api.characters[1].houses.faction, "R Horde"); eq(api.characters[1].houses.neutral, "R Neutral")
     eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")
     eq(api.marketTab.items["2592"].nowFrom, "api"); eq(api.marketTab.items["2592"].market, 95)
     eq(#logged, 1); truthy(logged[1]:find("\t2592\t100\n"), "the log keeps the scan: " .. logged[1])
