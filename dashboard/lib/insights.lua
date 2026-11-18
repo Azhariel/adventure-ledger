@@ -1,5 +1,6 @@
 -- Insights: market deals, play-session recaps and items to mail between your characters.
 -- Pure functions over the tables the readers produce (no file access), so every figure can be tested offline.
+local Signals = require("signals")
 local I = {}
 
 local function num(v)
@@ -551,24 +552,22 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
     table.sort(ownedList, function(a, b) if a.value ~= b.value then return a.value > b.value end return a.id < b.id end)
     for i, r in ipairs(ownedList) do out.owned[i] = r.id end
 
-    -- Movers: up the most from their launch low, and down the most from their peak (with enough on sale to matter)
-    local up, down = {}, {}
-    for id, p in pairs(prices) do
+    -- Movers: the API's 7-day trend and new price levels first; items without them keep today's rule: up the most
+    -- from their launch low, down the most from their peak (with enough on sale to matter)
+    local function scanRule(_, p)
         local s = itemStats(p)
         if #(p.days or {}) >= 2 and s.now and s.now >= cfg.minNow and (s.available or 0) >= cfg.minAvailable then
-            if s.change and s.change >= cfg.minRise and (s.low or 0) >= cfg.minLow then up[#up + 1] = { id = id, v = s.change } end
+            if s.change and s.change >= cfg.minRise and (s.low or 0) >= cfg.minLow then return "up", s.change end
             if s.peak and s.peak > 0 and s.now < s.peak then
                 local drop = 1 - s.now / s.peak
-                if drop >= 0.3 then down[#down + 1] = { id = id, v = drop } end
+                if drop >= 0.3 then return "down", drop end
             end
         end
     end
-    local function top(list, dest)
-        table.sort(list, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.id < b.id end)
-        for i = 1, math.min(cfg.limit, #list) do dest[i] = list[i].id; add(list[i].id) end
-    end
-    top(up, out.rising)
-    top(down, out.falling)
+    local moveBasis
+    out.rising, out.falling, moveBasis = Signals.movers(prices, scanRule, cfg.limit)
+    for _, id in ipairs(out.rising) do add(id) end
+    for _, id in ipairs(out.falling) do add(id) end
 
     for id in pairs(include) do
         local p = prices[id]
@@ -585,7 +584,7 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
             have = o and o.count or 0, holders = o and o.holders or nil,
             -- the API's figures and where "now" came from (R.merge); nil without market data
             market = p.market, nowFrom = p.nowFrom, nowAt = p.nowAt, soldPerDay = p.soldPerDay, trend = p.trend,
-            shifted = p.shifted,
+            shifted = p.shifted, moveBasis = moveBasis[id],
         }
     end
     return out

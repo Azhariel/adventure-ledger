@@ -152,4 +152,47 @@ function Sg.flipIds(rows)
     return ids
 end
 
+-- Rising and fallen items. prices: { [id] = { shifted, trend, soldPerDay, ... } }; scanRule(id, p) -> "up"|"down", v
+-- is today's launch-low / peak rule for items without API figures. An item with an API trend or shifted level
+-- needs MOVER_MIN_SOLD sales a day and is judged only by the API (shifted decides when present). Order: shifted
+-- by size, API trend by size, then scans; ties by id. Returns rising, falling (id lists) and basis[id].
+function Sg.movers(prices, scanRule, limit)
+    local C = Sg.C
+    local lists = { up = {}, down = {} }
+    local basis = {}
+    for id, p in pairs(prices) do
+        local dir, rank, v, how
+        if p.shifted or p.trend then
+            if (num(p.soldPerDay) or 0) >= C.MOVER_MIN_SOLD then
+                if p.shifted then
+                    dir, rank, how = p.shifted.dir, 1, "shifted"
+                    v = math.abs(num(p.shifted.pct) or 0)
+                else
+                    local t = num(p.trend) or 0
+                    if t >= C.RISE then dir = "up" elseif t <= C.FALL then dir = "down" end
+                    rank, how, v = 2, "trend", math.abs(t)
+                end
+            end
+        elseif scanRule then
+            dir, v = scanRule(id, p)
+            rank, how = 3, "scan"
+        end
+        if lists[dir or ""] then
+            local l = lists[dir]
+            l[#l + 1] = { id = id, rank = rank, v = v, how = how }
+        end
+    end
+    local function finish(l)
+        table.sort(l, function(a, b)
+            if a.rank ~= b.rank then return a.rank < b.rank end
+            if a.v ~= b.v then return a.v > b.v end
+            return a.id < b.id
+        end)
+        local ids = {}
+        for i = 1, math.min(limit or C.MOVER_LIMIT, #l) do ids[i] = l[i].id; basis[l[i].id] = l[i].how end
+        return ids
+    end
+    return finish(lists.up), finish(lists.down), basis
+end
+
 return Sg

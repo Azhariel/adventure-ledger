@@ -1854,6 +1854,25 @@ end)
 -- Signals: deals and sell windows on the API's market values
 
 local Sg = require("signals")
+test("signals.movers: shifted first, then trend, then scans", function()
+    local prices = {
+        [1] = { shifted = { dir = "up", pct = 0.4 }, soldPerDay = 5 },
+        [2] = { trend = 0.6, soldPerDay = 5 },
+        [3] = { trend = 0.3, soldPerDay = 5 },
+        [4] = { soldPerDay = 5 },
+        [5] = { trend = 0.9, soldPerDay = 1 },
+        [6] = { trend = -0.3, soldPerDay = 3 },
+        [7] = { shifted = { dir = "down", pct = -0.5 }, soldPerDay = 3 },
+        [8] = { trend = 0.6, soldPerDay = 5 },
+    }
+    local rule = function(id) if id == 4 then return "up", 0.9 end if id == 8 then return "up", 5 end end
+    local rising, falling, basis = Sg.movers(prices, rule)
+    eq(table.concat(rising, ","), "1,2,8,3,4", "shifted, trend by size then id, scan; 5 has too few sales")
+    eq(table.concat(falling, ","), "7,6")
+    eq(basis[1], "shifted"); eq(basis[2], "trend"); eq(basis[4], "scan"); eq(basis[8], "trend", "listed once, by the API rule")
+    eq(basis[5], nil)
+end)
+
 test("signals.flipIds: top positive flips listed at both houses", function()
     local rows = {
         { id = 1, toNeutral = 70, toFaction = -105, fListed = 9, nListed = 5 },
