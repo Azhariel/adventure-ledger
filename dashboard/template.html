@@ -184,6 +184,25 @@ svg.spark { display: block; margin-left: auto; }
 .trends-bar select { width: auto; max-width: 100%; }
 .trends-bar .chips { margin: 0; flex: 1 1 320px; }
 @media (max-width: 860px) { .wk .cell { height: 14px; } }
+/* the item drawer: one item at one auction house, beside the table it was opened from */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 100%; z-index: 20; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--panel); border-left: 1px solid var(--line); box-shadow: -18px 0 40px rgba(0, 0, 0, .45); padding: 16px 18px 28px; }
+.drawer .dr-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.drawer .dr-head h2 { font-size: 17px; }
+.dr-close { flex: none; width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 18px/1 var(--sans); cursor: pointer; }
+.dr-close:hover { border-color: var(--purple); color: var(--purple); }
+.drawer .seg { margin-top: 10px; flex-wrap: wrap; }
+.drawer .seg button[aria-pressed="true"] { background: var(--raise); }
+.drawer .ph .seg { margin-top: 0; }
+.dr-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin: 12px 0 6px; font: 13px var(--mono); }
+.dr-stats .lbl { display: block; color: var(--muted); font: 12px var(--sans); }
+.dr-stats small { display: block; color: var(--dim); font: 11px var(--mono); }
+.dr-shift { font-size: 12.5px; margin: 4px 0 6px; }
+.drawer h3 { margin-top: 18px; }
+.drawer .chart { height: 220px; }
+.drawer .chart.tall { height: 240px; } .drawer .chart.short { height: 110px; }
+.legend i.rl { background: repeating-linear-gradient(90deg, var(--yellow) 0 4px, transparent 4px 7px); }
+@media (max-width: 600px) { .drawer { width: 100%; border-left: 0; padding: 14px 16px 24px; } }
 details.session { border-top: 1px solid var(--line2); padding: 9px 0; }
 details.session:first-of-type { border-top: 0; }
 details.session summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; list-style: none; }
@@ -423,25 +442,21 @@ tr.flash td { animation: flash .8s ease-out; }
         <div class="chart tall"><canvas id="valueChart"></canvas></div><div class="method" id="valueMethod"></div></article>
       <article class="panel w4"><div class="ph"><h2>Your best sellers</h2></div><p class="hint">Your holdings furthest above their launch low. Click one for its chart.</p><div class="scroll"><table id="windowTable"></table></div></article>
       <article class="panel w12"><div class="ph"><h2>Buy low, sell high</h2><span class="pill faction">faction AH</span></div><p class="hint" id="marketHint"></p><div id="marketBox"></div></article>
-      <div class="w12 slot"></div>
     </section>
 
     <section class="mod" data-mod="stockpile" hidden>
-      <div class="w12 slot"></div>
       <article class="panel w12"><div class="ph"><h2>Your stockpile</h2></div><p class="hint" id="stockHint"></p>
         <div class="toolbar"><div class="chips" id="stockChips"></div><input type="search" class="search" data-table="stockTable" placeholder="Filter stockpile"></div>
         <div class="scroll tall"><table id="stockTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="browse" hidden>
-      <div class="w12 slot"></div>
       <article class="panel w12"><div class="ph"><h2>Every priced item</h2></div><p class="hint" id="famHint"></p>
         <div class="toolbar"><div class="chips" id="famChips"></div><input type="search" class="search" id="famSearch" data-table="famTable" placeholder="Search market items"></div>
         <div class="scroll tall"><table id="famTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="movers" hidden>
-      <div class="w12 slot"></div>
       <article class="panel w6"><div class="ph"><h2>Rising fastest</h2></div><p class="hint">50% or more over their launch low, at least 20 listed, launch low 10c or more.</p><div class="scroll tall"><table id="risingTable"></table></div></article>
       <article class="panel w6"><div class="ph"><h2>Fallen furthest</h2></div><p class="hint">30% or more under their peak: a chance to buy, or a market flooding.</p><div class="scroll tall"><table id="fallingTable"></table></div></article>
     </section>
@@ -455,7 +470,6 @@ tr.flash td { animation: flash .8s ease-out; }
           <li><code>/reload</code> or log out, then rebuild. This page fills in.</li>
         </ol>
         <p class="hint" style="margin-top:10px"><code>/ledger neutral both</code> also lets the scans reach Auctionator; <code>/ledger neutral off</code> stops keeping them apart. Faction prices from before this update may still include a Neutral scan on days you visited one.</p></article>
-      <div class="w12 slot"></div>
       <article class="panel w12" id="gapPanel"><div class="ph"><h2>Price gap by item</h2><span class="meta" id="gapMeta"></span></div><p class="hint">Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view keeps items with 5 or more listed at both houses.</p>
         <div class="toolbar"><div class="chips" id="gapChips"></div><input type="search" class="search" data-table="gapTable" placeholder="Filter items"></div>
         <div class="scroll tall"><table id="gapTable"></table></div></article>
@@ -476,7 +490,6 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w12"><div class="ph"><h2 id="trendsNowTitle">Right now</h2><span class="meta" id="trendsNowMeta"></span></div>
         <p class="hint" id="trendsNowHint"></p><div class="scroll tall"><table id="trendsTable"></table></div>
         <div class="method" id="trendsAge"></div><div class="method" id="trendsAgree"></div></article>
-      <div class="w12 slot"></div>
     </section>
 
     <section class="mod" data-mod="trades" hidden>
@@ -598,8 +611,9 @@ tr.flash td { animation: flash .8s ease-out; }
           <div><dt><a href="#/crafting" data-module="crafting">Crafting</a></dt><dd>Your recipes ranked by profit at today's prices, what you'd pay after using what you hold,
             whether each will sell, each one's full reagent tree, the cheapest skill-up route, and your restock list (Make or Buy).</dd></div>
         </dl>
-        <p class="hint">Click any item row to open the item inspector: both houses' prices on one chart, the forecast, and how
-          many were listed.</p></article>
+        <p class="hint">Click any item row to open it in a panel at the side: the auction house's hourly prices and market
+          value (14 days, 60 days, or everything with <code>wowstats live</code>), its best hours to buy and sell, and your
+          own scans of both houses with the forecast and how many were listed. Esc closes it.</p></article>
 
       <article class="panel w6 prose"><div class="ph"><h2>Reading the page</h2></div>
         <ul class="steps">
@@ -651,16 +665,40 @@ tr.flash td { animation: flash .8s ease-out; }
   </main>
 </div>
 
-<!-- The item inspector: one panel, moved into the open market module's slot -->
-<article class="panel w12" id="inspector">
-  <div class="ph"><h2 id="itemTitle">Price history</h2><span class="meta" id="itemMeta"></span></div>
-  <p class="hint" id="itemHint"></p>
-  <div class="chart tall"><canvas id="itemChart"></canvas></div>
-  <div class="legend" id="itemLegend"></div>
-  <h3>Listed each scan day</h3>
-  <div class="chart short"><canvas id="listedChart"></canvas></div>
-  <div class="method" id="itemMethod"></div>
-</article>
+<!-- The item drawer: opened from any item row in the market modules -->
+<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="drTitle" hidden>
+  <div class="dr-head">
+    <div><h2 id="drTitle"></h2><div class="meta" id="drMeta"></div></div>
+    <button type="button" class="dr-close" id="drClose" aria-label="Close the item panel (Esc)" title="Close (Esc)">&times;</button>
+  </div>
+  <div class="seg" id="drHouses" role="group" aria-label="Auction house for this item" hidden></div>
+  <div class="dr-stats" id="drStats"></div>
+  <p class="hint" id="drNote" hidden></p>
+  <p class="dr-shift" id="drShift" hidden></p>
+  <section id="drPrice">
+    <div class="ph"><h3>Lowest and market value</h3>
+      <div class="seg" id="drRange" role="group" aria-label="Range">
+        <button type="button" data-range="14">14 days</button><button type="button" data-range="60">60 days</button><button type="button" data-range="all">everything</button></div></div>
+    <div class="chart"><canvas id="drChart"></canvas></div>
+    <div class="legend" id="drLegend"></div>
+    <div class="method" id="drPriceNote"></div>
+  </section>
+  <section id="drWeek">
+    <h3>Hour of the week</h3>
+    <p class="hint" id="drWeekNote"></p>
+    <div id="drGrid"></div>
+    <p class="strip" id="drStrip" hidden></p>
+  </section>
+  <section id="drScans">
+    <div class="ph"><h3>Your scans</h3><span class="meta" id="itemMeta"></span></div>
+    <p class="hint" id="itemHint"></p>
+    <div class="chart tall"><canvas id="itemChart"></canvas></div>
+    <div class="legend" id="itemLegend"></div>
+    <h3>Listed each scan day</h3>
+    <div class="chart short"><canvas id="listedChart"></canvas></div>
+    <div class="method" id="itemMethod"></div>
+  </section>
+</aside>
 
 <script>
 const DATA = /*DATA*/null;
@@ -1103,7 +1141,7 @@ function placeThumb() {
 function reveal() {
   if (!MOTION) return;
   const mod = document.querySelector(`section.mod[data-mod="${route}"]`);
-  const list = [el("kpis")].concat([...mod.querySelectorAll(":scope > .panel, :scope > .slot > .panel, :scope > .w12")]).filter(n => n && !n.hidden && n.offsetParent !== null);
+  const list = [el("kpis")].concat([...mod.querySelectorAll(":scope > .panel, :scope > .w12")]).filter(n => n && !n.hidden && n.offsetParent !== null);
   list.forEach((n, i) => { n.classList.remove("rise"); n.style.setProperty("--i", Math.min(i, 9)); });
   void mod.offsetWidth;
   list.forEach(n => n.classList.add("rise"));
@@ -1129,6 +1167,7 @@ function drawSys() {
 
 function go(key, opts = {}) {
   const m = MODULES.find(x => x.key === key && available(x)) || MODULES.find(available);
+  const prevRoute = route;
   route = m.key;
   tab = route === "live" ? "live" : route;
   store.set(ROUTE_KEY, route);
@@ -1146,10 +1185,8 @@ function go(key, opts = {}) {
     if (b.dataset.house === "neutral") { b.disabled = !hasNeutral(); b.title = hasNeutral() ? "" : "No Neutral prices yet: see Faction vs Neutral"; }
   });
   el("kpis").innerHTML = ""; el("who").textContent = "";
-  // the inspector lives in the open module's slot
-  const slot = document.querySelector(`section.mod[data-mod="${route}"] .slot`);
-  const insp = el("inspector");
-  if (slot) { slot.appendChild(insp); insp.hidden = false; } else { inspCharts.splice(0).forEach(ch => ch.destroy()); insp.hidden = true; document.body.appendChild(insp); }
+  // the item drawer belongs to the module it was opened from
+  if (route !== prevRoute) closeDrawer({ quiet: true });
   drawNav();
   placeThumb();
   RENDER[route]();
@@ -1633,10 +1670,12 @@ function renderAhTrades(ah) {
     ["sold", `Sold (${trades.filter(r => r.act === "sold").length})`],
     ["bought", `Bought (${trades.filter(r => r.act === "buyout" || r.act === "bid").length})`],
   ];
+  // an item row opens the drawer at this character's own faction house
+  const hk = charHouses(curChar()).faction;
   el("ahChips").innerHTML = modes.map(([k, l]) => `<button type="button" class="chip" data-ah="${k}" aria-pressed="${k === ahMode}">${esc(l)}</button>`).join("");
   if (ahMode === "items") {
     table("ahTable", [{ t: "Item" }, { t: "Bought", n: 1 }, { t: "Avg buy", n: 1 }, { t: "Sold", n: 1 }, { t: "Avg sell", n: 1 }, { t: "Deposits", n: 1 }, { t: "Net", n: 1 }],
-      items.map(it => [
+      items.map(it => rowId(it.id, [
         whItem(it.id, it.name),
         it.boughtCount ? `<span data-sort="${it.boughtCopper}">${it.boughtCount}× (${money(it.boughtCopper, { short: true })})</span>` : "",
         it.avgBuy ? money(it.avgBuy) : "",
@@ -1644,7 +1683,7 @@ function renderAhTrades(ah) {
         it.avgSell ? money(it.avgSell) : "",
         it.deposits ? `<span data-sort="${it.deposits}" title="${it.posts} posted${it.expired ? `, ${it.expired} expired` : ""}">${money(it.deposits)} <span class="muted">(${it.posts}×)</span></span>` : (it.expired ? `<span class="pill">${it.expired} expired</span>` : ""),
         `<span class="${it.net > 0 ? "pos" : it.net < 0 ? "neg" : "muted"}" data-sort="${it.net}">${it.net > 0 ? "+" : ""}${money(it.net)}</span>`,
-      ]), "No auction house trades recorded yet.");
+      ], hk)), "No auction house trades recorded yet.");
     return;
   }
   const filtered = ahMode === "sold" ? trades.filter(r => r.act === "sold")
@@ -1658,7 +1697,7 @@ function renderAhTrades(ah) {
     expired: '<span class="pill">expired</span>',
   };
   table("ahTable", [{ t: "When", n: 1 }, { t: "Type" }, { t: "Item" }, { t: "Qty", n: 1 }, { t: "Each", n: 1 }, { t: "Total", n: 1 }, { t: "Buyer / Seller" }],
-    filtered.map(r => [
+    filtered.map(r => rowId(r.id, [
       `<span data-sort="${r.t || 0}">${date(r.t)}</span>`,
       BADGE[r.act] || esc(r.act),
       whItem(r.id, r.name),
@@ -1666,7 +1705,7 @@ function renderAhTrades(ah) {
       r.copper ? money(r.unit) : "",
       r.act === "sold" ? `<span class="pos" data-sort="${r.copper}">+${money(r.copper)}</span>` : r.copper ? `<span class="neg" data-sort="${-r.copper}">-${money(r.copper)}</span>` : "",
       (r.who || []).map(playerLink).join(", "),
-    ]), "No matching auction house trades.");
+    ], hk)), "No matching auction house trades.");
 }
 
 function renderRecaps(recaps) {
@@ -1990,9 +2029,6 @@ function modSignals() {
     "Nothing you hold is above its launch low.");
   // Buy low / sell high (faction prices, from the build)
   renderMarket(DATA.market);
-  // The price history below opens on the item picked last, else your top seller, else the first deal
-  const mk = DATA.market || {}, first = [(mk.sell || [])[0], best[0], (mk.buy || [])[0]].find(Boolean);
-  inspect(mktItem && M.items[String(mktItem)] ? mktItem : first && first.id);
 }
 
 function modStockpile() {
@@ -2020,7 +2056,6 @@ function modStockpile() {
     rows.map(it => rowId(it.id, [whItem(it.id, it.name), `<span data-sort="${it.have}" title="${esc((it.holders || []).join(", "))}">${short(it.have)}</span>`, money(it.now), money(it.low), signedPct(it.change),
       money(it.peak), supplyPct(it.supply), itemSpark(it), money(it.now * it.have, { short: true }), signal(it)])),
     "You don't hold anything this house has a price for.", { onRender: () => pickRows(mktItem) });
-  inspect(mktItem && M.items[String(mktItem)] ? mktItem : (herbs[0] || owned[0] || {}).id);
 }
 
 function modBrowse() {
@@ -2047,7 +2082,6 @@ function modBrowse() {
         ? `Showing the top ${shown.toLocaleString()} of ${total.toLocaleString()} by listings. Search, or sort a column, to reach the rest.`
         : `${total.toLocaleString()} priced items. Click a row for its chart.`;
     } });
-  inspect(mktItem && get(mktItem) ? mktItem : (famRows[0] || {}).id);
 }
 
 function modMovers() {
@@ -2066,7 +2100,6 @@ function modMovers() {
   table("fallingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Peak", n: 1 }, { t: "Down", n: 1 }, { t: "Listed", n: 1 }],
     down.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.peak), signedPct(it.peak ? it.now / it.peak - 1 : null), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`])),
     days.length < 2 ? "Needs two scan days." : "Nothing down 30% or more from its peak.", { onRender: () => pickRows(mktItem) });
-  inspect(mktItem && get(mktItem) ? mktItem : (up[0] || down[0] || {}).id);
 }
 
 function modNeutral() {
@@ -2075,7 +2108,6 @@ function modNeutral() {
   el("neutralSetup").hidden = have;
   ["gapPanel", "gapDistPanel"].forEach(id => el(id).hidden = !have);
   el("visitPanel").hidden = !(N && (N.visits || []).length);
-  el("inspector").hidden = !have;
   if (!have) {
     el("who").textContent = "The goblin auction house runs its own prices. Here they're kept apart from your faction's.";
   } else {
@@ -2118,8 +2150,6 @@ function modNeutral() {
         backgroundColor: BINS.map(b => b[1] <= 0 ? css("--faction") : css("--neutral")), borderRadius: 3 }] },
       options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} items` } } },
         scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } } });
-    const first = list.find(r => r.id === mktItem) || list[0];
-    inspect(first ? first.id : Object.values(N.items)[0].id, { both: true });
   }
   const visits = ((N && N.visits) || []).slice().reverse();
   el("visitMeta").textContent = visits.length ? `${visits.filter(v => v.kind === "neutral").length} neutral of ${visits.length}` : "";
@@ -2233,23 +2263,282 @@ function trendsHouse() {
   return keys.includes(saved) ? saved : keys.includes(DATA.trends.default) ? DATA.trends.default : keys[0];
 }
 
-// Opens one item at one house. A stand-in until the item drawer exists: the price inspector under the table, when
-// the item has scan prices on this page and the house is the open character's faction or Neutral house.
-function openItem(id, houseKey) {
-  const c = curChar(), hs = c && c.houses && !Array.isArray(c.houses) ? c.houses : {};
-  const pair = [hs.faction || DATA.trends.default, hs.neutral].filter(Boolean);
-  const known = (DATA.marketTab && DATA.marketTab.items[String(id)]) || (DATA.neutralTab && DATA.neutralTab.items[String(id)]);
-  const insp = el("inspector");
-  if (!known || !pair.includes(houseKey) || !insp.parentElement.classList.contains("slot")) return;
-  insp.hidden = false;
-  inspect(id);
-  insp.scrollIntoView({ behavior: MOTION ? "smooth" : "auto", block: "nearest" });
+// ------------------------------------------------------------------ The item drawer (one item at one auction house)
+// Opened from any item row: the house is the row's data-house, else the market switch's side of the default pair
+// (the houses the market tabs were built for). Prices come from the embedded Trends data, else (live server)
+// GET /history, else the 14-day spark; the scan chart below is the market tabs' own history.
+const DAY_MS = 86400000;
+const DR = { open: false, id: null, key: null, range: "14", api: false, from: null, hist: () => null };
+const drCharts = [];
+const HIST = new Map();   // "houseId:itemId" -> { state: "loading" | "ok" | "fail", data }: one fetch per page load
+const charHouses = c => c && c.houses && !Array.isArray(c.houses) ? c.houses : {};
+function defaultPair() {
+  const f = (DATA && DATA.trends && DATA.trends.default) || null;
+  return { faction: f, neutral: f ? f.replace(/ \S+$/, " Neutral") : null };
+}
+const segHouseKey = () => { const p = defaultPair(); return house === "neutral" && hasNeutral() ? p.neutral : p.faction; };
+const trendsAt = key => (key != null && DATA.trends && DATA.trends.houses && DATA.trends.houses[key]) || null;
+const apiItem = (id, key) => { const H = trendsAt(key); return (H && H.items && H.items[String(id)]) || null; };
+const isNeutralKey = key => key != null ? / Neutral$/.test(key) : house === "neutral" && hasNeutral();
+// the market tab holding this house's scan prices: the default pair only (any key when the page has no house keys)
+function tabItem(id, key) {
+  const p = defaultPair(), s = String(id);
+  const F = DATA.marketTab && DATA.marketTab.items[s], N = DATA.neutralTab && DATA.neutralTab.items[s];
+  if (key == null || p.faction == null) return isNeutralKey(key) ? N : F;
+  return key === p.faction ? F : key === p.neutral ? N : null;
+}
+// API data: embedded in Trends, or the market tab has the API's figures or its "now" came from a snapshot
+const hasApi = (id, key) => { const t = tabItem(id, key) || {}; return !!(apiItem(id, key) || cellNum(t.market) != null || t.nowFrom === "api"); };
+// "YYYY-MM-DD" (a local day) -> its noon in ms; a number is seconds
+function dayMs(d) {
+  if (typeof d === "number") return d * 1000;
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(String(d));
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], 12).getTime() : NaN;
+}
+const hm = t => { const d = new Date(t * 1000); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+
+// Every weekly reset (DATA.reset: local day, Mon = 0, and hour) from min to max, in ms
+function resetTimes(min, max) {
+  const r = DATA && DATA.reset, out = [];
+  if (!r || r.dow == null || !isFinite(min) || !isFinite(max)) return out;
+  const d = new Date(min);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7 + r.dow);
+  d.setHours(r.hour);
+  for (let i = 0; i < 2000 && d.getTime() <= max; i++) {
+    if (d.getTime() >= min) out.push(d.getTime());
+    d.setDate(d.getDate() + 7);
+  }
+  return out;
+}
+// A dashed vertical line at each weekly reset inside a time chart's x range
+const resetLines = {
+  id: "resetLines",
+  afterDraw(chart) {
+    const x = chart.scales.x, a = chart.chartArea;
+    if (!x || !a) return;
+    const at = resetTimes(x.min, x.max);
+    if (!at.length) return;
+    const g = chart.ctx, col = css("--yellow");
+    g.save();
+    g.strokeStyle = alpha(col, .6); g.fillStyle = alpha(col, .85); g.lineWidth = 1; g.setLineDash([4, 4]);
+    g.font = `10px ${css("--mono") || "monospace"}`;
+    for (const t of at) {
+      const px = Math.round(x.getPixelForValue(t)) + .5;
+      g.beginPath(); g.moveTo(px, a.top); g.lineTo(px, a.bottom); g.stroke();
+      if (px + 34 < a.right) g.fillText("reset", px + 3, a.bottom - 4);
+    }
+    g.restore();
+  },
+};
+const resetLegend = () => { const r = DATA && DATA.reset; return `<span><i class="rl"></i>weekly reset${r && r.dow != null ? ` (${WEEKDAYS[r.dow]} ${hour2(r.hour)})` : ""}</span>`; };
+
+function loadHistory(houseId, id) {
+  const k = houseId + ":" + id;
+  if (HIST.has(k)) return HIST.get(k);
+  const e = { state: "loading", data: null };
+  HIST.set(k, e);
+  fetch(`/history?house=${encodeURIComponent(houseId)}&item=${encodeURIComponent(id)}`)
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(d => { e.state = "ok"; e.data = d; }, () => { e.state = "fail"; })
+    .then(() => {
+      const H = trendsAt(DR.key);
+      if (DR.open && DR.id === id && H && H.id === houseId) { drawHeader(); drawPrice(); drawWeek(); }
+    });
+  return e;
+}
+// /history only on the live server, for an item with API data whose embedded series miss what the view needs
+function maybeFetch() {
+  const H = trendsAt(DR.key), T = apiItem(DR.id, DR.key);
+  if (!SERVED || !DR.api || !H || !H.id) return;
+  if (!T || !T.hourly || !T.daily || !T.week || DR.range === "all") loadHistory(H.id, DR.id);
+}
+
+function openDrawer(id, houseKey, from) {
+  id = Number(id);
+  if (!isFinite(id)) return;
+  const key = houseKey || segHouseKey() || null;
+  Object.assign(DR, { open: true, id, key, api: hasApi(id, key) });
+  if (from) DR.from = from;
+  if (!SERVED && DR.range === "all") DR.range = "60";
+  const H = trendsAt(key), hid = H && H.id;
+  DR.hist = () => (SERVED && DR.api && hid ? HIST.get(hid + ":" + id) || null : null);
+  mktItem = id; saveMkt(); pickRows(id);
+  const d = el("drawer"), was = !d.hidden;
+  d.hidden = false;
+  if (!was) d.scrollTop = 0;
+  maybeFetch();
+  drawHeader(); drawPrice(); drawWeek(); drawScans();
+  if (!was) el("drClose").focus({ preventScroll: true });
+}
+
+function closeDrawer(opts = {}) {
+  const d = el("drawer");
+  if (!d || d.hidden) return;
+  d.hidden = true; DR.open = false;
+  drCharts.splice(0).forEach(ch => ch.destroy());
+  inspCharts.splice(0).forEach(ch => ch.destroy());
+  const from = DR.from; DR.from = null;
+  if (!opts.quiet && from && from.isConnected && typeof from.focus === "function") from.focus({ preventScroll: true });
+}
+
+function drawHeader() {
+  const { id, key } = DR, H = trendsAt(key), T = apiItem(id, key), tab = tabItem(id, key), h = DR.hist();
+  const ok = h && h.state === "ok" ? h.data : null;
+  const name = (T && T.name) || (tab && tab.name) || `Item #${id}`, label = key ? houseLabel(key) : houseName();
+  el("drTitle").innerHTML = whItem(id, name);
+  const apiDays = T && cellNum(T.days) != null ? T.days : ok ? (ok.daily || []).length : null;
+  el("drMeta").textContent = [label,
+    DR.api ? (apiDays != null ? `${plural(apiDays, "day")} of data` : null)
+      : tab && (tab.days || []).length ? plural(tab.days.length, "scan day") : null].filter(Boolean).join(" · ");
+  // the item's other houses with API data
+  const p = defaultPair();
+  const keys = [...new Set([key, ...trendHouseKeys(), p.faction, p.neutral].filter(k => k != null))]
+    .filter(k => k === key || hasApi(id, k)).sort();
+  el("drHouses").hidden = keys.length < 2;
+  el("drHouses").innerHTML = keys.length < 2 ? "" : keys.map(k => `<button type="button" data-house="${esc(k)}" aria-pressed="${k === key}">`
+    + `<i style="background:var(${isNeutralKey(k) ? "--neutral" : "--faction"})"></i>${esc(houseLabel(k))}</button>`).join("");
+  // now, and where it came from; then the API's figures
+  const num = k => { const a = T ? cellNum(T[k]) : null; return a != null ? a : tab ? cellNum(tab[k]) : null; };
+  let now = null, from = null, at = null;
+  if (tab && tab.nowFrom) { now = cellNum(tab.now); from = tab.nowFrom; at = tab.nowAt; }
+  else if (T) { now = cellNum(T.now); from = "api"; at = H && H.latest; }
+  else if (tab) { now = cellNum(tab.now); from = "scan"; }
+  const src = from === "api" ? `API ${at ? hm(at) : ""}`.trim() : from === "scan" ? `your scan ${at ? hm(at) : ""}`.trim() : "";
+  const dash = '<span class="muted">–</span>';
+  const cell = (label, v, sub) => `<div><span class="lbl">${esc(label)}</span>${v}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`;
+  const market = num("market"), hist = num("historical"), sold = num("soldPerDay"), trend = num("trend");
+  el("drStats").innerHTML = [
+    cell("Now", now != null ? money(now) : from === "api" ? '<span class="muted">none listed</span>' : dash, src),
+    ...(DR.api ? [
+      cell("Market value", market != null ? money(market) : dash, now != null && market ? `${signedPctText(now / market - 1)} now` : ""),
+      cell("Historical", hist != null ? money(hist) : dash),
+      cell("Sold/day", sold != null ? short(sold) : dash),
+      cell("Trend", trend != null ? signedPct(trend) : dash, "vs a week ago"),
+    ] : []),
+  ].join("");
+  el("drNote").hidden = DR.api;
+  el("drNote").textContent = DR.api ? "" : `no API data for this item at ${label}`;
+  const sh = (T && T.shifted) || (tab && tab.shifted);
+  el("drShift").hidden = !(sh && sh.dir);
+  el("drShift").innerHTML = !(sh && sh.dir) ? "" : (() => {
+    const d = new Date(sh.since * 1000);
+    return `<span class="pill ${sh.dir === "up" ? "kill" : "fc"}" title="A new price level that has held over the last 48 hours, with sales">new price level</span> `
+      + `<span class="${sh.dir === "up" ? "pos" : "cheap"}">${esc(`${sh.dir} ${Math.round(Math.abs(cellNum(sh.pct) || 0) * 100)}% since ${WEEKDAYS[(d.getDay() + 6) % 7]} ${hm(sh.since)}`)}</span>`;
+  })();
+}
+
+// The rows the price chart draws for the range in view: [{ x (ms), lo, mk }], how they were picked, and notes
+function drPriceRows() {
+  const { id, key, range } = DR, H = trendsAt(key), T = apiItem(id, key), h = DR.hist();
+  const ok = h && h.state === "ok" ? h.data : null, waiting = !!h && h.state === "loading";
+  const rows = (xs, lo, mk) => xs.map((x, i) => ({ x, lo: lo ? cellNum(lo[i]) : null, mk: mk ? cellNum(mk[i]) : null })).filter(p => isFinite(p.x));
+  const last = (list, n) => { if (!list || !list.length) return list; const end = list[list.length - 1].x; return list.filter(p => p.x > end - n * DAY_MS); };
+  const embH = T && T.hourly && H && H.ts ? rows(H.ts.map(t => t * 1000), T.hourly.min, T.hourly.market) : null;
+  const embD = T && T.daily && H && H.seriesDays ? rows(H.seriesDays.map(dayMs), T.daily.min, T.daily.market) : null;
+  const spk = T && T.spark && H && H.sparkDays ? rows(H.sparkDays.map(dayMs), null, T.spark) : null;
+  const hH = ok && (ok.hourly || []).length ? rows(ok.hourly.map(r => r[0] * 1000), ok.hourly.map(r => r[1]), ok.hourly.map(r => r[2])) : null;
+  const hD = ok && (ok.daily || []).length ? rows(ok.daily.map(r => dayMs(r[0])), ok.daily.map(r => r[1]), ok.daily.map(r => r[2])) : null;
+  const notes = [];
+  if (h && h.state === "fail") notes.push("couldn't load history");
+  let list = null, hourly = false;
+  if (range === "14") {
+    if (embH || hH) { list = last(embH || hH, 14); hourly = true; }
+    else {
+      list = spk || last(embD, 14);
+      if (!SERVED) notes.push("hourly prices: run wowstats live");
+      else if (waiting) notes.push("loading hourly prices…");
+    }
+  } else if (range === "60") {
+    list = last(embD || hD, 60) || spk;
+    if (!embD && !hD && waiting) notes.push("loading daily prices…");
+  } else {
+    list = hD || embD || spk;
+    if (!hD && waiting) notes.push("loading the full history…");
+  }
+  // the axis starts at the first value: days before the data began are not gaps
+  const first = (list || []).findIndex(p => p.lo != null || p.mk != null);
+  return { list: first < 0 ? [] : list.slice(first), hourly, spark: !!list && list === spk, notes };
+}
+
+function drawPrice() {
+  drCharts.splice(0).forEach(ch => ch.destroy());
+  el("drPrice").hidden = !DR.api;
+  if (!DR.api) return;
+  el("drRange").querySelectorAll("button").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.range === DR.range));
+    if (b.dataset.range === "all") { b.disabled = !SERVED; b.title = SERVED ? "Every day market.db holds" : "needs the live server (wowstats live)"; }
+  });
+  const { list, hourly, spark, notes } = drPriceRows();
+  const hasLo = list.some(p => p.lo != null), hasMk = list.some(p => p.mk != null);
+  const box = el("drChart").parentElement;
+  box.hidden = !(hasLo || hasMk);
+  const basis = box.hidden ? "" : hourly ? "each API snapshot" : spark ? "market value per day (the page's 14-day summary)" : "per day: the day's lowest, and its mean market value";
+  // nothing to draw: one sentence instead of the notes (in file mode, only tracked items carry a series)
+  el("drPriceNote").textContent = box.hidden
+    ? (SERVED ? `No API prices for this range${notes.length ? ` (${notes.join(", ")})` : ""}.` : "No API price series for this item on this page; hourly prices: run wowstats live.")
+    : [basis, ...notes].filter(Boolean).join(" · ");
+  el("drLegend").innerHTML = box.hidden ? "" : [
+    hasLo && `<span><i style="background:var(${isNeutralKey(DR.key) ? "--neutral" : "--faction"})"></i>lowest buyout</span>`,
+    hasMk && `<span><i style="background:var(--purple)"></i>market value</span>`, resetLegend()].filter(Boolean).join("");
+  if (box.hidden) return;
+  const hcol = css(isNeutralKey(DR.key) ? "--neutral" : "--faction"), mcol = css("--purple"), pr = hourly ? 0 : 2.5;
+  const ds = [];
+  if (hasLo) ds.push({ label: "Lowest", data: list.map(p => ({ x: p.x, y: p.lo })), borderColor: hcol, backgroundColor: hcol, borderWidth: 1.6, pointRadius: pr, tension: .2, spanGaps: false });
+  if (hasMk) ds.push({ label: "Market value", data: list.map(p => ({ x: p.x, y: p.mk })), borderColor: mcol, backgroundColor: mcol, borderWidth: 2, pointRadius: pr, tension: .2, spanGaps: false });
+  const pad = hourly ? 0 : DAY_MS / 2, xmin = list[0].x - pad, xmax = list[list.length - 1].x + pad;
+  const o = timeOpts(v => moneyText(v), { zoom: true });
+  // ticks at local midnights, spaced to fit; within two days, hours
+  o.scales.x = { type: "linear", min: xmin, max: Math.max(xmax, xmin + 3600000),
+    afterBuildTicks: ax => {
+      if (ax.max - ax.min < 2 * DAY_MS) return;
+      const step = [1, 2, 3, 7, 14, 30, 61, 91, 182, 365].find(k => (ax.max - ax.min) / (k * DAY_MS) <= 7) || 365;
+      const d = new Date(ax.min); d.setHours(0, 0, 0, 0);
+      if (d.getTime() < ax.min) d.setDate(d.getDate() + 1);
+      const ticks = [];
+      for (let i = 0; i < 400 && d.getTime() <= ax.max; i++) { ticks.push({ value: d.getTime() }); d.setDate(d.getDate() + step); }
+      if (ticks.length >= 2) ax.ticks = ticks;
+    },
+    ticks: { maxRotation: 0, autoSkip: true, callback(v) { return this.max - this.min < 2 * DAY_MS ? hm(v / 1000) : MONTHDAY.format(new Date(v)); } } };
+  o.scales.y.afterFit = ax => { ax.width = 68; };
+  o.plugins.legend = { display: false };
+  if (!hourly) o.plugins.tooltip.callbacks.title = items => items.length ? DAYFMT.format(new Date(items[0].parsed.x)) : "";
+  chart("drChart", { type: "line", data: { datasets: ds }, options: o, plugins: [resetLines] }, drCharts);
+}
+
+function drawWeek() {
+  const { id, key } = DR, H = trendsAt(key), T = apiItem(id, key), h = DR.hist();
+  const ok = h && h.state === "ok" ? h.data : null;
+  el("drWeek").hidden = !(DR.api && H);
+  if (el("drWeek").hidden) return;
+  const week = (T && T.week) || (ok && ok.week) || null;
+  const fam = (H.families || []).find(f => (f.ids || []).includes(id));
+  const name = (T && T.name) || ((tabItem(id, key) || {}).name) || `Item #${id}`;
+  const days = T && cellNum(T.days) != null ? T.days : ok ? (ok.daily || []).length : null;
+  let w = null, title = "", note;
+  if (week && week.own === true) { w = week; title = `${name}: price vs usual`; note = "Its own pattern: price against its usual, by hour of the week on your clock."; }
+  else if (fam && fam.week) { w = fam.week; title = `${fam.label}: price vs usual`; note = `not enough data for its own pattern yet; showing ${fam.label}`; }
+  else note = days != null ? `no pattern yet: ${plural(days, "day")} of data` : SERVED ? "no pattern yet" : "no pattern yet: this item's hourly history needs wowstats live";
+  el("drWeekNote").textContent = note;
+  el("drGrid").innerHTML = w ? heatGrid(w, { kind: "price", reset: DATA.reset, title }) : "";
+  const txt = w ? stripText(computeStrip(w)) : "";
+  el("drStrip").hidden = !txt;
+  el("drStrip").innerHTML = txt;
+}
+
+// Your scans: the market tabs' history (both houses of the default pair), with the drawer's house in focus
+function drawScans() {
+  const { id, key } = DR, p = defaultPair(), s = String(id);
+  const F = DATA.marketTab && DATA.marketTab.items[s], N = DATA.neutralTab && DATA.neutralTab.items[s];
+  const show = !!(F || N) && (key == null || p.faction == null || key === p.faction || key === p.neutral);
+  el("drScans").hidden = !show;
+  if (!show) { inspCharts.splice(0).forEach(ch => ch.destroy()); return; }
+  inspect(id, key === p.neutral ? "neutral" : key === p.faction ? "faction" : house);
 }
 
 function modTrends() {
   const key = trendsHouse(), H = DATA.trends.houses[key], reset = DATA.reset || DATA.trends.reset;
   const items = H.items || {}, fams = H.families || [], hl = houseLabel(key);
-  el("inspector").hidden = true;
   el("who").textContent = "Each auction house's week, hour by hour on your clock, from the Battle.net API's hourly snapshots.";
   el("trendsHouse").innerHTML = trendHouseKeys().map(k => `<option value="${esc(k)}"${k === key ? " selected" : ""}>${esc(houseLabel(k))}</option>`).join("");
   if (trendsFam !== "house" && !fams.some(f => f.key === trendsFam)) trendsFam = "house";
@@ -2889,7 +3178,7 @@ function modReplay() {
   requestAnimationFrame(rpDraw);
 }
 
-// ------------------------------------------------------------------ The item inspector (both houses on one chart)
+// ------------------------------------------------------------------ The drawer's "Your scans" (both houses on one chart)
 const inspCharts = [];
 const GAP_MIN = 5;
 let gapMode = "deep";
@@ -2914,14 +3203,13 @@ function timeOpts(yTick, o = {}) {
   };
 }
 
-function inspect(id) {
+// side: the house in focus ("faction" or "neutral"), whose forecast is drawn
+function inspect(id, side = house) {
   inspCharts.splice(0).forEach(ch => ch.destroy());
   const F = DATA.marketTab && DATA.marketTab.items[String(id)], N = DATA.neutralTab && DATA.neutralTab.items[String(id)];
   const it = F || N;
-  if (!it) { el("itemTitle").textContent = "Price history"; el("itemHint").textContent = "Click an item row to see its price history here."; el("itemLegend").innerHTML = ""; el("itemMethod").textContent = ""; return; }
-  mktItem = it.id; saveMkt(); pickRows(it.id);
-  const active = house === "neutral" && N ? N : F || N, activeName = active === N ? "Neutral" : "Faction";
-  el("itemTitle").innerHTML = whItem(it.id, it.name);
+  if (!it) return;
+  const active = side === "neutral" && N ? N : F || N, activeName = active === N ? "Neutral" : "Faction";
   const fmtHouse = (h, name, cls) => h ? `<span class="pill ${cls}">${name}</span> now ${money(h.now)}, launch low ${money(h.low)} (${signedPct(h.change)}), peak ${money(h.peak)}` : "";
   el("itemHint").innerHTML = [fmtHouse(F, "Faction", "faction"), fmtHouse(N, "Neutral", "neutral")].filter(Boolean).join("<br>")
     + (it.have ? `<br>You hold ${short(it.have)}, worth ${money((active.now || 0) * it.have, { short: true })} at ${activeName}.` : "");
@@ -2955,14 +3243,14 @@ function inspect(id) {
   }
   el("itemLegend").innerHTML = [F && `<span><i style="background:var(--faction)"></i>Faction</span>`, N && `<span><i style="background:var(--neutral)"></i>Neutral</span>`,
     `<span><i style="background:var(--dim)"></i>solid: daily low · dotted: daily high · rings: your saves</span>`,
-    fc ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span>` : ""].filter(Boolean).join("");
+    fc ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span>` : "", resetLegend()].filter(Boolean).join("");
   const xs = ds.flatMap(d => d.data.map(p => p.x)).concat(lds0(F, N, mid));
   const xr = xs.length ? { min: Math.min(...xs) - DAY * 500, max: Math.max(...xs) + DAY * 500 } : {};
   const fixY = { afterFit: ax => { ax.width = 68; } };
   const o = timeOpts(v => moneyText(v));
   Object.assign(o.scales.x, xr); Object.assign(o.scales.y, fixY);
   o.plugins.legend = { display: false };
-  chart("itemChart", { type: "line", data: { datasets: ds }, options: o }, inspCharts);
+  chart("itemChart", { type: "line", data: { datasets: ds }, options: o, plugins: [resetLines] }, inspCharts);
   // Listings: a second chart rather than a second axis
   const lds = [];
   if (F) lds.push({ label: "Faction listed", data: (F.days || []).filter(d => d[3] != null).map(d => ({ x: mid(d[0]) - (N ? 3600000 * 3 : 0), y: d[3] })), backgroundColor: css("--faction"), barThickness: N ? 8 : 14, borderRadius: 2 });
@@ -2990,6 +3278,11 @@ document.addEventListener("click", e => {
     }
     return;
   }
+  if (e.target.closest("#drClose")) { closeDrawer(); return; }
+  const rangeBtn = e.target.closest("#drRange button");
+  if (rangeBtn) { if (!rangeBtn.disabled) { DR.range = rangeBtn.dataset.range; maybeFetch(); drawPrice(); } return; }
+  const drHouse = e.target.closest("#drHouses button");
+  if (drHouse) { openDrawer(DR.id, drHouse.dataset.house); return; }
   const nav = e.target.closest("button[data-route]");
   if (nav) { go(nav.dataset.route); return; }
   const hb = e.target.closest("#houseSeg button");
@@ -3025,16 +3318,17 @@ document.addEventListener("click", e => {
   if (chip) { if (chip.closest("#stockChips")) mktFilter = chip.dataset.k; else mktFamily = chip.dataset.k; saveMkt(); go(route, { keepScroll: true }); return; }
   const trendsChip = e.target.closest("#trendsChips button");
   if (trendsChip) { trendsFam = trendsChip.dataset.k; go(route, { keepScroll: true }); return; }
-  const trendsRow = e.target.closest("#trendsTable tr.pick");
-  if (trendsRow) { if (!e.target.closest("a")) openItem(Number(trendsRow.dataset.id), trendsRow.dataset.house); return; }
   const craftRow = e.target.closest("#craftsTable tr.pick");
   if (craftRow && !e.target.closest("a")) { selectedCraft = Number(craftRow.dataset.id); if (curChar()) renderCraftPlan(curChar()); return; }
-  const row = e.target.closest("tr.pick");
-  if (row && !e.target.closest("a") && el("inspector").parentElement.classList.contains("slot")) {
-    inspect(Number(row.dataset.id));
+  // any other item row opens the drawer, at the row's house or the market switch's
+  const row = e.target.closest("tr.pick[data-id]");
+  if (row && !e.target.closest("a, button")) {
+    openDrawer(Number(row.dataset.id), row.dataset.house || segHouseKey(), row);
     row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
-    el("inspector").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !el("drawer").hidden) { e.preventDefault(); closeDrawer(); }
 });
 document.addEventListener("change", e => {
   if (e.target.id === "trendsHouse") { store.set(TRENDS_HOUSE_KEY, e.target.value); go(route, { keepScroll: true }); }
@@ -3044,7 +3338,7 @@ document.addEventListener("input", e => {
   if (e.target.id === "trendsSearch") {
     const q = e.target.value.trim().toLowerCase(), key = trendsHouse();
     const hit = q && Object.entries(DATA.trends.houses[key].items || {}).find(([, it]) => String(it.name).toLowerCase() === q);
-    if (hit) openItem(Number(hit[0]), key);
+    if (hit) openDrawer(Number(hit[0]), key, e.target);
     return;
   }
   const inp = e.target.closest("input[data-table]");
