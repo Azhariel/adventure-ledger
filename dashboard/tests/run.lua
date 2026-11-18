@@ -1362,7 +1362,7 @@ end)
 
 local R = require("reconcile")
 
-test("reconcile: newer API snapshot wins, sold out included", function()
+test("reconcile: newer API snapshot wins; an item the API lacks keeps its scan", function()
     local book = { vendor = { [1] = 5 }, last = 7, prices = {
         [1] = { now = 100, seenAt = 1000, days = { { day = 1 } } },
         [3] = { now = 70, seenAt = 1000, days = {} } } }
@@ -1371,7 +1371,8 @@ test("reconcile: newer API snapshot wins, sold out included", function()
     eq(m.prices[1].now, 90); eq(m.prices[1].nowFrom, "api"); eq(m.prices[1].nowAt, 2000)
     eq(m.prices[1].market, 95); eq(m.prices[1].units, 4); eq(m.prices[1].seenAt, 1000)
     truthy(m.prices[2]); eq(m.prices[2].now, nil); eq(#m.prices[2].days, 0); eq(m.prices[2].market, 50)
-    eq(m.prices[3].now, nil, "sold out in the newer snapshot"); eq(m.prices[3].nowFrom, "api")
+    eq(m.prices[3].now, 70, "no API data for it: the scan's price"); eq(m.prices[3].nowFrom, "scan")
+    eq(m.prices[3].nowAt, 1000)
     eq(m.vendor, book.vendor); eq(m.last, 7); eq(m.apiLatest, 2000)
     eq(book.prices[1].now, 100, "the book is not mutated"); eq(book.prices[1].market, nil)
 end)
@@ -1438,8 +1439,11 @@ test("reconcile: agreement against the nearest recent snapshot", function()
     local a = R.agreement(book, api, at)
     eq(a.apiAt, t0 + 19 * h + 24 * 60); eq(a.scanAt, scan)
     eq(a.shared, 3); eq(a.exact, 2); eq(a.near, 3)
-    local far = { latest = scan, recent = { { t = scan - 5 * h, min = { [1] = 100 } }, { t = scan + 5 * h, min = { [1] = 100 } } } }
-    eq(R.agreement(book, far, at), nil)
+    local far = { latest = scan, recent = { { t = scan - 2 * h, min = { [1] = 100 } }, { t = scan + 2 * h, min = { [1] = 100 } } } }
+    eq(R.agreement(book, far, at), nil, "2 hours away: no match figure")
+    local at89 = R.agreement(book, { latest = scan, recent = { { t = scan + 89 * 60, min = { [1] = 100 } } } }, at)
+    eq(at89 and at89.apiAt, scan + 89 * 60, "89 minutes: close enough")
+    eq(R.agreement(book, { latest = scan, recent = { { t = scan - 91 * 60, min = { [1] = 100 } } } }, at), nil, "91 minutes: too far")
     eq(R.agreement(book, { latest = scan, recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
 end)
 

@@ -25,6 +25,8 @@ end
 local FROM_API = { "market", "historical", "soldPerDay", "trend", "units", "listings", "shifted" }
 
 -- The book with the API's market data laid over it. api == nil: the book itself, untouched.
+-- An item the API has no data for (absent from api.items) keeps the scan's price: without API data every figure
+-- stays as it was. An item the API lists without a price, in a snapshot newer than the scan, has sold out.
 -- scanAt(p) -> time of that entry's scan (a closure over R.scanAt).
 function R.merge(book, api, scanAt)
     if not api or not api.latest then return book end
@@ -44,8 +46,8 @@ function R.merge(book, api, scanAt)
         for _, f in ipairs(FROM_API) do e[f] = item and item[f] or nil end
         e.apiDays = item and item.days or nil
         local at = p and scanAt(p) or nil
-        if api.latest > (at or -math.huge) then
-            -- a newer snapshot that doesn't list the item means it sold out since the scan
+        if item and api.latest > (at or -math.huge) then
+            -- listed by a newer snapshot: its price, or nil when none is on sale any more (sold out)
             e.now, e.nowFrom, e.nowAt = item and item.now or nil, "api", api.latest
         else
             e.now, e.nowFrom, e.nowAt = p and p.now or nil, "scan", at
@@ -55,7 +57,8 @@ function R.merge(book, api, scanAt)
     return out
 end
 
--- How well the latest scan matches the API snapshot nearest in time (within 3 hours): { scanAt, apiAt, shared,
+-- How well the latest scan matches the API snapshot nearest in time (within 90 minutes:
+-- prices move, so a snapshot further from the scan says little about the scan): { scanAt, apiAt, shared,
 -- exact, near } (near includes exact: within 5%, like fetcher.match_score), or nil when nothing can be compared.
 function R.agreement(book, api, scanAt)
     if not api or not api.latest or not api.recent then return nil end
@@ -75,7 +78,7 @@ function R.agreement(book, api, scanAt)
         end
     end
     if not at then return nil end
-    local snap, gap = nil, 3 * 3600 + 1
+    local snap, gap = nil, 90 * 60 + 1
     for _, s in ipairs(api.recent) do
         local d = math.abs(s.t - at)
         if d < gap then snap, gap = s, d end
