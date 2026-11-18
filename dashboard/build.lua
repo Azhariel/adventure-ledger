@@ -242,9 +242,13 @@ function Build.zones(path)
     return out
 end
 
--- UTC hour h on a Tuesday -> the local hour and the day shift (-1, 0, 1), for ah_reset's default
-function Build.utcHourToLocal(h)
-    local t = os.date("*t", 1704153600 + h * 3600)  -- Tuesday 2 January 2024, 00:00 UTC
+-- UTC hour h on this week's Tuesday (weeks start Monday) -> the local hour and the day shift (-1, 0, 1), for
+-- ah_reset's default; this week's, so a summer-time zone gets today's offset. now: epoch (default os.time()).
+function Build.utcHourToLocal(h, now)
+    now = now or os.time()
+    local u = os.date("!*t", now)
+    local tuesday = now - ((u.wday - 2) % 7 - 1) * 86400 - u.hour * 3600 - u.min * 60 - u.sec
+    local t = os.date("*t", tuesday + h * 3600)
     return t.hour, t.wday - 3
 end
 
@@ -658,22 +662,23 @@ function Build.data(wow, opts)
     end
     -- Trends: the API's houses with their family grids. opts.wanted(text): the items the engine should keep
     -- series for (market_wanted.tsv; Build.run passes it): families, what anyone holds or traded on the AH, per house
+    local traded = {}
+    for _, c in ipairs(result.characters) do
+        for _, it in ipairs(c.money and c.money.ahTrades and c.money.ahTrades.items or {}) do
+            if it.id then traded[it.id] = true end
+        end
+    end
     if next(apiByKey) then
         result.trends = T.page(apiByKey, I.FAMILIES, function(id) return names[id] or known[id] end, result.reset,
-            factionKey)
+            factionKey, T.wantedIds(I.FAMILIES, owned, traded))
     end
     if opts.wanted then
-        local traded, houseKeys, seenKey = {}, {}, {}
+        local houseKeys, seenKey = {}, {}
         local function addKey(key)
             if key and not seenKey[key] then seenKey[key] = true; houseKeys[#houseKeys + 1] = key end
         end
         for key in pairs(apiByKey) do addKey(key) end
-        for _, c in ipairs(result.characters) do
-            addKey(c.houses.faction); addKey(c.houses.neutral)
-            for _, it in ipairs(c.money and c.money.ahTrades and c.money.ahTrades.items or {}) do
-                if it.id then traded[it.id] = true end
-            end
-        end
+        for _, c in ipairs(result.characters) do addKey(c.houses.faction); addKey(c.houses.neutral) end
         table.sort(houseKeys)
         opts.wanted(T.wanted(I.FAMILIES, owned, traded, houseKeys))
     end

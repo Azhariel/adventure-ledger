@@ -864,15 +864,17 @@ test("end to end: fixture SavedVariables -> one character with every section, em
         log = { "10|3600|1|1|1|zo|Elwynn", "20|3610|1|1|1|xp|100|kill|Wolf", "30|3620|1|1|1|mn|50|loot", "40|5400|1|1|1|lv|12",
             "45|5405|1|1|1|ah|sold|950|Woolen Bag", "45|5405|1|1|1|mn|950|auction|Woolen Bag" } }]])
     local logged, wanted = {}, {}
-    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag" }, listDirs = listDirs, repoAddons = repo,
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [12345] = "Nobody's Item" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
-            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false } } }, recent = {} } } },
+            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false } }, [12345] = { now = 1, spark = { 1 } } },
+        recent = {} } } },
         priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end },
         reset = "Wed 9", wanted = function(text) wanted[#wanted + 1] = text end })
     local th = api.trends and api.trends.houses["R Horde"]
     truthy(th, "Trends for the API's house")
     eq(#th.families, #I.FAMILIES); eq(th.families[3].key, "cloth"); eq(th.families[3].ids[1], 2592)
     eq(th.items["2592"].name, "Wool Cloth"); eq(th.items["2592"].spark[2], 90); eq(th.items["2592"].spark[3], false)
+    eq(th.items["12345"], nil, "an engine item nobody wants isn't embedded")
     eq(api.trends.default, "R Horde")
     eq(api.reset.dow, 2, "Wed"); eq(api.reset.hour, 9); eq(api.trends.reset, api.reset)
     eq(#wanted, 1, "one wanted list per build")
@@ -1640,6 +1642,23 @@ test("trends.strip: nil below the cell share", function()
     eq(TR.strip(g), nil)
 end)
 
+test("utcHourToLocal: from this week's Tuesday (Monday first), so the offset is the current one", function()
+    local Build = require("build")
+    local tueJan, tueJul = 1704153600, 1720483200  -- Tue 2 Jan 2024 and Tue 9 Jul 2024, 00:00 UTC
+    local function expect(tue, h)
+        local t = os.date("*t", tue + h * 3600)
+        return t.hour, t.wday - 3
+    end
+    for _, c in ipairs({ { tueJan + 5 * 3600, tueJan }, { tueJan - 86400 + 60, tueJan }, { tueJan + 5 * 86400, tueJan },
+        { tueJul + 86400 + 7, tueJul } }) do
+        local h, s = Build.utcHourToLocal(15, c[1])
+        local eh, es = expect(c[2], 15)
+        eq(h, eh); eq(s, es)
+    end
+    local h, s = Build.utcHourToLocal(15)
+    truthy(h >= 0 and h <= 23 and s >= -1 and s <= 1, "now by default")
+end)
+
 test("trends.wanted: byte-identical regardless of insertion order", function()
     local f1 = { { key = "a", label = "A", ids = { 3, 1, 2 } } }
     local f2 = { { key = "a", label = "A", ids = { 2, 3, 1 } } }
@@ -1648,6 +1667,21 @@ test("trends.wanted: byte-identical regardless of insertion order", function()
     eq(x, y)
     local n = 0 for _ in x:gmatch("\n") do n = n + 1 end
     eq(n, 12)
+end)
+
+test("trends.wantedIds: families, owned and traded; wanted() lists the same ids", function()
+    local w = TR.wantedIds({ { key = "a", ids = { 1, 2 } } }, { [3] = true }, { [4] = true })
+    eq(w[1], true); eq(w[2], true); eq(w[3], true); eq(w[4], true); eq(w[5], nil)
+end)
+
+test("trends.page: only wanted items are embedded, with their spark", function()
+    local api = { ["PvP Horde"] = { id = 113, key = "PvP Horde", latest = 5,
+        items = { [1] = { now = 10, spark = { 1, 2 } }, [3] = { now = 7, spark = { 3 } } } } }
+    local r = TR.page(api, { { key = "f", label = "F", ids = { 3 } } }, tostring, { dow = 1, hour = 12 }, "PvP Horde",
+        { [1] = true })
+    local h = r.houses["PvP Horde"]
+    eq(h.items["1"].spark[2], 2); eq(h.items["3"], nil, "not wanted: no summary, no spark")
+    eq(h.families[1].ids[1], 3, "family ids still list the house's members")
 end)
 
 test("trends.page: unknown items skipped, false holes survive", function()

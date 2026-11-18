@@ -121,14 +121,20 @@ function T.strip(week)
     return { sell = best(sell), buy = best(buy) }
 end
 
--- Sorted "key\tid\n" lines: family members for every house key, plus owned and traded ids for every key.
-function T.wanted(families, ownedIds, tradedIds, houseKeys)
+-- The wanted item ids: family members, plus owned and traded ids ({ [id] = true } sets).
+function T.wantedIds(families, ownedIds, tradedIds)
     local ids = {}
     for _, f in ipairs(families or {}) do
         for _, id in ipairs(f.ids or {}) do ids[id] = true end
     end
     for id in pairs(ownedIds or {}) do ids[id] = true end
     for id in pairs(tradedIds or {}) do ids[id] = true end
+    return ids
+end
+
+-- Sorted "key\tid\n" lines: the wanted ids (T.wantedIds) for every house key.
+function T.wanted(families, ownedIds, tradedIds, houseKeys)
+    local ids = T.wantedIds(families, ownedIds, tradedIds)
     local lines = {}
     for _, key in ipairs(houseKeys or {}) do
         for id in pairs(ids) do lines[#lines + 1] = key .. "\t" .. tostring(id) .. "\n" end
@@ -141,12 +147,14 @@ local ITEM_FIELDS = { "now", "market", "historical", "soldPerDay", "trend", "day
     "hourly", "daily" }
 
 -- result.trends: per house key, the engine's data trimmed to what the page uses, plus the family grids.
-function T.page(apiByKey, families, nameOf, reset, defaultKey)
+-- wanted (optional { [id] = true }, T.wantedIds): only those items are embedded; the page reads every other
+-- item's numbers from the market tabs.
+function T.page(apiByKey, families, nameOf, reset, defaultKey, wanted)
     local out = { reset = reset, default = defaultKey, stripRule = T.C, houses = {} }
     for key, h in pairs(apiByKey or {}) do
         local items = {}
         for id, it in pairs(h.items or {}) do
-            local name = nameOf(id)
+            local name = (wanted == nil or wanted[id]) and nameOf(id) or nil
             if name ~= nil then
                 local e = { name = name }
                 for _, k in ipairs(ITEM_FIELDS) do e[k] = it[k] end
