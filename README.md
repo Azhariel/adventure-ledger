@@ -116,9 +116,11 @@ for each item whose price changed, so each /reload after an AH scan is another p
   market value for keep the old scan-based rows, marked *scans*):
   - **Deals**: items priced 50% or more under their market value that sell 5 or more a day. Profit each is what
     one makes relisted at market value after the house's cut (5% Faction, 15% Neutral), at least 50c; per day is
-    that times what the market takes a day, capped by how many are listed. The best 25, by profit per day. An
-    item 90% or more under market is most likely one stray listing: it counts one unit a day and says *one cheap
-    listing?* next to its name. The house pill shows how old the API snapshot is.
+    that times what the market takes a day, capped by how many are listed within 10% of the lowest price (Listed
+    shows that count against all listed). The best 25, by profit per day. A deal with a single unit near its
+    lowest price counts one unit a day and says *one cheap listing* next to its name. Until the fetcher has
+    counted an item (snapshots from before this count), an item 90% or more under market is taken to be one
+    stray listing and says *one cheap listing?*. The house pill shows how old the API snapshot is.
   - **Sell windows**: things any of your characters hold, priced 25% or more over market value at the house they'd
     sell at and still selling (1 or more a day) and at least 50c above it each, with the extra
     gold over market value, who holds them, and whether

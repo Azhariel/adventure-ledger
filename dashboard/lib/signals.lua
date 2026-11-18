@@ -29,8 +29,8 @@ end
 
 -- book: a merged book ({ prices = { [id] = entry } }). cut: the house's AH cut (I.CUT). owned: { [id] = { count } }
 -- or nil. legacyBuy: I.market's buy list or nil (the default faction house only).
--- Returns the API rows { id, name, now, market, pct, soldPerDay, units, profit, perDay, nowFrom, nowAt, have,
--- basis = "api" } by profit per day, then the legacy rows (basis = "scans") for items without a market value.
+-- Returns the API rows { id, name, now, market, pct, soldPerDay, units, cheap, profit, perDay, lone, guessed,
+-- nowFrom, nowAt, have, basis = "api" } by profit per day, then the legacy rows (basis = "scans") for items without a market value.
 function Sg.deals(book, cut, nameOf, owned, legacyBuy)
     local C, prices = Sg.C, book and book.prices or {}
     local api = {}
@@ -42,10 +42,19 @@ function Sg.deals(book, cut, nameOf, owned, legacyBuy)
             if profit >= C.MIN_GAIN then
                 local units = num(e.units) or 0
                 local pct = 1 - now / market
-                local lone = pct >= C.DEAL_SUSPECT
+                -- the API's count of units within 10% of the lowest price, when "now" is the API's lowest; without
+                -- it (older data, or a newer scan set the price) far under market is guessed to be one stray listing
+                local cheap = e.nowFrom == "api" and num(e.cheap) or nil
+                local lone, guessed, qty
+                if cheap then
+                    lone, qty = cheap == 1, cheap
+                else
+                    lone, guessed, qty = pct >= C.DEAL_SUSPECT, pct >= C.DEAL_SUSPECT, units
+                end
                 api[#api + 1] = { id = id, name = nameOf(id), now = now, market = market, pct = pct,
-                    soldPerDay = sold, units = num(e.units), profit = profit,
-                    perDay = lone and profit or math.floor(profit * math.min(sold, units)), lone = lone or nil,
+                    soldPerDay = sold, units = num(e.units), cheap = cheap, profit = profit,
+                    perDay = lone and profit or math.floor(profit * math.min(sold, qty)), lone = lone or nil,
+                    guessed = guessed or nil,
                     nowFrom = e.nowFrom, nowAt = e.nowAt, have = owned and owned[id] and owned[id].count or 0,
                     basis = "api" }
             end

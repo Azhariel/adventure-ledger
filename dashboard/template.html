@@ -1876,12 +1876,22 @@ function dealsHintText(rule) {
   const under = rulePct(rule && rule.DEAL_BELOW != null ? 1 - rule.DEAL_BELOW : null), sold = rule && cellNum(rule.DEAL_MIN_SOLD);
   return (under != null && sold != null ? `Under its market value by ${under}% or more and selling ${sold}+ a day. `
     : "Well under its market value and selling steadily. ")
-    + `Profit each: relisted at market value after the house's cut (${cutTxt(c.faction)} Faction, ${cutTxt(c.neutral)} Neutral). Per day: profit each × what the market takes a day, capped by what's listed. Sales are an estimate (an auction that vanished early probably sold).`
-    + (suspect != null ? ` Items ${suspect}% or more under are probably one stray listing: per day counts one unit.` : "");
+    + `Profit each: relisted at market value after the house's cut (${cutTxt(c.faction)} Faction, ${cutTxt(c.neutral)} Neutral). Per day: profit each × what the market takes a day, capped by how many are listed within 10% of the lowest price. Sales are an estimate (an auction that vanished early probably sold).`
+    + (suspect != null ? ` Where that count isn't in yet, items ${suspect}% or more under are probably one stray listing: per day counts one unit.` : "");
 }
-// A deal this far under market is probably one stray listing (the build marked it lone): said next to the name
+// A deal with one unit near its lowest price (the build marked it lone): counted by the API, or guessed from how far
+// under market it is when the count isn't in (guessed). Said next to the name
 const LONE_TITLE = "Far under market: probably a single stray listing. Per day counts one unit.";
-const lonePill = d => d && d.lone ? ` <span class="pill" title="${LONE_TITLE}">one cheap listing?</span>` : "";
+const LONE_COUNTED = "Only one unit is listed within 10% of the lowest price. Per day counts it alone.";
+const lonePill = d => !d || !d.lone ? "" : d.guessed ? ` <span class="pill" title="${LONE_TITLE}">one cheap listing?</span>`
+  : ` <span class="pill" title="${LONE_COUNTED}">one cheap listing</span>`;
+// Deals' Listed: near the lowest / all listed when the API counted them, else what's listed
+const dealListed = d => {
+  if (d.basis === "api" && cellNum(d.cheap) != null)
+    return `<span data-sort="${d.cheap}" title="${d.cheap} within 10% of the lowest price, ${d.units ?? "?"} listed in all">${short(d.cheap)} / ${short(d.units ?? 0)}</span>`;
+  const v = d.basis === "api" ? d.units : d.available;
+  return v != null ? String(v) : "";
+};
 // When the house's API snapshot was taken (DATA.priceSources, from the build); "" when there is none
 const apiAsOf = (key, sources) => {
   const s = (sources || []).find(x => x.key === key);
@@ -1941,7 +1951,7 @@ function renderDeals(list, key, rule) {
       const api = d.basis === "api";
       return rowId(d.id, [whItem(d.id, d.name) + lonePill(d), nowMoney(d), api ? money(d.market) : `${money(d.usual)} ${scansPill}`,
         `<span class="pos" data-sort="${d.pct}">${pctTxt(d.pct)}</span>`, api ? soldCell(d.soldPerDay) : "",
-        (api ? d.units : d.available) ?? "", api ? money(d.profit) : "", api ? money(d.perDay) : ""], key);
+        dealListed(d), api ? money(d.profit) : "", api ? money(d.perDay) : ""], key);
     }),
     list ? "Nothing well under its market value and selling at this house right now." : "No API prices for this house yet.",
     { defaultCol: 7, onRender: () => pickRows(mktItem) });

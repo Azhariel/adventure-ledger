@@ -1953,9 +1953,25 @@ test("signals.deals: far under market counts one unit and is marked lone", funct
     local by = {}
     for _, r in ipairs(list) do by[r.id] = r end
     eq(by[1].profit, 900); eq(by[1].perDay, 900, "one unit, not the 4 listed"); eq(by[1].lone, true)
+    eq(by[1].guessed, true, "no count from the API: a guess")
     eq(by[2].perDay, 2200, "550 times the 4 listed"); eq(by[2].lone, nil)
     eq(by[3].lone, true); eq(by[3].perDay, 850)
     eq(list[1].id, 2, "still ranked by per day: the honest deal is first")
+end)
+
+test("signals.deals: units near the lowest price, when the API counted them", function()
+    local book = { prices = {
+        [1] = { now = 400, market = 1000, soldPerDay = 10, units = 77, cheap = 3, nowFrom = "api" },
+        [2] = { now = 50, market = 1000, soldPerDay = 10, units = 77, cheap = 1, nowFrom = "api" },
+        [3] = { now = 50, market = 1000, soldPerDay = 10, units = 77, cheap = 20, nowFrom = "api" },  -- 95% under, many
+        [4] = { now = 400, market = 1000, soldPerDay = 10, units = 4, cheap = 9, nowFrom = "scan" },  -- scan's price
+    } }
+    local by = {}
+    for _, r in ipairs(Sg.deals(book, I.CUT.faction, itemName, nil, nil)) do by[r.id] = r end
+    eq(by[1].perDay, 550 * 3, "the 3 near the lowest, not the 77 listed"); eq(by[1].cheap, 3); eq(by[1].lone, nil)
+    eq(by[2].perDay, 900); eq(by[2].lone, true); eq(by[2].guessed, nil, "counted, not guessed")
+    eq(by[3].perDay, 900 * 10, "far under but 20 cheap: not lone, capped by sales"); eq(by[3].lone, nil)
+    eq(by[4].cheap, nil, "a newer scan set the price: the API's count doesn't apply"); eq(by[4].perDay, 2200)
 end)
 
 test("signals.deals: neutral cut, zero and sold-out items", function()

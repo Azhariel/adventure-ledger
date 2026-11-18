@@ -329,9 +329,9 @@ process.stdout.write(JSON.stringify([moversHintText(RULE, "up"), moversHintText(
         self.assertIn("fewer than 3 a day are left out.", other)
 
     def test_lone_deal_pill_and_snapshot_age(self):
-        js = page_js(["cellNum", "rulePct", "houseCuts", "cutTxt", "dealsHintText", "LONE_TITLE", "lonePill", "apiAsOf"],
+        js = page_js(["cellNum", "rulePct", "houseCuts", "cutTxt", "dealsHintText", "LONE_TITLE", "LONE_COUNTED", "lonePill", "apiAsOf"],
                      "const when = t => 'T' + t;") + """
-process.stdout.write(JSON.stringify([lonePill({ lone: true }), lonePill({ id: 1 }), lonePill(null),
+process.stdout.write(JSON.stringify([lonePill({ lone: true, guessed: true }), lonePill({ id: 1 }), lonePill(null),
   apiAsOf("PvP Horde", [{ key: "PvP Horde", apiAt: 5 }, { key: "PvP Neutral" }]), apiAsOf("PvP Neutral", [{ key: "PvP Neutral" }]),
   apiAsOf("PvP Horde", undefined), dealsHintText({ DEAL_SUSPECT: 0.9 }), dealsHintText(undefined)]));
 """
@@ -340,8 +340,20 @@ process.stdout.write(JSON.stringify([lonePill({ lone: true }), lonePill({ id: 1 
         self.assertIn('title="Far under market: probably a single stray listing. Per day counts one unit."', lone)
         self.assertEqual((plain, none), ("", ""))
         self.assertEqual((asof, noAt, noSrc), ("API as of T5", "", ""))
-        self.assertIn("Items 90% or more under are probably one stray listing: per day counts one unit.", hint)
+        self.assertIn("Where that count isn't in yet, items 90% or more under are probably one stray listing: per day counts one unit.", hint)
+        self.assertIn("capped by how many are listed within 10% of the lowest price.", hint)
         self.assertNotIn("stray", hintBare)
+
+    def test_counted_lone_deal_and_listed_cell(self):
+        js = page_js(["cellNum", "LONE_TITLE", "LONE_COUNTED", "lonePill", "dealListed"], "const short = n => String(n);") + """
+process.stdout.write(JSON.stringify([lonePill({ lone: true, cheap: 1 }), dealListed({ basis: "api", cheap: 3, units: 77 }),
+  dealListed({ basis: "api", units: 4 }), dealListed({ basis: "scans", available: 9 }), dealListed({ basis: "scans" })]));
+"""
+        lone, counted, bare, scans, none = json.loads(run_node(js))
+        self.assertIn(">one cheap listing</span>", lone)
+        self.assertIn('title="Only one unit is listed within 10% of the lowest price. Per day counts it alone."', lone)
+        self.assertEqual(counted, '<span data-sort="3" title="3 within 10% of the lowest price, 77 listed in all">3 / 77</span>')
+        self.assertEqual((bare, scans, none), ("4", "9", ""))
 
     def test_neutral_header_says_where_faction_prices_come_from(self):
         js = page_js(["factionPricesNote"]) + """
