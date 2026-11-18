@@ -583,6 +583,9 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
             supply = s.supply, available = s.available, days = days,
             seen = seen and seen[id] or nil,
             have = o and o.count or 0, holders = o and o.holders or nil,
+            -- the API's figures and where "now" came from (R.merge); nil without market data
+            market = p.market, nowFrom = p.nowFrom, nowAt = p.nowAt, soldPerDay = p.soldPerDay, trend = p.trend,
+            shifted = p.shifted,
         }
     end
     return out
@@ -617,13 +620,15 @@ end
 
 -- The dashboard's net worth log: a line "time<TAB>character id<TAB>gold<TAB>items" (copper) each build where a
 -- character's gold or item value changed. Stockpile only knows what you hold now, so this log is the only
--- history of net worth. Returns seen = { [id] = { { t, gold, items }, ... } } (file order), last = { [id] = point }.
+-- history of net worth. An optional 5th field "m" says the items were valued at market value (API data) rather than
+-- the lowest price; older lines have none. Returns seen = { [id] = { { t, gold, items, m = true|nil }, ... } } (file
+-- order), last = { [id] = point }.
 function I.parseWorthLog(text)
     local seen, last = {}, {}
     for line in (text or ""):gmatch("[^\r\n]+") do
-        local t, id, gold, items = line:match("^(%d+)\t([^\t]+)\t(%-?%d+)\t(%-?%d+)$")
+        local t, id, gold, items, m = line:match("^(%d+)\t([^\t]+)\t(%-?%d+)\t(%-?%d+)\t?(m?)$")
         if t then
-            local pt = { tonumber(t), tonumber(gold), tonumber(items) }
+            local pt = { tonumber(t), tonumber(gold), tonumber(items), m = m == "m" or nil }
             seen[id] = seen[id] or {}
             table.insert(seen[id], pt)
             last[id] = pt
@@ -632,15 +637,16 @@ function I.parseWorthLog(text)
     return seen, last
 end
 
--- Lines to append: characters ({ { id, gold, items } }, gold known) whose gold or items differ from the log's last
+-- Lines to append: characters ({ { id, gold, items, m } }, gold known) whose gold, items or valuation (m) differ
+-- from the log's last. A change of m alone is logged too, so the chart can mark the switch.
 function I.worthLogLines(chars, last, now)
     local lines = {}
     for _, c in ipairs(chars or {}) do
         if c.id and c.gold then
             local items = math.floor((c.items or 0) + 0.5)
             local l = last and last[c.id]
-            if not l or l[2] ~= c.gold or l[3] ~= items then
-                lines[#lines + 1] = string.format("%d\t%s\t%d\t%d\n", now, c.id, c.gold, items)
+            if not l or l[2] ~= c.gold or l[3] ~= items or (l.m or false) ~= (c.m or false) then
+                lines[#lines + 1] = string.format("%d\t%s\t%d\t%d%s\n", now, c.id, c.gold, items, c.m and "\tm" or "")
             end
         end
     end

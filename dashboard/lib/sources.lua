@@ -50,7 +50,7 @@ function S.priceBook(book)
 end
 
 function S.auctionator(env)
-    local out = { prices = {}, vendor = {} }
+    local out = { prices = {}, vendor = {}, books = {} }
     if not env then
         return out
     end
@@ -59,6 +59,7 @@ function S.auctionator(env)
         if realm ~= "__dbversion" then
             local db = type(data) == "string" and CBOR.decode(data) or data
             if type(db) == "table" then
+                out.books[realm] = S.priceBook(db)
                 local n = 0
                 for _ in pairs(db) do n = n + 1 end
                 if not bestN or n > bestN then
@@ -77,18 +78,36 @@ function S.auctionator(env)
     return out
 end
 
--- Ledger Link's Neutral auction house book (LedgerLinkDB.neutral, kept apart from Auctionator's).
--- Returns { prices, vendor = {}, last, visits = { { t, kind, zone } }, mode } or nil when there's none.
-function S.neutral(env)
+-- Ledger Link's own books (LedgerLinkDB.books[realm][side][dbKey]), kept apart from Auctionator's.
+-- Returns { books = { [realm] = { [side] = priceBook } }, legacy = priceBook|nil (the old unkeyed
+-- LedgerLinkDB.neutral, which unmigrated files still carry), visits = { { t, kind, zone, realm, faction } },
+-- last, mode } or nil when there's nothing. Visits from before realm/faction were saved have neither.
+function S.ledger(env)
     local d = env and env.LedgerLinkDB
     if type(d) ~= "table" then return nil end
-    local prices = S.priceBook(d.neutral)
+    local books, any = {}, false
+    for realm, sides in pairs(type(d.books) == "table" and d.books or {}) do
+        if type(sides) == "table" then
+            for side, book in pairs(sides) do
+                local pb = S.priceBook(book)
+                if next(pb) then
+                    books[realm] = books[realm] or {}
+                    books[realm][side] = pb
+                    any = true
+                end
+            end
+        end
+    end
+    local legacy = S.priceBook(d.neutral)
+    if not next(legacy) then legacy = nil end
     local visits = {}
     for _, v in ipairs(d.visits or {}) do
-        if type(v) == "table" and v.t then visits[#visits + 1] = { t = v.t, kind = v.kind, zone = v.zone } end
+        if type(v) == "table" and v.t then
+            visits[#visits + 1] = { t = v.t, kind = v.kind, zone = v.zone, realm = v.realm, faction = v.faction }
+        end
     end
-    if not next(prices) and #visits == 0 then return nil end
-    return { prices = prices, vendor = {}, last = d.neutralLast, visits = visits, mode = d.neutralMode }
+    if not any and not legacy and #visits == 0 then return nil end
+    return { books = books, legacy = legacy, visits = visits, last = d.neutralLast, mode = d.neutralMode }
 end
 
 function S.timeToDay(t)

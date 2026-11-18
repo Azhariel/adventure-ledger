@@ -307,6 +307,38 @@ test("inventory: valued at today's AH price, per location; unpriced items counte
     eq(M.inventory(nil, market, tostring).total, 0, "no Stockpile data")
 end)
 
+test("valuation: held items at market value, reagents at now", function()
+    local Build = require("build")
+    local P = Build.planner(wowDir())
+    truthy(P, "planner found")
+    local recipes = { [1] = { recipeID = 1, name = "Thing", outputItemID = 50, outputQty = 1, reagents = { { itemID = 1, qty = 2 } } } }
+    local function mk(withMarket)
+        return { prices = { [1] = { now = 100, market = withMarket and 80 or nil }, [50] = { now = 1000, market = withMarket and 900 or nil } }, vendor = {} }
+    end
+    local held = { bags = { [1] = 3 }, bank = {}, mail = {} }
+    eq(M.inventory(held, mk(true), tostring).items[1].unit, 80, "held: market first")
+    eq(M.inventory(held, mk(false), tostring).items[1].unit, 100, "no market: now")
+    eq(M.crafts(P, recipes, mk(true), tostring, 10)[1].cost, 200, "reagents cost now (100 each)")
+    eq(M.crafts(P, recipes, mk(true), tostring, 10)[1].gross, 900, "product valued at market")
+    eq(M.crafts(P, recipes, mk(false), tostring, 10)[1].cost, 200)
+    eq(M.crafts(P, recipes, mk(false), tostring, 10)[1].gross, 1000)
+end)
+
+test("worth log: m flag written, parsed, and old lines still read", function()
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2, m = true } }, {}, 5), "5\ta\t1\t2\tm\n")
+    local seen = I.parseWorthLog("5\ta\t1\t2\tm\n")
+    eq(seen.a[1].m, true)
+    seen = I.parseWorthLog("4\ta\t1\t2\n")
+    eq(seen.a[1].m, nil); eq(#seen.a, 1)
+end)
+
+test("worth log: switching to market value alone writes a line", function()
+    local last = { a = { 4, 1, 2 } }
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2, m = true } }, last, 9), "9\ta\t1\t2\tm\n")
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2 } }, last, 9), "", "unchanged without m")
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2, m = true } }, { a = { 4, 1, 2, m = true } }, 9), "", "unchanged with m")
+end)
+
 test("crafts use Make or Buy's real planner: crafting bolts beats buying them, and includes reagent tree", function()
     local Build = require("build")
     local P = Build.planner(wowDir())
@@ -754,7 +786,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     local charSV = acct .. "/91/Hero-Realm/SavedVariables"
     mkdir(charSV); mkdir(acct .. "/SavedVariables")
     U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [2592] = 4 }, bank = {}, mail = {} }, ["Alt-R"] = { name = "Alt", realm = "R", bags = { [2592] = 1 }, bank = {}, mail = {} } } }')
-    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", level = 12, money = 5000, lastSeen = 50 }, G2 = { name = "Alt", realm = "R", level = 3, money = 7, lastSeen = 40 } } }')
+    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", faction = "Horde", level = 12, money = 5000, lastSeen = 50 }, G2 = { name = "Alt", realm = "R", faction = "Horde", level = 3, money = 7, lastSeen = 40 } } }')
     U.writeFile(acct .. "/SavedVariables/Auctionator.lua", 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, R = { ["2592"] = { m = 100, h = { ["2500"] = 120, ["2501"] = 100 } } } }')
     U.writeFile(charSV .. "/MuddyBoots.lua", [[MuddyBootsCharDB = { char = { name = "Hero", realm = "R", guid = "G1", level = 12, class = "PRIEST",
         first = { level = 11 } }, sessions = { { start = 5, played0 = 3500, played1 = 7200, last = 50 } },
@@ -815,6 +847,26 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     local page = Build.html("<script>const DATA = /*DATA*/null;</script>", data)
     truthy(page:find('"name":"Hero"', 1, true), "data embedded")
     truthy(not page:find("/*DATA*/", 1, true), "placeholder replaced")
+    eq(data.marketTab.items["2592"].now, 100, "no market data: the scan's price, as before")
+    -- The API's newer snapshot of R Horde. Ledger Link saw a faction visit at 10:00 on the last scan day (when
+    -- Auctionator's price was taken) and a Neutral one at 20:00, which must not stamp the faction book's scan.
+    local day = S.dayToTime(2501)
+    U.writeFile(acct .. "/SavedVariables/LedgerLink.lua", ([[LedgerLinkDB = { visits = {
+        { t = %d, kind = "faction", realm = "R", faction = "Horde" }, { t = %d, kind = "neutral", realm = "R" } } }]])
+        :format(day + 10 * 3600, day + 20 * 3600))
+    local logged = {}
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+        market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
+            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end } })
+    eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")
+    eq(api.marketTab.items["2592"].nowFrom, "api"); eq(api.marketTab.items["2592"].market, 95)
+    eq(#logged, 1); truthy(logged[1]:find("\t2592\t100\n"), "the log keeps the scan: " .. logged[1])
+    truthy(not logged[1]:find("\t90\n"), "API prices never reach the price log")
+    eq(#api.priceSources, 1, "R Neutral has no book and no API data"); eq(api.priceSources[1].key, "R Horde")
+    eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
+    eq(api.account.characters[1].items, 380, "the account rows use the merged market value: 4 Wool Cloth at 95")
+    eq(api.characters[1].inventory.items[1].unit, 95, "held items are valued at market value, not the lowest price")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 
@@ -871,6 +923,15 @@ test("replay: timed points with their state, and the moments worth showing with 
     eq(p[1][2], "pl"); eq(p[1][6], "Buffed Soren"); eq(p[1][7], "level 22, Shaman, <Totem Pole>, Power Word: Fortitude")
     eq(p[2][2], "pe"); eq(p[2][6], "Enemy player Grim"); eq(p[2][7], "level 30, Rogue")
     eq(p[3][6], "Grouped with Dank"); eq(p[3][7], "")
+end)
+
+test("restock buy price: the cheaper of vendor and AH, where AH is now else market (as for crafts)", function()
+    local price = require("build").priceFn({ prices = { [1] = { now = 40, market = 50 }, [2] = { market = 50 },
+        [3] = { market = 50 } }, vendor = { [3] = 30 } })
+    local v, src = price(1); eq(v, 40); eq(src, "ah")
+    v, src = price(2); eq(v, 50); eq(src, "ah")     -- sold out now: priced at its market value, not skipped
+    v, src = price(3); eq(v, 30); eq(src, "vendor")
+    eq(price(4), nil)
 end)
 
 test("zones for map art: read from the live server's zones.py", function()
@@ -973,14 +1034,26 @@ test("xpState: XP at the save from Haul, save time = last event, each creature's
     eq(none.cur, nil); eq(none.max, nil); eq(none.savedAt, nil)
 end)
 
-test("Neutral book: Ledger Link's saved prices read like Auctionator's; visits kept; nothing saved = nil", function()
+test("S.auctionator keeps every realm's book; S.ledger reads books, legacy and tagged visits", function()
+    local a = S.auctionator({ AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8,
+        PvP = { ["2592"] = { m = 100, h = { ["2500"] = 100 } } }, Normal = { ["765"] = { m = 5, h = { ["2500"] = 5 } } } } })
+    eq(a.books.PvP[2592].now, 100); eq(a.books.Normal[765].now, 5)
+    local l = S.ledger({ LedgerLinkDB = { books = { PvP = { Neutral = { ["2447"] = { m = 7, t = 9, h = { ["2500"] = 7 } } } } },
+        neutral = { ["765"] = { m = 3, h = { ["2500"] = 3 } } },
+        visits = { { t = 1, kind = "neutral", realm = "PvP", faction = "Horde" }, { t = 2, kind = "faction" } } } })
+    eq(l.books.PvP.Neutral[2447].seenAt, 9); eq(l.legacy[765].now, 3)
+    eq(l.visits[1].realm, "PvP"); eq(l.visits[2].realm, nil)
+    eq(S.ledger({ LedgerLinkDB = {} }), nil)
+end)
+
+test("S.ledger: the legacy Neutral book reads like Auctionator's; mode, last and visits kept; nothing saved = nil", function()
     local env = { LedgerLinkDB = { neutralMode = "split", neutralLast = 500, visits = { { t = 400, kind = "neutral", zone = "Gadgetzan" } },
         neutral = { ["2447"] = { m = 40, t = 450, h = { ["2502"] = 60, ["2501"] = 45 }, l = { ["2502"] = 40 }, a = { ["2502"] = 9 } } } } }
-    local n = S.neutral(env)
-    eq(n.prices[2447].now, 40); eq(n.prices[2447].seenAt, 450)
-    eq(n.prices[2447].days[1].day, 2501); eq(n.prices[2447].days[2].low, 40); eq(n.prices[2447].days[2].available, 9)
+    local n = S.ledger(env)
+    eq(n.legacy[2447].now, 40); eq(n.legacy[2447].seenAt, 450)
+    eq(n.legacy[2447].days[1].day, 2501); eq(n.legacy[2447].days[2].low, 40); eq(n.legacy[2447].days[2].available, 9)
     eq(n.last, 500); eq(n.visits[1].zone, "Gadgetzan"); eq(n.mode, "split")
-    eq(S.neutral(nil), nil); eq(S.neutral({ LedgerLinkDB = { enable = true } }), nil)
+    eq(S.ledger(nil), nil); eq(S.ledger({ LedgerLinkDB = { enable = true } }), nil)
 end)
 
 test("compareHouses: spread and both flips after each house's cut, biggest gap first", function()
@@ -1229,6 +1302,255 @@ test("end to end: another PC's WTF in data/pcs adds its sessions, money and play
     eq(earned, 550); eq(spent, 200, "the trainer visit on the laptop")
     eq(c.xp.totals.kill, 130)
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+test("two rulesets: each character uses its own house", function()
+    local Build = require("build")
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_rulesets_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    local function mkdir(p)
+        if windows then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. p .. '"') end
+    end
+    local acct = dir .. "/WTF/Account/ACC"
+    mkdir(acct .. "/SavedVariables"); mkdir(acct .. "/91/Hero-Realm/SavedVariables")
+    U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-PvP"] = { name = "Hero", realm = "PvP", bags = { [2592] = 1 }, bank = {}, mail = {} }, ["Alt-Normal"] = { name = "Alt", realm = "Normal", bags = { [2592] = 1 }, bank = {}, mail = {} }, ["Third-Hardcore"] = { name = "Third", realm = "Hardcore", bags = { [2592] = 1 }, bank = {}, mail = {} } } }')
+    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "PvP", faction = "Horde", level = 12, lastSeen = 50 }, G2 = { name = "Alt", realm = "Normal", faction = "Alliance", level = 3, lastSeen = 40 }, G3 = { name = "Third", realm = "Hardcore", faction = "Horde", level = 1, lastSeen = 30 } } }')
+    U.writeFile(acct .. "/SavedVariables/Auctionator.lua", 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, PvP = { ["2592"] = { m = 100, h = { ["2500"] = 100 } } }, Normal = { ["2592"] = { m = 300, h = { ["2500"] = 300 } } } }')
+    local listDirs = function(p)
+        if p:match("/WTF/Account$") then return { "ACC" } end
+        if p:match("/ACC$") then return { "91", "SavedVariables" } end
+        if p:match("/91$") then return { "Hero-Realm" } end
+        return {}
+    end
+    local data = Build.data(dir, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = dir .. "/none" })
+    local byName = {}
+    for _, r in ipairs(data.account.characters) do byName[r.name] = r end
+    eq(byName.Hero.items, 100, "PvP Horde's book"); eq(byName.Alt.items, 300, "Normal Alliance's book")
+    eq(byName.Third.items, 0, "Hardcore Horde has no book: an empty market, never another house's")
+    eq(data.marketTab.items["2592"].now, 100, "the default pair is the last character played: PvP Horde")
+    eq(#data.priceSources, 2); eq(data.priceSources[1].key, "Normal Alliance"); eq(data.priceSources[2].key, "PvP Horde")
+    if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+test("market.lua broken file: the page is still written", function()
+    local Build = require("build")
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_badmarket_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    if windows then os.execute('mkdir "' .. (dir .. "/data"):gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. dir .. '/data"') end
+    U.writeFile(dir .. "/data/market.lua", "garbage(")
+    local out = dir .. "/data/dashboard.html"
+    local data = Build.run(dir .. "/wow", out, dir .. "/data/")
+    truthy(U.readFile(out), "page written")
+    eq(#data.priceSources, 0)
+    if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+-- One account folder with the given account-wide SavedVariables ({ [file] = source }); returns the WoW folder,
+-- listDirs and a cleanup function
+local function accountFixture(tag, files)
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_" .. tag .. "_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    local acct = dir .. "/WTF/Account/ACC"
+    for _, p in ipairs({ acct .. "/SavedVariables", acct .. "/91/Hero-Realm/SavedVariables" }) do
+        if windows then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. p .. '"') end
+    end
+    for file, src in pairs(files) do U.writeFile(acct .. "/SavedVariables/" .. file, src) end
+    local listDirs = function(p)
+        if p:match("/WTF/Account$") then return { "ACC" } end
+        if p:match("/ACC$") then return { "91", "SavedVariables" } end
+        if p:match("/91$") then return { "Hero-Realm" } end
+        return {}
+    end
+    return dir, listDirs, function()
+        if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+    end
+end
+
+test("no character with a faction: the market pages stay as they were", function()
+    local Build = require("build")
+    local files = {
+        ["Stockpile.lua"] = 'StockpileDB = { version = 1, chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [2592] = 4 }, bank = {}, mail = {} } } }',
+        ["MuddyBoots.lua"] = 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", level = 12, money = 5000, lastSeen = 50 } } }',
+        ["Auctionator.lua"] = 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, R = { ["2592"] = { m = 100, h = { ["2500"] = 120, ["2501"] = 100 } } } }',
+        ["LedgerLink.lua"] = 'LedgerLinkDB = { neutral = { ["2592"] = { m = 80, h = { ["2501"] = 80 } } } }',
+    }
+    local wow, listDirs, cleanup = accountFixture("nofaction", files)
+    local data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = wow .. "/none" })
+    eq(data.market.scanDays, 2); eq(data.marketTab.items["2592"].now, 100, "Auctionator's book, as before houses")
+    eq(data.account.characters[1].items, 400)
+    eq(data.neutralTab.items["2592"].now, 80, "Ledger Link's legacy Neutral book")
+    eq(#data.priceSources, 0, "no house can be told")
+    cleanup()
+    -- Ledger Link's own books name their side: one faction house there is the default pair, with its Neutral
+    files["LedgerLink.lua"] = 'LedgerLinkDB = { books = { R = { Horde = { ["2592"] = { m = 110, t = 9, h = { ["2501"] = 110 } } },'
+        .. ' Neutral = { ["2592"] = { m = 70, t = 9, h = { ["2501"] = 70 } } } } } }'
+    wow, listDirs, cleanup = accountFixture("onehouse", files)
+    data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = wow .. "/none" })
+    eq(data.marketTab.items["2592"].now, 110, "R Horde from Ledger Link"); eq(data.neutralTab.items["2592"].now, 70)
+    cleanup()
+end)
+
+test("Neutral price log keeps the scan when the API is newer", function()
+    local Build = require("build")
+    local day = S.dayToTime(2501)
+    local wow, listDirs, cleanup = accountFixture("neutrallog", {
+        ["MuddyBoots.lua"] = 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", faction = "Horde", level = 12, lastSeen = 50 } } }',
+        ["LedgerLink.lua"] = ('LedgerLinkDB = { books = { R = { Neutral = { ["2592"] = { m = 80, t = %d, h = { ["2501"] = 80 } } } } } }')
+            :format(day + 3600),
+    })
+    local logged = {}
+    local data = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = wow .. "/none",
+        market = { houses = { [116] = { id = 116, key = "R Neutral", latest = day + 2 * 3600, items = { [2592] = { now = 60 } }, recent = {} } } },
+        neutralLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end } })
+    eq(data.neutralTab.items["2592"].now, 60, "the newer snapshot"); eq(data.neutralTab.items["2592"].nowFrom, "api")
+    eq(#logged, 1); truthy(logged[1]:find("\t2592\t80\n"), "the log keeps the scan: " .. logged[1])
+    truthy(not logged[1]:find("\t60\n"), "API prices never reach the Neutral log")
+    cleanup()
+end)
+
+test("houses: books keyed by ruleset and side; legacy Neutral follows the account's ruleset", function()
+    local H = require("houses")
+    local book = function(p) return { [2592] = { now = p, days = {} } } end
+    local warned = {}
+    local got = H.collect({ {
+        auctionator = { books = { PvP = book(100) } },
+        ledger = { books = { PvP = { Neutral = book(90), Horde = book(101) } }, legacy = book(80) },
+        chars = { { realm = "CAMWOW US2 Realm 2 PvP", faction = "Horde" } } } }, function(w) warned[#warned + 1] = w end)
+    eq(#got["PvP Horde"], 2); eq(#got["PvP Neutral"], 2); eq(#warned, 0)
+    eq(select(1, H.forChar("CAMWOW US2 Realm 2 PvP", "Horde")), "PvP Horde")
+    eq(select(2, H.forChar("CAMWOW US2 Realm 2 PvP", "Horde")), "PvP Neutral")
+end)
+
+test("houses: both factions on one ruleset skip Auctionator's book and warn", function()
+    local H = require("houses")
+    local warned = {}
+    local got = H.collect({ { auctionator = { books = { PvP = { [1] = { now = 1, days = {} } } } },
+        chars = { { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Alliance" } } } },
+        function(w) warned[#warned + 1] = w end)
+    eq(got["PvP Horde"], nil); eq(#warned, 1)
+end)
+
+test("houses: default pair is the last character played", function()
+    local H = require("houses")
+    local f, n = H.default({ { realm = "PvP", faction = "Horde", lastSeen = 5 }, { realm = "Normal", faction = "Alliance", lastSeen = 9 } })
+    eq(f, "Normal Alliance"); eq(n, "Normal Neutral")
+end)
+
+test("houses: fallbacks, nil inputs, ties and accounts without characters", function()
+    local H = require("houses")
+    local book = { [1] = { now = 1, days = {} } }
+    local warned = {}
+    local warn = function(w) warned[#warned + 1] = w end
+    -- no character on the ruleset: the account's most common faction
+    local got = H.collect({ { auctionator = { books = { Normal = book } },
+        chars = { { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Alliance" } } } }, warn)
+    truthy(got["Normal Horde"]); eq(#warned, 0)
+    -- tie: the character sorting first by ruleset .. faction decides
+    got = H.collect({ { auctionator = { books = { Normal = book } },
+        chars = { { realm = "PvP", faction = "Horde" }, { realm = "PvP", faction = "Alliance" } } } }, warn)
+    truthy(got["Normal Alliance"])
+    -- characters without realm or faction are ignored; nil auctionator and nil ledger are fine
+    got = H.collect({ { chars = { { realm = nil, faction = "Horde" }, { realm = "PvP" } } }, { auctionator = { books = {} } } }, warn)
+    eq(next(got), nil); eq(#warned, 0)
+    -- no characters: Auctionator's book and the legacy book are skipped, one warning each
+    got = H.collect({ { auctionator = { books = { PvP = book } }, ledger = { books = {}, legacy = book }, chars = {} } }, warn)
+    eq(next(got), nil); eq(#warned, 2)
+    -- forChar and default with missing data
+    local f, n = H.forChar("PvP", nil); eq(f, nil); eq(n, "PvP Neutral")
+    f, n = H.forChar(nil, "Horde"); eq(f, nil); eq(n, nil)
+    f, n = H.default({ { realm = "PvP", lastSeen = 3 }, { faction = "Horde", lastSeen = 4 } }); eq(f, nil); eq(n, nil)
+    f = H.default({ { realm = "A", faction = "Horde", lastSeen = 5 }, { realm = "B", faction = "Horde", lastSeen = 5 } })
+    eq(f, "A Horde", "a tie goes to the first row")
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Reconciliation of scans with API snapshots
+
+local R = require("reconcile")
+
+test("reconcile: newer API snapshot wins; an item the API lacks keeps its scan", function()
+    local book = { vendor = { [1] = 5 }, last = 7, prices = {
+        [1] = { now = 100, seenAt = 1000, days = { { day = 1 } } },
+        [3] = { now = 70, seenAt = 1000, days = {} } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95, units = 4 }, [2] = { market = 50 } } }
+    local m = R.merge(book, api, function(p) return p.seenAt end)
+    eq(m.prices[1].now, 90); eq(m.prices[1].nowFrom, "api"); eq(m.prices[1].nowAt, 2000)
+    eq(m.prices[1].market, 95); eq(m.prices[1].units, 4); eq(m.prices[1].seenAt, 1000)
+    truthy(m.prices[2]); eq(m.prices[2].now, nil); eq(#m.prices[2].days, 0); eq(m.prices[2].market, 50)
+    eq(m.prices[3].now, 70, "no API data for it: the scan's price"); eq(m.prices[3].nowFrom, "scan")
+    eq(m.prices[3].nowAt, 1000)
+    eq(m.vendor, book.vendor); eq(m.last, 7); eq(m.apiLatest, 2000)
+    eq(book.prices[1].now, 100, "the book is not mutated"); eq(book.prices[1].market, nil)
+end)
+
+test("reconcile: newer scan wins over an older snapshot", function()
+    local book = { prices = { [1] = { now = 100, seenAt = 3000, days = {} } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95 } } }
+    local m = R.merge(book, api, function(p) return p.seenAt end)
+    eq(m.prices[1].now, 100); eq(m.prices[1].nowFrom, "scan"); eq(m.prices[1].nowAt, 3000); eq(m.prices[1].market, 95)
+end)
+
+test("reconcile: no api returns the book unchanged (same table)", function()
+    local book = { prices = {} }
+    eq(R.merge(book, nil, function() end), book)
+    eq(R.merge(book, { items = {} }, function() end), book, "an api without a snapshot time is no api")
+    local ab = { prices = { [1] = { now = 100, seenAt = 5000, days = { { day = 2000 } } } } }
+    local snaps = { { t = 5100, min = { [1] = 100 } } }
+    local atSeen = function(p) return p.seenAt end
+    eq(R.agreement(ab, { recent = snaps }, atSeen), nil, "no snapshot time: the guard is the only reason")
+    truthy(R.agreement(ab, { latest = 5100, recent = snaps }, atSeen), "with latest the same data agrees")
+end)
+
+test("reconcile: boundaries (tie, listed without now, no scan time)", function()
+    local at = function(p) return p.seenAt end
+    local book = { prices = { [1] = { now = 100, seenAt = 2000, days = {} }, [2] = { now = 70, seenAt = 1000, days = {} },
+        [3] = { now = 60, days = {} } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95 }, [2] = { market = 50 }, [3] = { now = 55 } } }
+    local m = R.merge(book, api, at)
+    eq(m.prices[1].now, 100, "a tie keeps the scan"); eq(m.prices[1].nowFrom, "scan")
+    eq(m.prices[2].now, nil); eq(m.prices[2].nowFrom, "api"); eq(m.prices[2].market, 50)
+    eq(m.prices[3].now, 55, "no scan time: the api wins"); eq(m.prices[3].nowFrom, "api")
+end)
+
+test("reconcile: Auctionator day stamped by the last faction visit of that day", function()
+    local D, h = 2000, 3600
+    local base = S.dayToTime(D)
+    local p = { days = { { day = D } } }
+    local visits = {
+        { t = base + 10 * h, kind = "faction" },
+        { t = base + 12 * h, kind = "neutral" },
+        { t = base + 11 * h, kind = "faction", realm = "CAMWOW US2 Realm 2 PvP" },
+        { t = base + 13 * h, kind = "faction", realm = "CAMWOW US2 Realm 1 Normal" },
+        { t = base - 2 * h, kind = "faction" } }
+    eq(R.scanAt(p, visits, "PvP", "faction", S.dayToTime, S.timeToDay), base + 11 * h)
+    eq(R.scanAt(p, {}, "PvP", "faction", S.dayToTime, S.timeToDay), S.dayToTime(D + 1) - 1)
+    eq(R.scanAt({ days = {} }, visits, "PvP", "faction", S.dayToTime, S.timeToDay), nil)
+    eq(R.scanAt({ seenAt = 42, days = {} }, visits, "PvP", "faction", S.dayToTime, S.timeToDay), 42)
+    eq(R.scanAt(p, { { t = base + 9 * h, kind = "faction" } }, "PvP", "faction", S.dayToTime, S.timeToDay), base + 9 * h, "no realm counts")
+end)
+
+test("reconcile: agreement against the nearest recent snapshot", function()
+    local h = 3600
+    local t0 = S.dayToTime(2000)
+    local scan = t0 + 19 * h + 41 * 60
+    local at = function(p) return p.seenAt end
+    local book = { prices = {
+        [1] = { now = 100, seenAt = scan, days = { { day = 2000 } } },
+        [2] = { now = 200, seenAt = scan - 60, days = { { day = 2000 } } },
+        [3] = { now = 1000, seenAt = scan - 120, days = { { day = 2000 } } },
+        [4] = { now = 5, seenAt = scan - 86400, days = { { day = 1999 } } } } }
+    local api = { latest = scan, recent = {
+        { t = t0 + 19 * h + 24 * 60, min = { [1] = 100, [2] = 200, [3] = 1040, [4] = 5 } },
+        { t = t0 + 15 * h, min = { [1] = 1 } } } }
+    local a = R.agreement(book, api, at)
+    eq(a.apiAt, t0 + 19 * h + 24 * 60); eq(a.scanAt, scan)
+    eq(a.shared, 3); eq(a.exact, 2); eq(a.near, 3)
+    local far = { latest = scan, recent = { { t = scan - 2 * h, min = { [1] = 100 } }, { t = scan + 2 * h, min = { [1] = 100 } } } }
+    eq(R.agreement(book, far, at), nil, "2 hours away: no match figure")
+    local at89 = R.agreement(book, { latest = scan, recent = { { t = scan + 89 * 60, min = { [1] = 100 } } } }, at)
+    eq(at89 and at89.apiAt, scan + 89 * 60, "89 minutes: close enough")
+    eq(R.agreement(book, { latest = scan, recent = { { t = scan - 91 * 60, min = { [1] = 100 } } } }, at), nil, "91 minutes: too far")
+    eq(R.agreement(book, { latest = scan, recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
 end)
 
 for _, t in ipairs(tests) do

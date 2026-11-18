@@ -725,10 +725,17 @@ end
 ----------------------------------------------------------------------------------------------------
 -- Inventory and market
 
--- Market value of the item: today's AH minimum (nil when the AH has never seen it)
+-- What a held item is worth: its market value (the typical price it sells at), else today's AH minimum. nil when
+-- the AH has never seen it. Used to value holdings, net worth, the stockpile and craft products.
 local function marketPrice(market, id)
     local p = market.prices[id]
-    return p and p.now or nil
+    return p and (p.market or p.now) or nil
+end
+
+-- What buying one costs right now: today's AH minimum, else the market value. Used for reagents.
+local function buyPrice(market, id)
+    local p = market.prices[id]
+    return p and (p.now or p.market) or nil
 end
 
 -- One character's Stockpile counts valued at AH prices. Returns { items, total, byLocation, unpriced }.
@@ -835,7 +842,7 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
         return {}
     end
     local function price(id)
-        local ah, vendor = marketPrice(market, id), market.vendor[id]
+        local ah, vendor = buyPrice(market, id), market.vendor[id]
         if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
         if ah then return ah, "ah" end
         return nil
@@ -922,7 +929,7 @@ function M.skillRoutes(lib, mob, market, nameOf)
     local P, Skill = lib and lib.Planner, lib and lib.Skill
     if not (P and Skill and mob and mob.recipes and mob.skill) then return {} end
     local function price(id)
-        local ah, vendor = marketPrice(market, id), market.vendor[id]
+        local ah, vendor = buyPrice(market, id), market.vendor[id]
         if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
         if ah then return ah, "ah" end
         return nil
@@ -1131,8 +1138,10 @@ end
 -- All characters of all accounts, side by side, with totals and a combined inventory.
 -- groups: { { muddyChars = MuddyBootsDB.chars, stockChars = StockpileDB.chars, market = auctionator() } }
 -- Characters come from MuddyBoots' account file (level, gold, played) and Stockpile (items); either is enough.
+-- marketOf(row) -> market (optional): each character's own auction house (rulesets have their own); without it,
+-- every character of a group is valued with g.market.
 -- Returns { characters = rows sorted by net worth, totals, inventory = { items, kinds, unpriced } }.
-function M.account(groups, nameOf, limit)
+function M.account(groups, nameOf, limit, marketOf)
     local rows, byId, items = {}, {}, {}
     local function row(name, realm)
         local id = M.charId(name, realm)
@@ -1157,7 +1166,7 @@ function M.account(groups, nameOf, limit)
                 local r = row(c.name, c.realm)
                 r.class = r.class or c.class
                 r.bankTime = c.bankTime
-                local inv = M.inventory(c, g.market, nameOf)
+                local inv = M.inventory(c, marketOf and marketOf(r) or g.market, nameOf)
                 r.items, r.unpriced = inv.total, inv.unpriced
                 r.byLocation = inv.byLocation
                 for _, it in ipairs(inv.items) do
