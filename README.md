@@ -158,8 +158,9 @@ the game is automated: it only reads the API.
 
 To check the Neutral house, scan a goblin AH (Booty Bay, Gadgetzan, Everlook, or Forever's one just outside the
 Crossroads in the Barrens), `/reload`, and run `python dashboard/fetcher.py --match neutral`. It compares Ledger
-Link's Neutral prices with every Neutral house and says which one matches; if it isn't `116`, set `ah_neutral` to
-the one it names. `--match faction` does the same for your faction's house against Auctionator's latest scan day.
+Link's Neutral prices with every Neutral house and says which one matches; if it isn't `116`, put the house it
+names into `ah_houses` as `<ruleset> <id>` (or set `ah_neutral` if you still use the old keys). `--match faction`
+does the same for your faction's house against Auctionator's latest scan day.
 
 **The tray icon.** `wowstats live` puts a dot in the notification area. It runs the live server and the fetcher and
 watches both every 5 seconds:

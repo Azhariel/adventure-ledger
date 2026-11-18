@@ -25,7 +25,7 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 #   are empty). Horde on the PvP ruleset matched 113, and its Neutral house matched 116.
 #   The API doesn't say which house is whose, so find yours by matching against your own scans:
 #     1. Scan the AH in game (Auctionator), then /reload so the scan is saved.
-#     2. Run  python dashboardetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
+#     2. Run  python dashboard\fetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
 #        Gadgetzan, Everlook or the Barrens AH outside the Crossroads). It ranks every house by how many prices
 #        match yours and names the best one.
 #   The old keys ah_ruleset (1 = PvP, 2 = Normal, 3 = Roleplay, 15 = Roleplay PvP), ah_faction and ah_neutral
