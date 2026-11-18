@@ -332,7 +332,7 @@ class HistoryEndpoint(unittest.TestCase):
 
     def test_history_endpoint_bad_params(self):
         self.make_db()
-        for q in ("?house=x&item=1", "?house=113", "?house=113&item=-1", "?house=0&item=1", ""):
+        for q in ("?house=x&item=1", "?house=113", "?house=113&item=-1", "?house=0&item=1", "?house=113&item=" + "9" * 30, ""):
             with self.subTest(q=q):
                 self.assertEqual(self.get(q)[0], 400)
 

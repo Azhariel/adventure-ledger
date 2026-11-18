@@ -472,7 +472,7 @@ def make_handler(app):
             ids = []
             for name in ("house", "item"):
                 v = (q.get(name) or [""])[0]
-                if not (v.isascii() and v.isdigit() and int(v) > 0):
+                if not (v.isascii() and v.isdigit() and len(v) <= 18 and int(v) > 0):
                     self._send(400, b'{"error":"house and item must be positive integers"}', "application/json")
                     return
                 ids.append(int(v))

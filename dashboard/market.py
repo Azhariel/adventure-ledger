@@ -292,6 +292,8 @@ def item_summary(buckets, recent, last, day_means, now):
 def history(db, house, item, now):
     """One item's rows for the drawer's longer ranges: hourly (up to the latest snapshot), daily (the daily table
     plus the days hourly still holds, hourly winning) and its week grid. Reads only; empty for an unknown item."""
+    if not db.in_transaction:
+        db.execute("BEGIN")   # one read transaction: the queries below see one state of the db
     snap = db.execute("SELECT MAX(t) FROM snapshot WHERE house=?", (house,)).fetchone()[0]
     rows = []
     if snap is not None:
