@@ -743,6 +743,8 @@ function dur(sec) {
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
 const date = t => t ? DATETIME.format(new Date(t * 1000)) : "";
+// "today 14:00", or with the date when it isn't today ("Nov 16, 14:00")
+const when = t => !t ? "" : new Date(t * 1000).toDateString() === new Date().toDateString() ? `today ${clock(t)}` : date(t);
 const short = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? (n / 1e3).toFixed(1) + "k" : NUM.format(Math.round(n || 0));
 const empty = msg => `<div class="empty">${esc(msg)}</div>`;
 // "1 quest", "2 quests", "1,469 fights"; `many` for words that don't just take an s
@@ -2404,7 +2406,7 @@ function drawHeader() {
   if (tab && tab.nowFrom) { now = cellNum(tab.now); from = tab.nowFrom; at = tab.nowAt; }
   else if (T) { now = cellNum(T.now); from = "api"; at = H && H.latest; }
   else if (tab) { now = cellNum(tab.now); from = "scan"; }
-  const src = from === "api" ? `API ${at ? hm(at) : ""}`.trim() : from === "scan" ? `your scan ${at ? hm(at) : ""}`.trim() : "";
+  const src = from === "api" ? `API ${when(at)}`.trim() : from === "scan" ? `your scan ${when(at)}`.trim() : "";
   const dash = '<span class="muted">–</span>';
   const cell = (label, v, sub) => `<div><span class="lbl">${esc(label)}</span>${v}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`;
   const market = num("market"), hist = num("historical"), sold = num("soldPerDay"), trend = num("trend");
@@ -2600,10 +2602,10 @@ function modTrends() {
     }), fam ? "None of this family's items are at this house yet." : "No tracked items at this house yet.", { defaultCol: 3 });
   // how old the data is, and how well the in-game scans agree with the API
   el("trendsAge").textContent = H.latest
-    ? `API snapshot ${clock(H.latest)} · ${plural(H.snapshots || 0, "snapshot")}${H.first ? ` since ${MONTHDAY.format(new Date(H.first * 1000))}` : ""}` : "No API snapshot yet.";
+    ? `API snapshot ${when(H.latest)} · ${plural(H.snapshots || 0, "snapshot")}${H.first ? ` since ${MONTHDAY.format(new Date(H.first * 1000))}` : ""}` : "No API snapshot yet.";
   const src = (DATA.priceSources || []).find(s => s.key === key), a = src && src.agreement;
   el("trendsAgree").textContent = a && a.shared
-    ? `In-game scan ${clock(a.scanAt)} against the API snapshot of ${clock(a.apiAt)}: ${Math.round(100 * a.exact / a.shared)}% of ${NUM.format(a.shared)} shared items match exactly, ${Math.round(100 * (a.near || 0) / a.shared)}% within 5%.`
+    ? `In-game scan ${when(a.scanAt)} against the API snapshot of ${when(a.apiAt)}: ${Math.round(100 * a.exact / a.shared)}% of ${NUM.format(a.shared)} shared items match exactly, ${Math.round(100 * (a.near || 0) / a.shared)}% within 5%.`
     : src && src.scanAt ? `Latest in-game scan ${date(src.scanAt)}: no API snapshot within 90 minutes of it to compare.`
     : "No in-game scan of this house to compare with the API.";
 }
