@@ -168,6 +168,22 @@ svg.spark { display: block; margin-left: auto; }
 .heat .cell { height: 20px; border-radius: 3px; background: var(--bg); }
 .heat .tot { text-align: right; align-self: center; color: var(--muted); }
 @media (max-width: 860px) { .heat { grid-template-columns: 28px repeat(24, minmax(0, 1fr)) 48px; gap: 2px; } .heat .cell { height: 14px; } }
+/* hour of the week at the auction house: pink cheaper than usual, green pricier, blue volume; blank = too little data */
+.wkbox { overflow-x: auto; }
+.wk { display: grid; grid-template-columns: 30px repeat(24, minmax(9px, 1fr)); gap: 2px; min-width: 290px; font: 10.5px var(--mono); color: var(--dim); }
+.wk .hr { white-space: nowrap; overflow: visible; }
+.wk .dl { color: var(--muted); align-self: center; }
+.wk .cell { height: 18px; border-radius: 2px; background: var(--bg); }
+.wk .cell.reset { box-shadow: inset 0 0 0 1.5px var(--yellow); }
+.wk-title { font-size: 12.5px; color: var(--muted); margin: 0 0 6px; }
+.legend i.ramp { width: 44px; height: 10px; vertical-align: -1px; }
+.legend i.reset { width: 10px; height: 10px; vertical-align: -1px; box-shadow: inset 0 0 0 1.5px var(--yellow); }
+.strip { font-size: 12.5px; color: var(--dim); margin: 8px 0 0; }
+.strip .sell { color: var(--green); } .strip .buy, .cheap { color: var(--pink); }
+.trends-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.trends-bar select { width: auto; max-width: 100%; }
+.trends-bar .chips { margin: 0; flex: 1 1 320px; }
+@media (max-width: 860px) { .wk .cell { height: 14px; } }
 details.session { border-top: 1px solid var(--line2); padding: 9px 0; }
 details.session:first-of-type { border-top: 0; }
 details.session summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; list-style: none; }
@@ -447,6 +463,22 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w6" id="visitPanel"><div class="ph"><h2>Auction house visits</h2><span class="meta" id="visitMeta"></span></div><p class="hint">Each time you opened an auction house, from Ledger Link.</p><div class="scroll"><table id="visitTable"></table></div></article>
     </section>
 
+    <section class="mod" data-mod="trends" hidden>
+      <article class="panel w12"><div class="trends-bar">
+          <select id="trendsHouse" aria-label="Auction house"></select>
+          <div class="chips" id="trendsChips"></div>
+          <input type="search" class="search" id="trendsSearch" list="trendsItems" placeholder="Find an item at this house" autocomplete="off">
+          <datalist id="trendsItems"></datalist></div></article>
+      <article class="panel w6"><div class="ph"><h2 id="trendsLeftTitle"></h2></div><p class="hint" id="trendsLeftHint"></p>
+        <div id="trendsLeft"></div><p class="strip" id="trendsStrip" hidden></p></article>
+      <article class="panel w6"><div class="ph"><h2 id="trendsRightTitle"></h2></div><p class="hint" id="trendsRightHint"></p>
+        <div id="trendsRight"></div></article>
+      <article class="panel w12"><div class="ph"><h2 id="trendsNowTitle">Right now</h2><span class="meta" id="trendsNowMeta"></span></div>
+        <p class="hint" id="trendsNowHint"></p><div class="scroll tall"><table id="trendsTable"></table></div>
+        <div class="method" id="trendsAge"></div><div class="method" id="trendsAgree"></div></article>
+      <div class="w12 slot"></div>
+    </section>
+
     <section class="mod" data-mod="trades" hidden>
       <article class="panel w12"><div class="toolbar"><div><h2>Auction house trades</h2><p class="hint" id="ahHint"></p></div><div class="toolbar" style="margin:0"><div class="chips" id="ahChips"></div><input type="search" class="search" data-table="ahTable" placeholder="Filter item or player"></div></div><div class="scroll tall"><table id="ahTable"></table></div></article>
     </section>
@@ -559,6 +591,9 @@ tr.flash td { animation: flash .8s ease-out; }
           <div><dt><a href="#/movers" data-module="movers">Movers</a></dt><dd>What's rising fastest and what has fallen furthest.</dd></div>
           <div><dt><a href="#/neutral" data-module="neutral">Faction vs Neutral</a></dt><dd>Items priced at both houses, the gap between them, and what a flip makes after each
             house's cut.</dd></div>
+          <div><dt><a href="#/trends" data-module="trends">Trends</a></dt><dd>Only with Battle.net API data. Each auction house's week
+            hour by hour, on your clock: when a family of trade goods sells above or below its usual price, when the house sells
+            most, the best hours to sell and to buy, and what each item costs right now against its usual price.</dd></div>
           <div><dt><a href="#/trades" data-module="trades">Your trades</a></dt><dd>Your auction house ledger: buys, sales, deposits and buyers, in total and per item.</dd></div>
           <div><dt><a href="#/crafting" data-module="crafting">Crafting</a></dt><dd>Your recipes ranked by profit at today's prices, what you'd pay after using what you hold,
             whether each will sell, each one's full reagent tree, the cheapest skill-up route, and your restock list (Make or Buy).</dd></div>
@@ -869,7 +904,7 @@ function drawTable(id) {
     return `<th class="${cls}"${canSort ? ` data-col="${i}" title="Click to sort by ${esc(h.t)}"` : ""}>${esc(h.t)}${arr}</th>`;
   }).join("")}</tr></thead>`;
   const tbody = list.length
-    ? `<tbody>${list.map(r => `<tr${r.id != null ? ` class="pick" data-id="${esc(r.id)}"` : ""}>${r.map((c, i) => `<td class="${head[i].n ? "n" : ""}">${c}</td>`).join("")}</tr>`).join("")}</tbody>`
+    ? `<tbody>${list.map(r => `<tr${r.id != null ? ` class="pick" data-id="${esc(r.id)}"` : ""}${r.house != null ? ` data-house="${esc(r.house)}"` : ""}>${r.map((c, i) => `<td class="${head[i].n ? "n" : ""}">${c}</td>`).join("")}</tr>`).join("")}</tbody>`
     : `<tbody><tr><td colspan="${head.length}">${empty("No matching rows.")}</td></tr></tbody>`;
   node.innerHTML = thead + tbody;
 }
@@ -991,6 +1026,7 @@ const MODULES = [
   { group: "market", key: "browse", label: "Browse", house: true },
   { group: "market", key: "movers", label: "Movers", house: true },
   { group: "market", key: "neutral", label: "Faction vs Neutral" },
+  { group: "market", key: "trends", label: "Trends", needs: () => trendHouseKeys().length > 0 },
   { group: "market", key: "trades", label: "Your trades", char: true },
   { group: "market", key: "crafting", label: "Crafting", char: true },
   { group: "live", key: "live", label: "Live", served: true },
@@ -1011,6 +1047,7 @@ const houseName = () => house === "neutral" && hasNeutral() ? "Neutral AH" : "Fa
 function available(m) {
   if (m.served && !SERVED) return false;
   if (m.char && !chars().length) return false;
+  if (m.needs && !m.needs()) return false;
   return true;
 }
 
@@ -1868,7 +1905,8 @@ const saveMkt = () => store.set(MKT_KEY, JSON.stringify({ filter: mktFilter, fam
 const signedPct = v => v == null ? "" : `<span class="${v > 0.005 ? "pos" : v < -0.005 ? "neg" : "muted"}" data-sort="${v}">${v > 0 ? "+" : ""}${Math.round(v * 100)}%</span>`;
 // Supply falling is good news for a seller, so it reads green
 const supplyPct = v => v == null ? '<span class="muted">–</span>' : `<span class="${v < -0.05 ? "pos" : v > 0.05 ? "neg" : "muted"}" data-sort="${v}">${v > 0 ? "+" : ""}${Math.round(v * 100)}%</span>`;
-const rowId = (id, cells) => { cells.id = id; return cells; };
+// houseKey (optional): the auction house the row belongs to, written as data-house
+const rowId = (id, cells, houseKey) => { cells.id = id; if (houseKey != null) cells.house = houseKey; return cells; };
 
 // What the numbers say, in a word
 function signal(it) {
@@ -2090,6 +2128,195 @@ function modNeutral() {
     "No visits recorded yet.");
 }
 
+// ------------------------------------------------------------------ Hour-of-week grids (Trends, and the item drawer)
+// Weeks are 168 cells, i = dow * 24 + hour, Monday first, on the viewer's clock. A missing value arrives as false or null.
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const cellNum = v => typeof v === "number" && isFinite(v) ? v : null;
+const stripRule = () => (DATA && DATA.trends && DATA.trends.stripRule) || { MIN_N: 2, MIN_CELLS: 0.6, STRIP_PCT: 0.05, STRIP_MIN_HOURS: 2, STRIP_RUNS: 2 };
+const hour2 = h => `${String(h).padStart(2, "0")}:00`;
+const nowCell = () => { const d = new Date(); return ((d.getDay() + 6) % 7) * 24 + d.getHours(); };
+const pctVsUsual = p => `${p > 0 ? "+" : p < 0 ? "−" : "±"}${Math.abs(Math.round(p * 100))}%`;
+const perWeek = s => s >= 10 ? NUM.format(Math.round(s)) : String(Math.round(s * 10) / 10);
+
+// heatGrid(week, { kind, reset, title }): 7 rows Mon–Sun by 24 hours, with a legend under it.
+// kind "price": week.p (price vs usual, a fraction), with week.s and week.n for the tooltip; pink → neutral → green,
+// clamped at ±25%. "sold" (week.s or week.sold) and "listings" (week.listings): one blue scale.
+// A cell is blank without a value, or when the week counts observations (n) and this cell has fewer than MIN_N.
+function heatGrid(week, opts = {}) {
+  const kind = opts.kind || "price", reset = opts.reset || (DATA && DATA.reset), minN = stripRule().MIN_N;
+  const w = week || {};
+  const vals = kind === "price" ? w.p : kind === "sold" ? (w.s || w.sold) : w.listings;
+  const at = (a, i) => cellNum(a && a[i]);
+  const blank = i => at(vals, i) == null || (Array.isArray(w.n) && !((at(w.n, i) || 0) >= minN));
+  let max = 0;
+  for (let i = 0; i < 168; i++) if (!blank(i)) max = Math.max(max, at(vals, i));
+  const resetAt = reset && reset.dow != null ? reset.dow * 24 + reset.hour : -1;
+  const colour = v => {
+    if (kind === "price") {
+      const k = Math.max(-1, Math.min(1, v / 0.25));
+      return k === 0 ? "var(--raise)" : `color-mix(in srgb, var(${k > 0 ? "--green" : "--pink"}) ${Math.round(85 * Math.abs(k))}%, var(--raise))`;
+    }
+    return v > 0 && max > 0 ? `color-mix(in srgb, var(--cyan) ${Math.round(15 + 80 * v / max)}%, var(--raise))` : "var(--raise)";
+  };
+  const tip = (d, h, i) => {
+    const parts = [`${WEEKDAYS[d]} ${hour2(h)}`], n = at(w.n, i);
+    if (blank(i)) parts.push("not enough data");
+    else if (kind === "price") parts.push(`${pctVsUsual(at(vals, i))} vs usual`);
+    else if (kind === "listings") parts.push(`${NUM.format(Math.round(at(vals, i)))} listed on average`);
+    const s = kind === "listings" ? null : kind === "sold" ? at(vals, i) : at(w.s, i);
+    if (s != null && !(kind === "sold" && blank(i))) parts.push(`${perWeek(s)} sold/wk`);
+    if (n != null) parts.push(plural(n, "obs", "obs"));
+    if (i === resetAt) parts.push("weekly reset");
+    return parts.join(" · ");
+  };
+  const head = `<span></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}`;
+  const rows = WEEKDAYS.map((name, d) => `<span class="dl">${name}</span>` + Array.from({ length: 24 }, (_, h) => {
+    const i = d * 24 + h;
+    const bg = blank(i) ? "" : ` style="background:${colour(at(vals, i))}"`;
+    return `<span class="cell${i === resetAt ? " reset" : ""}" role="cell"${bg} title="${esc(tip(d, h, i))}"></span>`;
+  }).join("")).join("");
+  const legend = kind === "price"
+    ? `<span><i class="ramp" style="background:linear-gradient(90deg, var(--pink), var(--raise), var(--green))"></i>−25% cheaper (buy) · usual · +25% pricier (sell)</span>`
+    : `<span><i class="ramp" style="background:linear-gradient(90deg, color-mix(in srgb, var(--cyan) 15%, var(--raise)), var(--cyan))"></i>${kind === "sold" ? "fewer to more sold" : "fewer to more listed"}${max ? ` (top ${kind === "sold" ? perWeek(max) + "/wk" : NUM.format(Math.round(max))})` : ""}</span>`;
+  return (opts.title ? `<div class="wk-title">${esc(opts.title)}</div>` : "")
+    + `<div class="wkbox"><div class="wk" role="table" aria-label="${esc(opts.title || "Hour of the week")}">${head}${rows}</div></div>`
+    + `<div class="legend">${legend}<span><i class="sq" style="background:var(--bg);border:1px solid var(--line)"></i>not enough data</span>`
+    + `<span><i class="reset"></i>weekly reset${resetAt >= 0 ? ` (${WEEKDAYS[reset.dow]} ${hour2(reset.hour)})` : ""}</span></div>`;
+}
+
+// The best runs of pricey (sell) and cheap (buy) hours: the same rule as trends.lua's T.strip, with its constants
+// from DATA.trends.stripRule. Null when the week can't be trusted (not its own grid, or a family grid short of data).
+function computeStrip(week, rule = stripRule()) {
+  if (!week || (week.own !== true && week.enough !== true)) return null;
+  const sell = [], buy = [];
+  for (let dow = 0; dow < 7; dow++) {
+    for (const kind of ["sell", "buy"]) {
+      const runs = kind === "sell" ? sell : buy;
+      let start = null, score = 0;
+      const close = h => {
+        if (start != null && h - start >= rule.STRIP_MIN_HOURS) runs.push({ dow, from: start, to: h, score });
+        start = null; score = 0;
+      };
+      for (let h = 0; h < 24; h++) {
+        const i = dow * 24 + h, p = cellNum(week.p && week.p[i]), n = cellNum(week.n && week.n[i]);
+        const hit = p != null && n != null && n >= rule.MIN_N && (kind === "sell" ? p >= rule.STRIP_PCT : p <= -rule.STRIP_PCT);
+        if (hit) { if (start == null) start = h; score += Math.abs(p); } else close(h);
+      }
+      close(24);
+    }
+  }
+  const best = runs => runs.sort((a, b) => b.score - a.score || a.dow - b.dow || a.from - b.from)
+    .slice(0, rule.STRIP_RUNS).map(r => ({ dow: r.dow, from: r.from, to: r.to }));
+  return { sell: best(sell), buy: best(buy) };
+}
+
+// "Sell: Tue 19–23, Wed 20–22 · Buy: Sun 4–9" ("" when there's nothing to say)
+function stripText(strip) {
+  if (!strip) return "";
+  const runs = list => (list || []).map(r => `${WEEKDAYS[r.dow]} ${r.from}–${r.to}`).join(", ");
+  return [strip.sell && strip.sell.length && `<span class="sell">Sell: ${runs(strip.sell)}</span>`,
+    strip.buy && strip.buy.length && `<span class="buy">Buy: ${runs(strip.buy)}</span>`].filter(Boolean).join(" · ");
+}
+
+// ------------------------------------------------------------------ Trends (Battle.net API data, per house key)
+const TRENDS_HOUSE_KEY = "adventureLedger.trendsHouse";
+let trendsFam = "house";
+function trendHouseKeys() {
+  const h = DATA && DATA.trends && DATA.trends.houses;
+  return h && typeof h === "object" && !Array.isArray(h) ? Object.keys(h).sort() : [];
+}
+const houseLabel = key => String(key).replace(/ (\S+)$/, " · $1");   // "PvP Horde" -> "PvP · Horde"
+function trendsHouse() {
+  const keys = trendHouseKeys(), saved = store.get(TRENDS_HOUSE_KEY);
+  return keys.includes(saved) ? saved : keys.includes(DATA.trends.default) ? DATA.trends.default : keys[0];
+}
+
+// Opens one item at one house. A stand-in until the item drawer exists: the price inspector under the table, when
+// the item has scan prices on this page and the house is the open character's faction or Neutral house.
+function openItem(id, houseKey) {
+  const c = curChar(), hs = c && c.houses && !Array.isArray(c.houses) ? c.houses : {};
+  const pair = [hs.faction || DATA.trends.default, hs.neutral].filter(Boolean);
+  const known = (DATA.marketTab && DATA.marketTab.items[String(id)]) || (DATA.neutralTab && DATA.neutralTab.items[String(id)]);
+  const insp = el("inspector");
+  if (!known || !pair.includes(houseKey) || !insp.parentElement.classList.contains("slot")) return;
+  insp.hidden = false;
+  inspect(id);
+  insp.scrollIntoView({ behavior: MOTION ? "smooth" : "auto", block: "nearest" });
+}
+
+function modTrends() {
+  const key = trendsHouse(), H = DATA.trends.houses[key], reset = DATA.reset || DATA.trends.reset;
+  const items = H.items || {}, fams = H.families || [], hl = houseLabel(key);
+  el("inspector").hidden = true;
+  el("who").textContent = "Each auction house's week, hour by hour on your clock, from the Battle.net API's hourly snapshots.";
+  el("trendsHouse").innerHTML = trendHouseKeys().map(k => `<option value="${esc(k)}"${k === key ? " selected" : ""}>${esc(houseLabel(k))}</option>`).join("");
+  if (trendsFam !== "house" && !fams.some(f => f.key === trendsFam)) trendsFam = "house";
+  el("trendsChips").innerHTML = [["house", "Whole house"]].concat(fams.map(f => [f.key, f.label]))
+    .map(([k, l]) => `<button type="button" class="chip" data-k="${esc(k)}" aria-pressed="${k === trendsFam}">${esc(l)}</button>`).join("");
+  el("trendsItems").innerHTML = Object.values(items).map(it => it.name).sort().map(n => `<option value="${esc(n)}"></option>`).join("");
+  const fam = trendsFam === "house" ? null : fams.find(f => f.key === trendsFam);
+  const famOf = id => fams.find(f => (f.ids || []).includes(id));
+  const spanDays = H.first && H.latest ? Math.max(1, Math.ceil((H.latest - H.first) / 86400)) : 0;
+  // left: the family's prices by hour (or the house's listings); right: what the house sells by hour
+  const strip = el("trendsStrip");
+  strip.hidden = true;
+  if (fam) {
+    el("trendsLeftTitle").textContent = `${fam.label} · ${hl}`;
+    const w = fam.week;
+    el("trendsLeftHint").textContent = !w ? "No hourly prices for this family at this house yet."
+      : `Price against each item's usual, weighted by units sold. ` + (w.enough
+        ? `${plural((fam.ids || []).length, "item")}; ${NUM.format(w.ownCount || 0)} ${w.ownCount === 1 ? "has its" : "have their"} own grid.`
+        : `${plural(spanDays, "day")} of data; patterns fill in over about a week.`);
+    el("trendsLeft").innerHTML = w ? heatGrid(w, { kind: "price", reset, title: `${fam.label}: price vs usual` }) : "";
+    const txt = stripText(computeStrip(w));
+    if (txt) { strip.innerHTML = txt; strip.hidden = false; }
+  } else {
+    el("trendsLeftTitle").textContent = `Listings · ${hl}`;
+    el("trendsLeftHint").textContent = "Auctions up at each hour of the week, on average over the snapshots.";
+    el("trendsLeft").innerHTML = heatGrid(H.week, { kind: "listings", reset, title: "Auctions listed" });
+  }
+  el("trendsRightTitle").textContent = `Whole house · ${hl}`;
+  el("trendsRightHint").textContent = "Units sold at each hour of the week, per week seen.";
+  el("trendsRight").innerHTML = heatGrid(H.week, { kind: "sold", reset, title: "Units sold" });
+  // Right now: each item against its market value, and what this hour usually does to its price
+  const ci = nowCell(), minN = stripRule().MIN_N;
+  const usual = it => {
+    const own = it.week && it.week.own === true ? it.week : null;
+    const cell = w => w && cellNum(w.p && w.p[ci]) != null && (cellNum(w.n && w.n[ci]) || 0) >= minN ? w.p[ci] : null;
+    if (cell(own) != null) return { p: cell(own), fam: false };
+    const f = famOf(it.id), fp = cell(f && f.week);
+    return fp != null ? { p: fp, fam: f.label } : null;
+  };
+  const usualCell = u => {
+    if (!u) return "";
+    const word = u.p >= stripRule().STRIP_PCT ? " (sell)" : u.p <= -stripRule().STRIP_PCT ? " (buy)" : "";
+    const cls = u.p >= stripRule().STRIP_PCT ? "pos" : u.p <= -stripRule().STRIP_PCT ? "cheap" : "muted";
+    return `<span class="${cls}" data-sort="${u.p}">${pctVsUsual(u.p)}${word}</span>`
+      + (u.fam ? ` <span class="pill" title="Not enough data for this item's own pattern yet; showing ${esc(u.fam)}">family</span>` : "");
+  };
+  const ids = fam ? (fam.ids || []).map(String) : Object.keys(items);
+  const list = ids.map(id => items[id] ? Object.assign({ id: Number(id) }, items[id]) : null).filter(Boolean);
+  el("trendsNowTitle").textContent = fam ? `${fam.label} right now` : "Right now: everything tracked";
+  el("trendsNowMeta").textContent = `${WEEKDAYS[Math.floor(ci / 24)]} ${hour2(ci % 24)} · ${hl}`;
+  el("trendsNowHint").textContent = (fam ? "" : "Every item in a family, held by your characters, or traded at the auction house. ")
+    + "Now vs market: the lowest buyout against the API's market value. This hour usually: how far above or below its usual price the item sells at this hour of the week (the family's pattern when the item has too little data of its own). Click a row for its prices.";
+  const vsMarket = it => cellNum(it.now) != null && cellNum(it.market) ? it.now / it.market - 1 : null;
+  table("trendsTable", [{ t: "Item" }, { t: "Now vs market", n: 1 }, { t: "This hour usually", n: 1 }, { t: "Sold/day", n: 1 }, { t: "Trend", n: 1 }],
+    list.map(it => {
+      const sold = cellNum(it.soldPerDay);
+      return rowId(it.id, [whItem(it.id, it.name), signedPct(vsMarket(it)), usualCell(usual(it)),
+        sold != null ? `<span data-sort="${sold}">${short(sold)}</span>` : "", signedPct(cellNum(it.trend))], key);
+    }), fam ? "None of this family's items are at this house yet." : "No tracked items at this house yet.", { defaultCol: 3 });
+  // how old the data is, and how well the in-game scans agree with the API
+  el("trendsAge").textContent = H.latest
+    ? `API snapshot ${clock(H.latest)} · ${plural(H.snapshots || 0, "snapshot")}${H.first ? ` since ${MONTHDAY.format(new Date(H.first * 1000))}` : ""}` : "No API snapshot yet.";
+  const src = (DATA.priceSources || []).find(s => s.key === key), a = src && src.agreement;
+  el("trendsAgree").textContent = a && a.shared
+    ? `In-game scan ${clock(a.scanAt)} against the API snapshot of ${clock(a.apiAt)}: ${Math.round(100 * a.exact / a.shared)}% of ${NUM.format(a.shared)} shared items match exactly, ${Math.round(100 * (a.near || 0) / a.shared)}% within 5%.`
+    : src && src.scanAt ? `Latest in-game scan ${date(src.scanAt)}: no API snapshot within 90 minutes of it to compare.`
+    : "No in-game scan of this house to compare with the API.";
+}
+
 function modTrades() {
   const c = curChar(); if (!c) return;
   el("who").textContent = `${c.profile.fullName || c.profile.name}'s auction house ledger, rebuilt from the log's auction, mail and money lines.`;
@@ -2126,7 +2353,7 @@ function modLive() {
 }
 
 const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, combat: modCombat, roster: modRoster, inventory: modInventory,
-  alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral,
+  alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral, trends: modTrends,
   trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout, addons: modAddons, replay: modReplay };
 
 // Module names link to their module; one this page can't open (Live without the live server, character modules
@@ -2794,6 +3021,10 @@ document.addEventListener("click", e => {
   if (ahBtn) { ahMode = ahBtn.dataset.ah || "trades"; const c = curChar(); if (c && c.money) renderAhTrades(c.money.ahTrades); return; }
   const chip = e.target.closest("#stockChips button, #famChips button");
   if (chip) { if (chip.closest("#stockChips")) mktFilter = chip.dataset.k; else mktFamily = chip.dataset.k; saveMkt(); go(route, { keepScroll: true }); return; }
+  const trendsChip = e.target.closest("#trendsChips button");
+  if (trendsChip) { trendsFam = trendsChip.dataset.k; go(route, { keepScroll: true }); return; }
+  const trendsRow = e.target.closest("#trendsTable tr.pick");
+  if (trendsRow) { if (!e.target.closest("a")) openItem(Number(trendsRow.dataset.id), trendsRow.dataset.house); return; }
   const craftRow = e.target.closest("#craftsTable tr.pick");
   if (craftRow && !e.target.closest("a")) { selectedCraft = Number(craftRow.dataset.id); if (curChar()) renderCraftPlan(curChar()); return; }
   const row = e.target.closest("tr.pick");
@@ -2803,7 +3034,17 @@ document.addEventListener("click", e => {
     el("inspector").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }
 });
+document.addEventListener("change", e => {
+  if (e.target.id === "trendsHouse") { store.set(TRENDS_HOUSE_KEY, e.target.value); go(route, { keepScroll: true }); }
+});
 document.addEventListener("input", e => {
+  // Trends: picking a name from the list (or typing one in full) opens that item at the house in view
+  if (e.target.id === "trendsSearch") {
+    const q = e.target.value.trim().toLowerCase(), key = trendsHouse();
+    const hit = q && Object.entries(DATA.trends.houses[key].items || {}).find(([, it]) => String(it.name).toLowerCase() === q);
+    if (hit) openItem(Number(hit[0]), key);
+    return;
+  }
   const inp = e.target.closest("input[data-table]");
   if (inp && tableState[inp.dataset.table]) {
     tableState[inp.dataset.table].query = inp.value.trim();
