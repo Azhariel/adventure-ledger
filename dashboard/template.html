@@ -2441,6 +2441,11 @@ function drawHeader() {
 }
 
 // The rows the price chart draws for the range in view: [{ x (ms), lo, mk }], how they were picked, and notes
+// The first series that has a point to draw (a lo or a mk number); an empty or all-null series is passed over
+function pickSeries(...lists) {
+  return lists.find(l => l && l.some(p => cellNum(p.lo) != null || cellNum(p.mk) != null)) || null;
+}
+
 function drPriceRows() {
   const { id, key, range } = DR, H = trendsAt(key), T = apiItem(id, key), h = DR.hist();
   const ok = h && h.state === "ok" ? h.data : null, waiting = !!h && h.state === "loading";
@@ -2455,17 +2460,18 @@ function drPriceRows() {
   if (h && h.state === "fail") notes.push("couldn't load history");
   let list = null, hourly = false;
   if (range === "14") {
-    if (embH || hH) { list = last(embH || hH, 14); hourly = true; }
+    list = pickSeries(last(embH, 14), last(hH, 14));
+    if (list) hourly = true;
     else {
-      list = last(embD, 14) || spk;
+      list = pickSeries(last(embD, 14), last(hD, 14), spk);
       if (!SERVED) notes.push("hourly prices: run wowstats live");
       else if (waiting) notes.push("loading hourly prices…");
     }
   } else if (range === "60") {
-    list = last(embD || hD, 60) || spk;
-    if (!embD && !hD && waiting) notes.push("loading daily prices…");
+    list = pickSeries(last(embD, 60), last(hD, 60), spk);
+    if (!list && waiting) notes.push("loading daily prices…");
   } else {
-    list = hD || embD || spk;
+    list = pickSeries(hD, embD, spk);
     if (!hD && waiting) notes.push("loading the full history…");
   }
   // the axis starts at the first value: days before the data began are not gaps

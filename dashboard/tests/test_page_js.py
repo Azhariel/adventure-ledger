@@ -150,3 +150,10 @@ const out = [];
 })();
 """
         self.assertEqual(json.loads(run_node(js)), [[1, "fail"], 2, [3, "ok"], [3, "ok"], 3])
+
+    def test_drawer_series_pick(self):
+        js = page_js(["cellNum", "pickSeries"]) + """
+const empty = [], allNull = [{ x: 1, lo: null, mk: null }], real = [{ x: 2, lo: 5, mk: null }];
+process.stdout.write(JSON.stringify([pickSeries(empty, null, allNull, real) === real, pickSeries(empty, null), pickSeries(real, allNull) === real]));
+"""
+        self.assertEqual(json.loads(run_node(js)), [True, None, True])
