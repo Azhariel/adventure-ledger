@@ -893,6 +893,16 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
     eq(api.account.characters[1].items, 380, "the account rows use the merged market value: 4 Wool Cloth at 95")
     eq(api.characters[1].inventory.items[1].unit, 95, "held items are valued at market value, not the lowest price")
+    -- a market_wanted.tsv that can't be written (locked, read-only) is a warning, never a failed build
+    local locked = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+        market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
+            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function() end },
+        wanted = function() error("market_wanted.tsv: Permission denied") end })
+    truthy(locked.trends, "the page still builds")
+    local warned = false
+    for _, w in ipairs(locked.warnings) do warned = warned or w:find("market_wanted.tsv", 1, true) ~= nil end
+    truthy(warned, "a warning names the wanted file")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 

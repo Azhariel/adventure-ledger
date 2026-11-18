@@ -680,7 +680,12 @@ function Build.data(wow, opts)
         for key in pairs(apiByKey) do addKey(key) end
         for _, c in ipairs(result.characters) do addKey(c.houses.faction); addKey(c.houses.neutral) end
         table.sort(houseKeys)
-        opts.wanted(T.wanted(I.FAMILIES, owned, traded, houseKeys))
+        -- a locked or read-only market_wanted.tsv must not fail the page: the engine keeps the old list
+        local ok, err = pcall(opts.wanted, T.wanted(I.FAMILIES, owned, traded, houseKeys))
+        if not ok then
+            result.warnings[#result.warnings + 1] = "couldn't write market_wanted.tsv (" .. tostring(err)
+                .. "); the AH engine keeps the old list"
+        end
     end
     -- Drop rates from your own kills (DropLab), drops valued at the AH price after the 5% cut
     local dropDB = groups[1] and groups[1].droplab
