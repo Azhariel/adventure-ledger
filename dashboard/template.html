@@ -2135,19 +2135,21 @@ const cellNum = v => typeof v === "number" && isFinite(v) ? v : null;
 const stripRule = () => (DATA && DATA.trends && DATA.trends.stripRule) || { MIN_N: 2, MIN_CELLS: 0.6, STRIP_PCT: 0.05, STRIP_MIN_HOURS: 2, STRIP_RUNS: 2 };
 const hour2 = h => `${String(h).padStart(2, "0")}:00`;
 const nowCell = () => { const d = new Date(); return ((d.getDay() + 6) % 7) * 24 + d.getHours(); };
-const pctVsUsual = p => `${p > 0 ? "+" : p < 0 ? "−" : "±"}${Math.abs(Math.round(p * 100))}%`;
+const pctVsUsual = p => { const r = Math.round(p * 100); return `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(r)}%`; };
 const perWeek = s => s >= 10 ? NUM.format(Math.round(s)) : String(Math.round(s * 10) / 10);
 
 // heatGrid(week, { kind, reset, title }): 7 rows Mon–Sun by 24 hours, with a legend under it.
 // kind "price": week.p (price vs usual, a fraction), with week.s and week.n for the tooltip; pink → neutral → green,
 // clamped at ±25%. "sold" (week.s or week.sold) and "listings" (week.listings): one blue scale.
 // A cell is blank without a value, or when the week counts observations (n) and this cell has fewer than MIN_N.
+// House-wide weeks (opts.houseWide; by default, a week with listings) count snapshots in n: tooltip only, never blank.
 function heatGrid(week, opts = {}) {
   const kind = opts.kind || "price", reset = opts.reset || (DATA && DATA.reset), minN = stripRule().MIN_N;
   const w = week || {};
   const vals = kind === "price" ? w.p : kind === "sold" ? (w.s || w.sold) : w.listings;
   const at = (a, i) => cellNum(a && a[i]);
-  const blank = i => at(vals, i) == null || (Array.isArray(w.n) && !((at(w.n, i) || 0) >= minN));
+  const houseWide = opts.houseWide ?? Array.isArray(w.listings);
+  const blank = i => at(vals, i) == null || (!houseWide && Array.isArray(w.n) && !((at(w.n, i) || 0) >= minN));
   let max = 0;
   for (let i = 0; i < 168; i++) if (!blank(i)) max = Math.max(max, at(vals, i));
   const resetAt = reset && reset.dow != null ? reset.dow * 24 + reset.hour : -1;

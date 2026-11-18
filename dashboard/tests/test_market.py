@@ -121,6 +121,7 @@ class MarketTests(unittest.TestCase):
         hw = m.house_week([(START, 40)], {START: 4})
         self.assertNotIn(None, hw["listings"])
         self.assertNotIn(None, hw["sold"])
+        self.assertNotIn(None, hw["n"])
 
     def test_read_wanted_bad_lines(self):
         text = "PvP Horde" + chr(9) + "2447" + chr(10) + chr(10) + "broken" + chr(10) + "PvP Horde" + chr(9) + "x" + chr(10) + "PvP Neutral" + chr(9) + "765" + chr(10)
@@ -182,6 +183,16 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(len(got["sold"]), 168)
         self.assertEqual(got["listings"][0], 40)
         self.assertEqual(got["sold"][0], 4)
+
+    def test_house_week_counts_snapshots_per_cell(self):
+        week = 7 * 86400
+        snaps = [(START, 40), (START + week, 60), (START + 3600, 50)]
+        got = m.house_week(snaps, {START: 4})
+        self.assertEqual(len(got["n"]), 168)
+        self.assertEqual(got["n"][0], 2)
+        self.assertEqual(got["n"][1], 1)
+        self.assertIs(got["n"][2], False)
+        self.assertEqual(got["listings"][0], 50)
 
 
 LUA = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Lua", "bin", "lua.exe")

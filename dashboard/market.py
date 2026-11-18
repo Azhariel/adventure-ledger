@@ -222,7 +222,8 @@ def item_week(stored, upto, rows, now):
 
 def house_week(snapshots, sold_by_t):
     """Whole-house hour-of-week shape. snapshots = [(t, auctions)], sold_by_t = {t: units sold in that hour}.
-    listings = mean auctions per cell; sold = sold per cell per week seen. Cells without data are False."""
+    listings = mean auctions per cell; sold = sold per cell per week seen; n = snapshots per cell.
+    Cells without data are False."""
     auc, sold, weeks = {}, {}, set()
     for t, a in snapshots:
         auc.setdefault(mp.cell(t), []).append(a)
@@ -230,12 +231,13 @@ def house_week(snapshots, sold_by_t):
     for t, s in sold_by_t.items():
         sold[mp.cell(t)] = sold.get(mp.cell(t), 0) + s
         weeks.add(mp.week_start(t))
-    listings, sold_out = [False] * CELLS, [False] * CELLS
+    listings, sold_out, n = [False] * CELLS, [False] * CELLS, [False] * CELLS
     for (d, h), v in auc.items():
         listings[d * 24 + h] = round(sum(v) / len(v), 1)
+        n[d * 24 + h] = len(v)
     for (d, h), v in sold.items():
         sold_out[d * 24 + h] = round(v / len(weeks), 1)
-    return {"listings": listings, "sold": sold_out}
+    return {"listings": listings, "sold": sold_out, "n": n}
 
 
 def read_wanted(text):
