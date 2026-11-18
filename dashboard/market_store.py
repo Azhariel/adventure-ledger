@@ -9,7 +9,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshot (house INTEGER, t INTEGER, items INTEGER, auctions INTEGER);
 CREATE TABLE IF NOT EXISTS hourly (
     house INTEGER, t INTEGER, item INTEGER,
-    min INTEGER, market INTEGER, units INTEGER, listings INTEGER, sold INTEGER);
+    min INTEGER, market INTEGER, units INTEGER, listings INTEGER, sold INTEGER,
+    cheap INTEGER);
 CREATE INDEX IF NOT EXISTS hourly_item ON hourly (house, item, t);
 CREATE TABLE IF NOT EXISTS daily (
     house INTEGER, day TEXT, item INTEGER,
@@ -50,6 +51,10 @@ class Store:
         # WAL: a reader in another process does not block the fetcher.
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        if "cheap" not in [c[1] for c in self.db.execute("PRAGMA table_info(hourly)")]:
+            # Older db: units within 10% of the lowest price weren't counted; those rows stay NULL.
+            with self.db:
+                self.db.execute("ALTER TABLE hourly ADD COLUMN cheap INTEGER")
         if "priced" not in [c[1] for c in self.db.execute("PRAGMA table_info(daily)")]:
             # Older db: every folded hour had a price. `priced` = hours with a price (market is a mean over those).
             with self.db:   # commit, or the UPDATE's transaction stays open and holds a write lock
@@ -62,11 +67,13 @@ class Store:
         with self.db:
             self.db.execute("INSERT INTO snapshot VALUES (?,?,?,?)", (house, t, len(rows), len(ids)))
             self.db.executemany(
-                "INSERT INTO hourly VALUES (?,?,?,?,?,?,?,?)",
-                [(house, t, item, r["min"], r["market"], r["units"], r["listings"], sold.get(item, 0))
+                "INSERT INTO hourly (house, t, item, min, market, units, listings, sold, cheap) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                [(house, t, item, r["min"], r["market"], r["units"], r["listings"], sold.get(item, 0), r.get("cheap"))
                  for item, r in rows.items()])
             self.db.executemany(
-                "INSERT INTO hourly VALUES (?,?,?,NULL,NULL,0,0,?)",
+                "INSERT INTO hourly (house, t, item, min, market, units, listings, sold) "
+                "VALUES (?,?,?,NULL,NULL,0,0,?)",
                 [(house, t, item, n) for item, n in sold.items() if n > 0 and item not in rows])
             self.db.execute("DELETE FROM last_auctions WHERE house=?", (house,))
             self.db.executemany(

@@ -169,6 +169,26 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(db.execute("SELECT hours, priced FROM daily").fetchone(), (3, 3))
         db.close()
 
+    def test_record_writes_cheap(self):
+        r = dict(row(90, 100, 10), cheap=4)
+        self.store.record(113, 1000, {2589: r, 7: row(5, 5, 1)}, {8: 2}, {})
+        got = self.store.db.execute("SELECT item, cheap FROM hourly ORDER BY item").fetchall()
+        self.assertEqual(got, [(7, None), (8, None), (2589, 4)])
+
+    def test_old_hourly_gains_cheap(self):
+        path = os.path.join(self.dir.name, "old.db")
+        db = sqlite3.connect(path)
+        db.executescript("""CREATE TABLE hourly (house INTEGER, t INTEGER, item INTEGER,
+            min INTEGER, market INTEGER, units INTEGER, listings INTEGER, sold INTEGER);
+            INSERT INTO hourly VALUES (113, 1000, 5, 10, 12, 3, 1, 0);""")
+        db.commit()
+        db.close()
+        store = ms.Store(path)
+        store.record(113, 4600, {5: dict(row(10, 12, 3), cheap=2)}, {}, {})
+        got = store.db.execute("SELECT t, cheap FROM hourly ORDER BY t").fetchall()
+        store.close()
+        self.assertEqual(got, [(1000, None), (4600, 2)])
+
     def test_rollup_tolerates_null_priced(self):
         now = self._fill()
         self.store.rollup(now)

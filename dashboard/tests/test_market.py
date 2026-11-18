@@ -2,6 +2,7 @@
 import math
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -162,6 +163,15 @@ class MarketTests(unittest.TestCase):
         got = m.item_week(stored, upto, rows, now)
         self.assertTrue(0 < got["p"][1 * 24 + 20] < 0.1)
 
+    def test_summary_carries_cheap(self):
+        rows = hours(START, 14 * 24, 100)
+        latest = rows[-1][0]
+        last = (latest, 100, 100, 77, 9, 0, 3)
+        self.assertEqual(m.item_summary(B(rows, latest), rows[-48:], last, [100.0], latest)["cheap"], 3)
+        unknown = (latest, 100, 100, 77, 9, 0, None)
+        self.assertNotIn("cheap", m.item_summary(B(rows, latest), rows[-48:], unknown, [100.0], latest))
+        self.assertNotIn("cheap", m.item_summary(B(rows, latest), rows[-48:], last[:6], [100.0], latest))
+
     def test_sold_out_item_summary(self):
         rows = hours(START, 14 * 24, 100)
         latest = rows[-1][0] + 3600
@@ -176,7 +186,7 @@ class MarketTests(unittest.TestCase):
             st = ms.Store(os.path.join(d, "market.db"))
             rows = [(START + i * 3600, None if i % 5 == 0 else 100 + i, None if i % 5 == 0 else 100 + i, 5, 3, i % 3)
                     for i in range(20 * 24 - 10)]   # ends at 13:00, so the edges split days
-            st.db.executemany("INSERT INTO hourly VALUES (113,?,7,?,?,?,?,?)", rows)
+            st.db.executemany("INSERT INTO hourly (house, t, item, min, market, units, listings, sold) VALUES (113,?,7,?,?,?,?,?)", rows)
             st.db.commit()
             now = rows[-1][0]
             got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum, low)
@@ -259,6 +269,31 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.run_(), "unchanged")
         self.assertEqual(os.stat(self.out).st_mtime_ns, before)
 
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_run_writes_cheap_and_format_3(self):
+        self.store.record(113, self.NOW + 60, {2589: {"min": 100, "market": 110, "units": 5, "listings": 3,
+                                                    "cheap": 2}}, {}, {})
+        self.assertEqual(self.run_(), "written")
+        with open(self.out, encoding="utf-8") as fh:
+            self.assertTrue(fh.readline().startswith("-- sig: f=3|"))
+        code = "dofile([[%s]]) print(LedgerMarket.houses[113].items[2589].cheap)" % self.out.replace("\\", "/")
+        got = subprocess.run([LUA, "-e", code], capture_output=True, text=True)
+        self.assertEqual(got.stdout.strip(), "2", got.stderr)
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_run_reads_a_db_without_cheap(self):
+        self.store.close()
+        db = sqlite3.connect(self.db)
+        db.execute("ALTER TABLE hourly DROP COLUMN cheap")
+        db.commit()
+        db.close()
+        self.store = ms.Store.__new__(ms.Store)
+        self.store.db = sqlite3.connect(":memory:")   # tearDown closes it; the engine reads the file read-only
+        self.assertEqual(self.run_(), "written")
+        code = "dofile([[%s]]) print(LedgerMarket.houses[113].items[2589].cheap)" % self.out.replace("\\", "/")
+        got = subprocess.run([LUA, "-e", code], capture_output=True, text=True)
+        self.assertEqual(got.stdout.strip(), "nil", got.stderr)
+
     def test_run_survives_zero_prices(self):
         for i in range(10 * 24):
             t = self.NOW - 10 * 86400 + i * 3600
@@ -274,7 +309,7 @@ class RunTests(unittest.TestCase):
     def test_stamp_carries_format(self):
         db = m.open_ro(self.db)
         try:
-            self.assertTrue(m.stamp(db, {}, "").startswith("-- sig: f=2|"))
+            self.assertTrue(m.stamp(db, {}, "").startswith("-- sig: f=3|"))
         finally:
             db.close()
 
@@ -290,7 +325,7 @@ class RunTests(unittest.TestCase):
         # the snapshot at T is whole; hourly rows at T+1h have no snapshot row yet (the fetcher is recording)
         t = self.NOW + 1800
         self.store.db.execute("INSERT INTO snapshot VALUES (113, ?, 2, 2)", (t,))
-        self.store.db.executemany("INSERT INTO hourly VALUES (?,?,?,?,?,?,?,?)", [
+        self.store.db.executemany("INSERT INTO hourly (house, t, item, min, market, units, listings, sold) VALUES (?,?,?,?,?,?,?,?)", [
             (113, t, 2589, 100, 110, 5, 3, 1), (113, t, 777, 50, 55, 2, 1, 0),
             (113, t + 3600, 2589, 90, 95, 4, 2, 50), (113, t + 3600, 777, 40, 45, 1, 1, 50)])
         self.store.db.commit()
@@ -461,7 +496,7 @@ class SeriesTests(unittest.TestCase):
             self.assertEqual(head, m.stamp(db, {113: "PvP Horde"}, "PvP Horde\t777\n"))
         finally:
             db.close()
-        self.assertRegex(head, r"^-- sig: f=2\|113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
+        self.assertRegex(head, r"^-- sig: f=3\|113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
 
     def test_missing_wanted_file_still_writes(self):
         self.assertEqual(self.run_(), "written")

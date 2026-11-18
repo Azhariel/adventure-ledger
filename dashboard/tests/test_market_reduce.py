@@ -35,7 +35,7 @@ class ReduceTests(unittest.TestCase):
         ]
         commodities = [{"id": 3, "item": {"id": 2589}, "quantity": 10, "unit_price": 90}]
         self.assertEqual(mr.reduce(auctions, commodities),
-                         {2589: {"min": 90, "market": 90, "units": 15, "listings": 3}})
+                         {2589: {"min": 90, "market": 90, "units": 15, "listings": 3, "cheap": 10}})
 
     def test_reduce_skips_zero_quantity(self):
         auctions = [{"id": 1, "item": {"id": 7}, "quantity": 0, "buyout": 400},
@@ -43,7 +43,23 @@ class ReduceTests(unittest.TestCase):
                     {"id": 3, "item": {"id": 8}, "quantity": -1, "buyout": 5}]
         commodities = [{"id": 4, "item": {"id": 9}, "quantity": 0, "unit_price": 3}]
         self.assertEqual(mr.reduce(auctions, commodities),
-                         {7: {"min": 50, "market": 50, "units": 2, "listings": 1}})
+                         {7: {"min": 50, "market": 50, "units": 2, "listings": 1, "cheap": 2}})
+
+    def test_reduce_counts_units_near_the_lowest(self):
+        # Within 10% of the lowest (100): 5 + 3 + the 108 auction = 9; 200 is not; the bid-only auction has no price.
+        auctions = [{"id": 1, "item": {"id": 7}, "quantity": 1, "buyout": 108},
+                    {"id": 2, "item": {"id": 7}, "quantity": 4, "bid": 10}]
+        commodities = [{"id": 3, "item": {"id": 7}, "quantity": 5, "unit_price": 100},
+                       {"id": 4, "item": {"id": 7}, "quantity": 3, "unit_price": 105},
+                       {"id": 5, "item": {"id": 7}, "quantity": 10, "unit_price": 200}]
+        r = mr.reduce(auctions, commodities)[7]
+        self.assertEqual((r["min"], r["units"], r["cheap"]), (100, 23, 9))
+
+    def test_reduce_cheap_edge_is_inclusive(self):
+        commodities = [{"id": 1, "item": {"id": 7}, "quantity": 2, "unit_price": 100},
+                       {"id": 2, "item": {"id": 7}, "quantity": 1, "unit_price": 110},
+                       {"id": 3, "item": {"id": 7}, "quantity": 1, "unit_price": 111}]
+        self.assertEqual(mr.reduce([], commodities)[7]["cheap"], 3)
 
     def test_snapshot_ids(self):
         auctions = [{"id": 1, "item": {"id": 5}, "quantity": 2, "buyout": 10, "time_left": "LONG"}]

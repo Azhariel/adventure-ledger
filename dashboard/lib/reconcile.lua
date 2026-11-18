@@ -22,7 +22,7 @@ function R.scanAt(p, visits, ruleset, kind, dayToTime, timeToDay)
     return best or (dayToTime(day + 1) - 1)
 end
 
-local FROM_API = { "market", "historical", "soldPerDay", "trend", "units", "listings", "shifted" }
+local FROM_API = { "market", "historical", "soldPerDay", "trend", "units", "listings", "shifted", "cheap" }
 
 -- The book with the API's market data laid over it. api == nil: the book itself, untouched.
 -- An item the API has no data for (absent from api.items) keeps the scan's price: without API data every figure

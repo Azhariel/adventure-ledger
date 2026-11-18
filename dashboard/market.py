@@ -20,7 +20,7 @@ import bnet
 import market_profile as mp
 import market_store
 
-FORMAT = 2   # bump when market.lua's shape changes: the stamp then differs and the file is rewritten
+FORMAT = 3   # bump when market.lua's shape changes: the stamp then differs and the file is rewritten
 
 # Every threshold in one place.
 C = {
@@ -281,6 +281,8 @@ def item_summary(buckets, recent, last, day_means, now):
     out = {"units": 0, "listings": 0}
     if last and last[1] is not None:
         out["units"], out["listings"], out["now"] = last[3], last[4], last[1]
+        # units within 10% of the lowest price; None on rows recorded before the fetcher counted them
+        out["cheap"] = last[6] if len(last) > 6 else None
     out["market"] = market_value(buckets, now)
     out["historical"] = historical(day_means)
     out["soldPerDay"] = round(sold_per_day(buckets, now), 2)
@@ -374,6 +376,11 @@ def open_ro(db_path):
     return db
 
 
+def _has_col(db, table, col):
+    """A db from before the fetcher added a column (it does on its next start)."""
+    return col in [c[1] for c in db.execute("PRAGMA table_info(%s)" % table)]
+
+
 def _has(db, table):
     """A db written before a table existed (the fetcher adds it on its next start) reads as empty."""
     return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
@@ -427,12 +434,14 @@ def _house(db, house, keys, now, wanted=()):
     # when the fetcher was off for a while).
     recent, last, recent_min = {}, {}, {t: {} for t in newest}
     since = min(cut, newest[-1] - 1)
-    for item, t, mn, market, units, listings, sold in db.execute(
-            "SELECT item, t, min, market, units, listings, sold FROM hourly NOT INDEXED "
-            "WHERE house=? AND t>? AND t<=? ORDER BY item, t", (house, since, latest)):
+    # `cheap` only for the latest snapshot's row (last); recent rows keep the 6 columns everything else reads
+    cheap_col = "cheap" if _has_col(db, "hourly", "cheap") else "NULL"
+    for item, t, mn, market, units, listings, sold, cheap in db.execute(
+            "SELECT item, t, min, market, units, listings, sold, %s FROM hourly NOT INDEXED "
+            "WHERE house=? AND t>? AND t<=? ORDER BY item, t" % cheap_col, (house, since, latest)):
         row = (t, mn, market, units, listings, sold)
         if t == latest:
-            last[item] = row
+            last[item] = row + (cheap,)
         if mn is not None and t in recent_min:
             recent_min[t][item] = mn
         if t > cut:

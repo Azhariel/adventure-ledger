@@ -3,6 +3,8 @@ import math
 
 # Lower bound of the time left in each bucket, in seconds.
 TIME_LEFT_MIN = {"SHORT": 0, "MEDIUM": 1800, "LONG": 7200, "VERY_LONG": 43200}
+# "cheap": units priced within this many percent of the item's lowest price (whole percent: exact integer compare).
+NEAR_LOW_PCT = 10
 
 
 def market_value(prices):
@@ -17,7 +19,7 @@ def market_value(prices):
 
 
 def reduce(auctions, commodities):
-    """{item_id: {"min", "market", "units", "listings"}} from both endpoints' lists."""
+    """{item_id: {"min", "market", "units", "listings", "cheap"}} from both endpoints' lists."""
     prices = {}
     units = {}
     listings = {}
@@ -44,8 +46,10 @@ def reduce(auctions, commodities):
     for item, p in prices.items():
         if not p:
             continue  # only bid-only listings: nothing to price
-        rows[item] = {"min": min(p), "market": market_value(p),
-                      "units": units[item], "listings": listings[item]}
+        low = min(p)
+        cheap = sum(1 for x in p if x * 100 <= low * (100 + NEAR_LOW_PCT))
+        rows[item] = {"min": low, "market": market_value(p),
+                      "units": units[item], "listings": listings[item], "cheap": cheap}
     return rows
 
 

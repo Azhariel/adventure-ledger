@@ -1549,8 +1549,9 @@ test("reconcile: newer API snapshot wins; an item the API lacks keeps its scan",
     local book = { vendor = { [1] = 5 }, last = 7, prices = {
         [1] = { now = 100, seenAt = 1000, days = { { day = 1 } } },
         [3] = { now = 70, seenAt = 1000, days = {} } } }
-    local api = { latest = 2000, items = { [1] = { now = 90, market = 95, units = 4 }, [2] = { market = 50 } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95, units = 4, cheap = 2 }, [2] = { market = 50 } } }
     local m = R.merge(book, api, function(p) return p.seenAt end)
+    eq(m.prices[1].cheap, 2, "units near the lowest price come with the API's figures"); eq(m.prices[2].cheap, nil)
     eq(m.prices[1].now, 90); eq(m.prices[1].nowFrom, "api"); eq(m.prices[1].nowAt, 2000)
     eq(m.prices[1].market, 95); eq(m.prices[1].units, 4); eq(m.prices[1].seenAt, 1000)
     truthy(m.prices[2]); eq(m.prices[2].now, nil); eq(#m.prices[2].days, 0); eq(m.prices[2].market, 50)
