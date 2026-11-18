@@ -1368,7 +1368,13 @@ function modGold() {
 function renderWorthTime(c) {
   const log = c.worthLog || [], snaps = (c.money.onHand || []).filter(s => s.t);
   const P = PALETTE(), ms = t => t * 1000;
-  const worth = log.map(p => ({ x: ms(p[0]), y: p[1] + p[2], gold: p[1], items: p[2] }));
+  const worth = log.map(p => ({ x: ms(p[0]), y: p[1] + p[2], gold: p[1], items: p[2], m: !!p[3] }));
+  // Points valued at market value start at the first one with m; the dashed line also takes the last lowest-price
+  // point, so the two lines join
+  const firstM = worth.findIndex(p => p.m);
+  const lowest = firstM < 0 ? worth : worth.slice(0, firstM);
+  const marketPts = firstM < 0 ? [] : worth.slice(Math.max(firstM - 1, 0));
+  const marketSince = firstM < 0 ? null : DAYFMT.format(new Date(worth[firstM].x));
   // gold on hand: the level snapshots, then the log's gold
   const gold = snaps.map(s => ({ x: ms(s.t), y: s.copper })).concat(log.map(p => ({ x: ms(p[0]), y: p[1] })))
     .sort((a, b) => a.x - b.x);
@@ -1376,11 +1382,13 @@ function renderWorthTime(c) {
   el("worthTimeHint").textContent = (since
     ? `Net worth (gold plus items at the faction AH's price that day) is logged each time you build this page, since ${since}.`
     : "Net worth is logged each time you build this page; the next build starts the line.")
+    + (marketSince ? ` Items are valued at market value from ${marketSince} (the price they typically sell at, not the lowest listing), shown dashed.` : "")
     + " Before that only your gold is known, from each level-up.";
   const first = worth[0], last = lastOf(worth);
   el("worthTimeMeta").textContent = first && last && last.x > first.x ? `${signedPctText(first.y ? last.y / first.y - 1 : 0)} since ${MONTHDAY.format(new Date(first.x))}` : "";
   chart("worthTimeChart", { type: "line", data: { datasets: [
-      { label: "Net worth", data: worth, borderColor: P[0], backgroundColor: P[0], borderWidth: 2, pointRadius: worth.length < 30 ? 3 : 0, stepped: true },
+      { label: "Net worth (lowest price)", data: lowest, borderColor: P[0], backgroundColor: P[0], borderWidth: 2, pointRadius: worth.length < 30 ? 3 : 0, stepped: true },
+      ...(marketPts.length ? [{ label: "Net worth (market value)", data: marketPts, borderColor: P[0], backgroundColor: P[0], borderWidth: 2, borderDash: [6, 4], pointRadius: worth.length < 30 ? 3 : 0, stepped: true }] : []),
       { label: "Gold on hand", data: gold, borderColor: css("--gold"), backgroundColor: css("--gold"), borderWidth: 2, pointRadius: 3, tension: .2 },
     ] }, options: timeOpts(v => moneyText(v)) });
 }

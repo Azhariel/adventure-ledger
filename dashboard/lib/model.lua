@@ -725,10 +725,17 @@ end
 ----------------------------------------------------------------------------------------------------
 -- Inventory and market
 
--- Market value of the item: today's AH minimum (nil when the AH has never seen it)
+-- What a held item is worth: its market value (the typical price it sells at), else today's AH minimum. nil when
+-- the AH has never seen it. Used to value holdings, net worth, the stockpile and craft products.
 local function marketPrice(market, id)
     local p = market.prices[id]
-    return p and p.now or nil
+    return p and (p.market or p.now) or nil
+end
+
+-- What buying one costs right now: today's AH minimum, else the market value. Used for reagents.
+local function buyPrice(market, id)
+    local p = market.prices[id]
+    return p and (p.now or p.market) or nil
 end
 
 -- One character's Stockpile counts valued at AH prices. Returns { items, total, byLocation, unpriced }.
@@ -835,7 +842,7 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
         return {}
     end
     local function price(id)
-        local ah, vendor = marketPrice(market, id), market.vendor[id]
+        local ah, vendor = buyPrice(market, id), market.vendor[id]
         if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
         if ah then return ah, "ah" end
         return nil
@@ -922,7 +929,7 @@ function M.skillRoutes(lib, mob, market, nameOf)
     local P, Skill = lib and lib.Planner, lib and lib.Skill
     if not (P and Skill and mob and mob.recipes and mob.skill) then return {} end
     local function price(id)
-        local ah, vendor = marketPrice(market, id), market.vendor[id]
+        local ah, vendor = buyPrice(market, id), market.vendor[id]
         if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
         if ah then return ah, "ah" end
         return nil

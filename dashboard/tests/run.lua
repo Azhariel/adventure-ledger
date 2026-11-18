@@ -307,6 +307,38 @@ test("inventory: valued at today's AH price, per location; unpriced items counte
     eq(M.inventory(nil, market, tostring).total, 0, "no Stockpile data")
 end)
 
+test("valuation: held items at market value, reagents at now", function()
+    local Build = require("build")
+    local P = Build.planner(wowDir())
+    truthy(P, "planner found")
+    local recipes = { [1] = { recipeID = 1, name = "Thing", outputItemID = 50, outputQty = 1, reagents = { { itemID = 1, qty = 2 } } } }
+    local function mk(withMarket)
+        return { prices = { [1] = { now = 100, market = withMarket and 80 or nil }, [50] = { now = 1000, market = withMarket and 900 or nil } }, vendor = {} }
+    end
+    local held = { bags = { [1] = 3 }, bank = {}, mail = {} }
+    eq(M.inventory(held, mk(true), tostring).items[1].unit, 80, "held: market first")
+    eq(M.inventory(held, mk(false), tostring).items[1].unit, 100, "no market: now")
+    eq(M.crafts(P, recipes, mk(true), tostring, 10)[1].cost, 200, "reagents cost now (100 each)")
+    eq(M.crafts(P, recipes, mk(true), tostring, 10)[1].gross, 900, "product valued at market")
+    eq(M.crafts(P, recipes, mk(false), tostring, 10)[1].cost, 200)
+    eq(M.crafts(P, recipes, mk(false), tostring, 10)[1].gross, 1000)
+end)
+
+test("worth log: m flag written, parsed, and old lines still read", function()
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2, m = true } }, {}, 5), "5\ta\t1\t2\tm\n")
+    local seen = I.parseWorthLog("5\ta\t1\t2\tm\n")
+    eq(seen.a[1].m, true)
+    seen = I.parseWorthLog("4\ta\t1\t2\n")
+    eq(seen.a[1].m, nil); eq(#seen.a, 1)
+end)
+
+test("worth log: switching to market value alone writes a line", function()
+    local last = { a = { 4, 1, 2 } }
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2, m = true } }, last, 9), "9\ta\t1\t2\tm\n")
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2 } }, last, 9), "", "unchanged without m")
+    eq(I.worthLogLines({ { id = "a", gold = 1, items = 2, m = true } }, { a = { 4, 1, 2, m = true } }, 9), "", "unchanged with m")
+end)
+
 test("crafts use Make or Buy's real planner: crafting bolts beats buying them, and includes reagent tree", function()
     local Build = require("build")
     local P = Build.planner(wowDir())
@@ -833,7 +865,8 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     truthy(not logged[1]:find("\t90\n"), "API prices never reach the price log")
     eq(#api.priceSources, 1, "R Neutral has no book and no API data"); eq(api.priceSources[1].key, "R Horde")
     eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
-    eq(api.account.characters[1].items, 360, "the account rows use the merged price: 4 Wool Cloth at 90")
+    eq(api.account.characters[1].items, 380, "the account rows use the merged market value: 4 Wool Cloth at 95")
+    eq(api.characters[1].inventory.items[1].unit, 95, "held items are valued at market value, not the lowest price")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 

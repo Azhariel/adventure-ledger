@@ -418,6 +418,7 @@ function Build.data(wow, opts)
         return merged[key] or { prices = {}, vendor = vendor }
     end
 
+    local marketValued = {}  -- character id -> true when its inventory was valued with API market values
     for _, c in ipairs(charDirs) do
         local fname, fsurname = c.name:match("^([^-]+)-(.+)$")
         if fname then folders[#folders + 1] = { name = fname, surname = fsurname } end
@@ -476,6 +477,7 @@ function Build.data(wow, opts)
             local uses, needs = I.uses(mob and mob.recipes, shopping)
             usesById[model.id] = { uses = uses, needs = needs }
             result.characters[#result.characters + 1] = model
+            marketValued[model.id] = charMkt.apiLatest ~= nil or nil
         end
     end
     table.sort(result.characters, function(a, b)
@@ -488,7 +490,7 @@ function Build.data(wow, opts)
         worthSeen = opts.worthLog.seen
         local rows = {}
         for _, c in ipairs(result.characters) do
-            rows[#rows + 1] = { id = c.id, gold = c.profile.money, items = c.netWorth.items }
+            rows[#rows + 1] = { id = c.id, gold = c.profile.money, items = c.netWorth.items, m = marketValued[c.id] }
         end
         local lines = I.worthLogLines(rows, opts.worthLog.last, result.generated)
         if lines ~= "" then
@@ -499,7 +501,12 @@ function Build.data(wow, opts)
             end
         end
     end
-    for _, c in ipairs(result.characters) do c.worthLog = worthSeen[c.id] or {} end
+    -- the page reads points as arrays: { t, gold, items, 1 when valued at market value }
+    for _, c in ipairs(result.characters) do
+        local pts = {}
+        for i, pt in ipairs(worthSeen[c.id] or {}) do pts[i] = { pt[1], pt[2], pt[3], pt.m and 1 or nil } end
+        c.worthLog = pts
+    end
     -- Every character together (also alts with no detailed log yet)
     -- Names the characters' own logs learned (loot, Haul, recipes) beat "Item #id"
     local known = {}
