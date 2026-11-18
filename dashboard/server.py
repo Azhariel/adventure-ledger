@@ -52,6 +52,7 @@ CONFIG = read_config()
 DATA = os.path.abspath(os.environ.get("LEDGER_DATA") or CONFIG.get("data") or os.path.join(ROOT, "data"))
 os.makedirs(DATA, exist_ok=True)
 import ledgerlog  # noqa: E402
+import market  # noqa: E402
 import livelog  # noqa: E402
 import zones  # noqa: E402
 import urllib.request  # noqa: E402
@@ -112,6 +113,7 @@ class App:
         self.port = port
         self.hub = Hub()
         self.lock = threading.Lock()
+        self.build_lock = threading.Lock()   # one build at a time: SavedVariables and market triggers can coincide
         self.state = livelog.LiveState()
         self.log_path = None
         self.log_pos = 0
@@ -144,7 +146,15 @@ class App:
         return tuple(sorted(sig))
 
     def build(self):
+        with self.build_lock:
+            self._build()
+
+    def _build(self):
         t0 = time.time()
+        try:
+            market.run(os.path.join(DATA, "market.db"), os.path.join(DATA, "market.lua"), read_config())
+        except Exception:   # noqa: BLE001  the market page is optional: never let it stop the build
+            _LOG.exception("market engine failed")
         out = os.path.join(DATA, "dashboard.html")
         try:
             r = subprocess.run([lua_exe(), os.path.join(HERE, "build.lua"), self.wow, out], cwd=HERE,
@@ -162,6 +172,31 @@ class App:
         else:
             _LOG.warning("BUILD FAILED after %.1fs: %s", secs, msg[-300:])
         self.hub.send("rebuilt" if ok else "buildError", self.build_info)
+
+    def market_signature(self):
+        """What the engine would stamp market.lua with now: '' without a db."""
+        try:
+            db = market.open_ro(os.path.join(DATA, "market.db"))
+            if db is None:
+                return ""
+            try:
+                return market.signature(db)
+            finally:
+                db.close()
+        except Exception:   # noqa: BLE001
+            return ""
+
+    def market_tick(self, last):
+        """One poll: rebuild when the fetcher added a snapshot (or the rollup moved the profile)."""
+        sig = self.market_signature()
+        if sig != last:
+            self.build()
+        return sig
+
+    def watch_market(self):
+        last = self.market_signature()   # watch_sv does the first build
+        while not self.stop.wait(SV_POLL):
+            last = self.market_tick(last)
 
     def watch_sv(self):
         last = self.sv_signature()
@@ -462,7 +497,7 @@ def main():
             webbrowser.open(url)
         return
     httpd.daemon_threads = True
-    for fn in (app.watch_sv, app.watch_log, app.pusher):
+    for fn in (app.watch_sv, app.watch_log, app.pusher, app.watch_market):
         threading.Thread(target=fn, daemon=True).start()
     log("started (port %d, wow %s, pid %d)" % (args.port, app.wow, os.getpid()))
     if not args.no_open:

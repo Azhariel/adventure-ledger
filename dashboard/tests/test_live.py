@@ -1,11 +1,19 @@
 """Tests for livelog.py (the combat-log reader).   Usage (from the Dashboard folder):  python tests/test_live.py
 Lines are real WoW Forever combat-log lines (8 Nov 2026), trimmed to the ones each case needs."""
 import os
+import sqlite3
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import livelog  # noqa: E402
+
+# server.py makes its data folder on import: point it at a scratch one first.
+_SCRATCH = tempfile.mkdtemp()
+os.environ["LEDGER_DATA"] = _SCRATCH
+import server  # noqa: E402
+import market_store  # noqa: E402
 
 ME = "Player-6800-00A90C3E"
 MAP = '11/8/2026 21:24:21.690-3  MAP_CHANGE,1421,"Silverpine Forest",1666.666626,-1133.333252,3449.999756,-750.000000'
@@ -161,6 +169,43 @@ class Others(unittest.TestCase):
     def test_lines_before_you_appear_are_ignored_and_junk_does_not_crash(self):
         s = state("", "not a log line", "11/8/2026 21:40:48.827-3  SPELL_DAMAGE,broken", ENEMY)
         self.assertIsNone(s.snapshot(0)["me"])
+
+
+class MarketWatch(unittest.TestCase):
+    def test_new_snapshot_triggers_build(self):
+        data = tempfile.mkdtemp()
+        old = server.DATA
+        server.DATA = data
+        try:
+            store = market_store.Store(os.path.join(data, "market.db"))
+            store.record(113, 1000, {1: {"min": 5, "market": 5, "units": 1, "listings": 1}}, {}, {})
+            app = server.App("wow", 0)
+            calls = []
+            app.build = lambda: calls.append(1)
+            sig = app.market_signature()
+            self.assertEqual(app.market_tick(sig), sig)
+            self.assertEqual(calls, [])                      # nothing new: no build
+            store.record(113, 4600, {1: {"min": 5, "market": 5, "units": 1, "listings": 1}}, {}, {})
+            new = app.market_tick(sig)
+            self.assertNotEqual(new, sig)
+            self.assertEqual(calls, [1])                     # a new snapshot: one build
+            self.assertEqual(app.market_tick(new), new)
+            self.assertEqual(calls, [1])
+            # a rollup moves profile_state.upto, which also counts as a change
+            store.db.execute("INSERT INTO profile_state VALUES (113, 5)")
+            store.db.commit()
+            self.assertNotEqual(app.market_signature(), new)
+            store.close()
+        finally:
+            server.DATA = old
+
+    def test_signature_is_empty_without_a_db(self):
+        old = server.DATA
+        server.DATA = tempfile.mkdtemp()
+        try:
+            self.assertEqual(server.App("wow", 0).market_signature(), "")
+        finally:
+            server.DATA = old
 
 
 if __name__ == "__main__":

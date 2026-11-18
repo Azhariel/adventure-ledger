@@ -31,6 +31,16 @@ def local_day(t):
     return time.strftime("%Y-%m-%d", time.localtime(t))
 
 
+def read_profile(db, house):
+    """Store.profile on any connection, so the engine can read it from a read-only one."""
+    got = db.execute("SELECT upto FROM profile_state WHERE house=?", (house,)).fetchone()
+    out = {}
+    for item, dow, hour, wp, w, ws, n in db.execute(
+            "SELECT item, dow, hour, wp, w, ws, n FROM profile WHERE house=?", (house,)):
+        out.setdefault(item, {})[(dow, hour)] = (wp, w, ws, n)
+    return (got[0] if got else None), out
+
+
 class Store:
     def __init__(self, path):
         self.db = sqlite3.connect(path)
@@ -78,12 +88,7 @@ class Store:
 
     def profile(self, house):
         """(upto or None, {item: {(dow, hour): (wp, w, ws, n)}}) for the engine."""
-        got = self.db.execute("SELECT upto FROM profile_state WHERE house=?", (house,)).fetchone()
-        out = {}
-        for item, dow, hour, wp, w, ws, n in self.db.execute(
-                "SELECT item, dow, hour, wp, w, ws, n FROM profile WHERE house=?", (house,)):
-            out.setdefault(item, {})[(dow, hour)] = (wp, w, ws, n)
-        return (got[0] if got else None), out
+        return read_profile(self.db, house)
 
     def _fold_profile(self, old):
         """Add the folded hourly rows (house, t, item, market, sold) to the profile, a whole (item, week) at a time."""

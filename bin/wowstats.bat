@@ -23,6 +23,8 @@ if /i "%~1"=="stop" (
     exit /b 0
 )
 
+REM the AH market data for the page; a failure (or no python) must not stop the build
+python "%DASH%\market.py"
 pushd "%DASH%"
 "%LUA%" build.lua
 set "RC=%ERRORLEVEL%"

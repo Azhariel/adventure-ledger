@@ -2,10 +2,16 @@
 `rows` is always one item's [(t, min, market, units, listings, sold)] hourly rows, oldest first.
 min/market are None for an hour the item was sold out; sold is an int. Days are local days."""
 import math
+import os
+import pathlib
+import sqlite3
 import statistics
+import sys
 import time
 
+import bnet
 import market_profile as mp
+import market_store
 
 # Every threshold in one place.
 C = {
@@ -163,4 +169,183 @@ def item_summary(rows, day_means, stored, upto, latest, now):
     return {k: v for k, v in out.items() if v is not None}
 
 
-# ---------------------------------------------------------------- I/O (added in Task 7)
+# ---------------------------------------------------------------- I/O (sqlite in, market.lua out)
+
+
+def to_lua(value):
+    """A Lua table constructor for dicts, lists, numbers, strings and bools. None is skipped in a dict and is
+    nil in a list; NaN and inf are never written (Lua cannot read them back), so they are skipped the same way."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return _lua_str(value)
+    if isinstance(value, dict):
+        parts = []
+        for k, v in value.items():
+            if _unwritable(v):
+                continue
+            key = "[%d]" % k if isinstance(k, int) else "[%s]" % _lua_str(str(k))
+            parts.append("%s=%s" % (key, to_lua(v)))
+        return "{" + ",".join(parts) + "}"
+    if isinstance(value, (list, tuple)):
+        return "{" + ",".join("nil" if _unwritable(v) else to_lua(v) for v in value) + "}"
+    raise TypeError("cannot write %r as Lua" % type(value).__name__)
+
+
+def _unwritable(v):
+    return v is None or (isinstance(v, float) and not math.isfinite(v))
+
+
+def _lua_str(s):
+    out = []
+    for ch in s:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ord(ch) < 32 or ord(ch) == 127:
+            out.append("\\%03d" % ord(ch))
+        else:
+            out.append(ch)
+    return '"' + "".join(out) + '"'
+
+
+def open_ro(db_path):
+    """Read-only connection (the fetcher owns writes). None when there is no db file."""
+    if not os.path.isfile(db_path):
+        return None
+    return sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+
+
+def _has(db, table):
+    """A db written before a table existed (the fetcher adds it on its next start) reads as empty."""
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+
+
+def signature(db):
+    """'house:latest snapshot:profile upto;...' over the houses that have snapshots. Changes when a snapshot
+    arrives or the nightly rollup moves the profile."""
+    try:
+        rows = db.execute("SELECT house, MAX(t) FROM snapshot GROUP BY house ORDER BY house").fetchall()
+    except sqlite3.Error:
+        return ""
+    upto = dict(db.execute("SELECT house, upto FROM profile_state")) if _has(db, "profile_state") else {}
+    return ";".join("%d:%d:%s" % (h, t, "" if upto.get(h) is None else upto[h]) for h, t in rows)
+
+
+def _house_keys(cfg):
+    try:
+        return {h["id"]: h["key"] for h in bnet.parse_houses(cfg)}
+    except ValueError:
+        return {}
+
+
+def _house(db, house, keys, now):
+    latest, first, count = db.execute(
+        "SELECT MAX(t), MIN(t), COUNT(*) FROM snapshot WHERE house=?", (house,)).fetchone()
+    snaps = db.execute("SELECT t, auctions FROM snapshot WHERE house=? ORDER BY t", (house,)).fetchall()
+    sold_by_t = dict(db.execute("SELECT t, SUM(sold) FROM hourly WHERE house=? GROUP BY t", (house,)))
+    upto, stored = market_store.read_profile(db, house) if _has(db, "profile") and _has(db, "profile_state") else (None, {})
+    lo_day = market_store.local_day(now - C["HIST_DAYS"] * DAY)
+    by_day = {}
+    for item, day, market in (db.execute(
+            "SELECT item, day, market FROM daily WHERE house=? AND day>=? AND market IS NOT NULL", (house, lo_day))
+            if _has(db, "daily") else ()):
+        by_day.setdefault(item, {})[day] = market
+
+    items = {}
+
+    def finish(item, rows):
+        days = dict(by_day.get(item, {}))
+        hourly = {}
+        for t, _mn, market, _u, _l, _s in rows:
+            if market is not None and t > now - C["HIST_DAYS"] * DAY:
+                hourly.setdefault(market_store.local_day(t), []).append(market)
+        for day, v in hourly.items():
+            days[day] = sum(v) / len(v)   # hourly wins: daily only holds folded days, the two rarely overlap
+        items[item] = item_summary(rows, list(days.values()), stored.get(item), upto, latest, now)
+
+    cur_item, rows = None, []
+    for item, t, mn, market, units, listings, sold in db.execute(
+            "SELECT item, t, min, market, units, listings, sold FROM hourly WHERE house=? ORDER BY item, t", (house,)):
+        if item != cur_item and cur_item is not None:
+            finish(cur_item, rows)
+            rows = []
+        cur_item = item
+        rows.append((t, mn, market, units, listings, sold))
+    if cur_item is not None:
+        finish(cur_item, rows)
+
+    recent = []
+    for t, _ in reversed(snaps[-6:]):
+        mins = dict(db.execute("SELECT item, min FROM hourly WHERE house=? AND t=? AND min IS NOT NULL", (house, t)))
+        recent.append({"t": t, "min": mins})
+    out = {"id": house, "latest": latest, "first": first, "snapshots": count,
+           "week": house_week(snaps, sold_by_t), "recent": recent, "items": items}
+    if house in keys:
+        out["key"] = keys[house]
+    return out
+
+
+def run(db_path, out_path, cfg, now=None):
+    """Write out_path (market.lua) from the db: "written", "unchanged" (nothing new since the last write)
+    or "no data". Never writes the db, and copies nothing from the config but the house names."""
+    db = open_ro(db_path)
+    if db is None:
+        return "no data"
+    try:
+        sig = signature(db)
+        if not sig:
+            return "no data"
+        keys = _house_keys(cfg)
+        # The house names are part of the stamp: changing ah_houses must rewrite the file.
+        head = "-- sig: %s|%s" % (sig, ",".join("%d=%s" % kv for kv in sorted(keys.items())))
+        try:
+            with open(out_path, encoding="utf-8") as fh:
+                if fh.readline().rstrip("\n") == head:
+                    return "unchanged"
+        except OSError:
+            pass
+        now = int(time.time() if now is None else now)
+        houses = {h: _house(db, h, keys, now) for h, in db.execute("SELECT DISTINCT house FROM snapshot ORDER BY house").fetchall()}
+        text = "%s\nLedgerMarket = %s\n" % (head, to_lua({"generated": now, "houses": houses}))
+    finally:
+        db.close()
+    _write_atomic(out_path, text)
+    return "written"
+
+
+def _write_atomic(path, text, tries=10):
+    """Windows refuses the replace while another process has the file open: retry briefly."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    for attempt in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.2)
+
+
+def main():
+    """One run against <data>/market.db. Always exits 0: a market problem must not stop the page building."""
+    try:
+        import server   # reads the config and makes the data folder, so only on the command line
+        print(run(os.path.join(server.DATA, "market.db"), os.path.join(server.DATA, "market.lua"),
+                  server.read_config()))
+    except Exception as e:   # noqa: BLE001
+        print("market: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,13 +1,17 @@
 """Tests for market.py (engine calculations).   Usage: python dashboard/tests/test_market.py"""
 import math
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import market as m  # noqa: E402
 import market_profile as mp  # noqa: E402
+import market_store as ms  # noqa: E402
 
 START = int(time.mktime((2026, 10, 5, 0, 0, 0, 0, 0, -1)))   # a Monday 00:00
 
@@ -110,6 +114,91 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(len(got["sold"]), 168)
         self.assertEqual(got["listings"][0], 40)
         self.assertEqual(got["sold"][0], 4)
+
+
+LUA = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Lua", "bin", "lua.exe")
+if not os.path.isfile(LUA):
+    LUA = shutil.which("lua")
+
+
+class ToLuaTests(unittest.TestCase):
+    def test_to_lua_round_trip_shape(self):
+        self.assertEqual(m.to_lua({"a": 1, 2: [1.5, None, 'x"y']}), '{["a"]=1,[2]={1.5,nil,"x\\"y"}}')
+
+    def test_nan_inf_and_none_are_never_written(self):
+        got = m.to_lua({"a": float("nan"), "b": float("inf"), "c": None, "d": 2.5, "e": [float("-inf"), 1]})
+        self.assertEqual(got, '{["d"]=2.5,["e"]={nil,1}}')
+
+    def test_strings_are_escaped(self):
+        self.assertEqual(m.to_lua("a\\b\nc\x01"), r'"a\\b\nc\001"')
+        self.assertEqual(m.to_lua({"k\"": True}), '{["k\\""]=true}')
+
+
+class RunTests(unittest.TestCase):
+    NOW = START + 20 * 86400
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.db = os.path.join(self.dir, "market.db")
+        self.out = os.path.join(self.dir, "market.lua")
+        self.store = ms.Store(self.db)
+        for i in range(8):
+            self.snap(self.NOW - (7 - i) * 3600)
+
+    def tearDown(self):
+        self.store.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def snap(self, t, house=113):
+        self.store.record(house, t, {2589: {"min": 100, "market": 110, "units": 5, "listings": 3}}, {2589: 1}, {1: (2589, 5, "L")})
+
+    def run_(self, cfg=None):
+        return m.run(self.db, self.out, cfg or {}, now=self.NOW + 3600)
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_run_writes_then_skips_unchanged(self):
+        self.assertEqual(self.run_(), "written")
+        with open(self.out, encoding="utf-8") as fh:
+            self.assertTrue(fh.readline().startswith("-- sig:"))
+        code = "dofile([[%s]]) print(LedgerMarket.houses[113].items[2589].market)" % self.out.replace("\\", "/")
+        got = subprocess.run([LUA, "-e", code], capture_output=True, text=True)
+        self.assertEqual(got.stdout.strip(), "110", got.stderr)
+        before = os.stat(self.out).st_mtime_ns
+        self.assertEqual(self.run_(), "unchanged")
+        self.assertEqual(os.stat(self.out).st_mtime_ns, before)
+
+    def test_run_new_snapshot_rewrites(self):
+        self.assertEqual(self.run_(), "written")
+        self.snap(self.NOW + 1800)
+        self.assertEqual(self.run_(), "written")
+
+    def test_run_new_house_config_rewrites(self):
+        self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.run_({"ah_houses": "PvP 113"}), "written")
+        with open(self.out, encoding="utf-8") as fh:
+            self.assertIn('["key"]="PvP Horde"', fh.read())
+
+    def test_run_no_db_is_no_data(self):
+        self.assertEqual(m.run(os.path.join(self.dir, "nope.db"), self.out, {}), "no data")
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_run_secret_never_written(self):
+        self.run_({"bnet_secret": "S3CRET", "bnet_client": "CLIENTID"})
+        with open(self.out, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertNotIn("S3CRET", text)
+        self.assertNotIn("CLIENTID", text)
+
+    def test_run_reads_a_db_from_before_the_profile_tables(self):
+        for table in ("profile", "profile_state", "daily"):
+            self.store.db.execute("DROP TABLE " + table)
+        self.store.db.commit()
+        self.assertEqual(self.run_(), "written")
+
+    def test_run_leaves_the_db_alone(self):
+        self.run_()
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM snapshot").fetchone()[0], 8)
+        self.assertEqual(m.signature(m.open_ro(self.db)), "113:%d:" % (self.NOW))
 
 
 if __name__ == "__main__":
