@@ -897,7 +897,10 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(deals[1].id, 99001); eq(deals[1].basis, "api"); eq(deals[1].profit, 850, "950 after the 5% cut, less 100")
     eq(api.deals["R Neutral"], nil, "no API data for R Neutral: no Deals there")
     eq(type(api.sellWindows), "table")
-    eq(api.signalRule, require("signals").C, "the page states the thresholds the build used")
+    local C = require("signals").C
+    for k, v in pairs(C) do eq(api.signalRule[k], v, "the page states the threshold the build used: " .. k) end
+    eq(api.signalRule.cut, require("insights").CUT, "and the houses' cuts")
+    eq(C.cut, nil, "Sg.C itself is left as it is")
     truthy(th.items["99001"], "a deal is embedded")
     truthy(wanted[1]:find("R Horde\t99001\n", 1, true), "a deal is wanted")
     eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")
@@ -1882,6 +1885,17 @@ test("marketTab: a scanned item meeting both thresholds is rising and falling", 
     local out = I.marketTab(market, {}, function(id) return "Item " .. id end, {}, function(d) return d * 100 end)
     eq(out.rising[1], 5); eq(out.falling[1], 5)
     eq(out.items["5"].moveBasis, "scan")
+end)
+
+test("marketTab: a mover priced by the API carries the API's listed count", function()
+    local market = { prices = {
+        [1] = { now = 100, nowFrom = "api", trend = 0.5, soldPerDay = 4, units = 12 },
+        [2] = { now = 100, nowFrom = "api", trend = 0.01, soldPerDay = 4, units = 30 },
+        [3] = { now = 100, nowFrom = "scan", trend = 0.5, soldPerDay = 4, units = 9 } } }
+    local out = I.marketTab(market, {}, function(id) return "Item " .. id end, {}, function(d) return d * 100 end)
+    eq(out.rising[1], 1); eq(out.items["1"].moveBasis, "trend"); eq(out.items["1"].units, 12)
+    eq(out.items["2"].units, nil, "not a mover: no units on the page")
+    eq(out.items["3"].units, nil, "now from a newer scan: Listed is the scan's")
 end)
 
 test("signals.flipIds: top positive flips listed at both houses", function()

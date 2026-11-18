@@ -290,7 +290,7 @@ process.stdout.write(JSON.stringify([hourVerdict({ p: 0.05 }), hourVerdict({ p: 
         self.assertEqual(json.loads(run_node(js)), ["good hour", "good hour", "slow hour", "usual", "usual", ""])
 
     def test_signal_hints_follow_the_rule(self):
-        js = page_js(["cellNum", "rulePct", "dealsHintText", "sellWinHintText"]) + """
+        js = page_js(["cellNum", "rulePct", "houseCuts", "cutTxt", "dealsHintText", "sellWinHintText"]) + """
 const rule = { DEAL_BELOW: 0.5, DEAL_MIN_SOLD: 5, SELL_ABOVE: 1.25 };
 process.stdout.write(JSON.stringify([dealsHintText(rule), dealsHintText(undefined), sellWinHintText(rule), sellWinHintText(null)]));
 """
@@ -301,3 +301,48 @@ process.stdout.write(JSON.stringify([dealsHintText(rule), dealsHintText(undefine
         self.assertIn("(5% Faction, 15% Neutral)", dealBare)
         self.assertTrue(sell.startswith("Things you hold priced 25% or more over market value, still selling."), sell)
         self.assertTrue(sellBare.startswith("Things you hold priced well over market value"), sellBare)
+
+    def test_move_basis_text(self):
+        js = page_js(["moveBasisText"]) + """
+process.stdout.write(JSON.stringify([moveBasisText({ moveBasis: "shifted" }, "up"), moveBasisText({ moveBasis: "trend" }, "down"),
+  moveBasisText({ moveBasis: "scan" }, "up"), moveBasisText({ moveBasis: "scan" }, "down"), moveBasisText({}, "up")]));
+"""
+        self.assertEqual(json.loads(run_node(js)), ["new price level", "7-day trend", "vs launch low", "vs peak", ""])
+
+    RULE = ("const RULE = { RISE: 0.25, FALL: -0.20, MOVER_MIN_SOLD: 2, FLIP_MIN_LISTED: 5, DEAL_BELOW: 0.5, DEAL_MIN_SOLD: 5,"
+            " cut: { faction: 0.05, neutral: 0.15 } };")
+
+    def test_movers_hint_follows_the_rule(self):
+        js = page_js(["cellNum", "rulePct", "moversHintText"], self.RULE) + """
+process.stdout.write(JSON.stringify([moversHintText(RULE, "up"), moversHintText(RULE, "down"), moversHintText(undefined, "up"),
+  moversHintText(null, "down"), moversHintText({ RISE: 0.4, FALL: -0.1, MOVER_MIN_SOLD: 3 }, "up")]));
+"""
+        up, down, upBare, downBare, other = json.loads(run_node(js))
+        self.assertEqual(up, "Market value up 25% or more over 7 days, or a new price level that has held for 2 days (API, 2+ sold a day)."
+                             " Items without enough API data yet: 50% or more over their launch low, as before.")
+        self.assertEqual(down, "Market value down 20% or more over 7 days, or a new price level that has held for 2 days (API, 2+ sold a day)."
+                               " Items without enough API data yet: 30% or more under their peak, as before.")
+        self.assertEqual(upBare, "50% or more over their launch low, at least 20 listed, launch low 10c or more.", "no API: today's hint")
+        self.assertEqual(downBare, "30% or more under their peak: a chance to buy, or a market flooding.")
+        self.assertTrue(other.startswith("Market value up 40% or more over 7 days,"), other)
+        self.assertIn("(API, 3+ sold a day)", other)
+
+    def test_flip_hints_and_cuts_follow_the_rule(self):
+        js = page_js(["cellNum", "rulePct", "houseCuts", "cutTxt", "dealsHintText", "flipsHintText", "gapMin"],
+                     self.RULE + " let DATA = {};") + """
+const bare = [flipsHintText(undefined), gapMin(), houseCuts(undefined)];
+DATA = { signalRule: Object.assign({}, RULE, { FLIP_MIN_LISTED: 8 }) };
+process.stdout.write(JSON.stringify(bare.concat([flipsHintText(DATA.signalRule), gapMin(),
+  dealsHintText({ DEAL_BELOW: 0.5, DEAL_MIN_SOLD: 5, cut: { faction: 0.1, neutral: 0.2 } }), houseCuts({ cut: { faction: 0.1 } })])));
+"""
+        flipBare, gapBare, cutsBare, flip, gap, deal, cutsPart = json.loads(run_node(js))
+        self.assertEqual(flipBare, "Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut"
+                         " (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view"
+                         " keeps items with 5 or more listed at both houses.", "no API: today's hint")
+        self.assertEqual(gapBare, 5)
+        self.assertEqual(cutsBare, {"faction": 0.05, "neutral": 0.15})
+        self.assertIn("keeps items with 8 or more listed at both houses.", flip)
+        self.assertTrue(flip.endswith(" Prices are the newer of your last scan and the API's latest snapshot."), flip)
+        self.assertEqual(gap, 8, "the page's flip filter is the build's FLIP_MIN_LISTED")
+        self.assertIn("(10% Faction, 20% Neutral)", deal)
+        self.assertEqual(cutsPart, {"faction": 0.1, "neutral": 0.15}, "a missing cut falls back to today's")

@@ -460,8 +460,8 @@ tr.flash td { animation: flash .8s ease-out; }
     </section>
 
     <section class="mod" data-mod="movers" hidden>
-      <article class="panel w6"><div class="ph"><h2>Rising fastest</h2></div><p class="hint">50% or more over their launch low, at least 20 listed, launch low 10c or more.</p><div class="scroll tall"><table id="risingTable"></table></div></article>
-      <article class="panel w6"><div class="ph"><h2>Fallen furthest</h2></div><p class="hint">30% or more under their peak: a chance to buy, or a market flooding.</p><div class="scroll tall"><table id="fallingTable"></table></div></article>
+      <article class="panel w6"><div class="ph"><h2>Rising fastest</h2></div><p class="hint" id="risingHint">50% or more over their launch low, at least 20 listed, launch low 10c or more.</p><div class="scroll tall"><table id="risingTable"></table></div></article>
+      <article class="panel w6"><div class="ph"><h2>Fallen furthest</h2></div><p class="hint" id="fallingHint">30% or more under their peak: a chance to buy, or a market flooding.</p><div class="scroll tall"><table id="fallingTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="neutral" hidden>
@@ -473,7 +473,7 @@ tr.flash td { animation: flash .8s ease-out; }
           <li><code>/reload</code> or log out, then rebuild. This page fills in.</li>
         </ol>
         <p class="hint" style="margin-top:10px"><code>/ledger neutral both</code> also lets the scans reach Auctionator; <code>/ledger neutral off</code> stops keeping them apart. Faction prices from before this update may still include a Neutral scan on days you visited one.</p></article>
-      <article class="panel w12" id="gapPanel"><div class="ph"><h2>Price gap by item</h2><span class="meta" id="gapMeta"></span></div><p class="hint">Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view keeps items with 5 or more listed at both houses.</p>
+      <article class="panel w12" id="gapPanel"><div class="ph"><h2>Price gap by item</h2><span class="meta" id="gapMeta"></span></div><p class="hint" id="gapHint">Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (15% at Neutral, 5% at Faction). One stray listing sets the price in a thin market, so the default view keeps items with 5 or more listed at both houses.</p>
         <div class="toolbar"><div class="chips" id="gapChips"></div><input type="search" class="search" data-table="gapTable" placeholder="Filter items"></div>
         <div class="scroll tall"><table id="gapTable"></table></div></article>
       <article class="panel w6" id="gapDistPanel"><div class="ph"><h2>How far apart the houses are</h2></div><p class="hint">Items by price gap. Orange: Neutral dearer; cyan: Neutral cheaper.</p><div class="chart tall"><canvas id="gapChart"></canvas></div></article>
@@ -1864,15 +1864,48 @@ const whereText = x => (x.where || []).map(w => {
 // Deals and Sell windows (the build's Sg.deals / Sg.sellWindows on the API's market values). rule: DATA.signalRule
 // (Sg.C), the thresholds the build used; the hints fall back to words without numbers when it's missing.
 const rulePct = v => typeof v === "number" && isFinite(v) ? Math.round(Math.abs(v) * 100) : null;
+// The houses' cuts (the build's I.CUT, sent as DATA.signalRule.cut); today's 5% / 15% without it
+const houseCuts = rule => {
+  const c = (rule && rule.cut) || {}, ok = v => typeof v === "number" && isFinite(v) && v >= 0 && v < 1;
+  return { faction: ok(c.faction) ? c.faction : 0.05, neutral: ok(c.neutral) ? c.neutral : 0.15 };
+};
+const cutTxt = v => `${Math.round(v * 1000) / 10}%`;
 function dealsHintText(rule) {
+  const c = houseCuts(rule);
   const under = rulePct(rule && rule.DEAL_BELOW != null ? 1 - rule.DEAL_BELOW : null), sold = rule && cellNum(rule.DEAL_MIN_SOLD);
   return (under != null && sold != null ? `Under its market value by ${under}% or more and selling ${sold}+ a day. `
     : "Well under its market value and selling steadily. ")
-    + "Profit each: relisted at market value after the house's cut (5% Faction, 15% Neutral). Per day: profit each × what the market takes a day, capped by what's listed. Sales are an estimate (an auction that vanished early probably sold).";
+    + `Profit each: relisted at market value after the house's cut (${cutTxt(c.faction)} Faction, ${cutTxt(c.neutral)} Neutral). Per day: profit each × what the market takes a day, capped by what's listed. Sales are an estimate (an auction that vanished early probably sold).`;
 }
 function sellWinHintText(rule) {
   const over = rulePct(rule && rule.SELL_ABOVE != null ? rule.SELL_ABOVE - 1 : null);
   return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
+}
+// Movers: the API's rule (Sg.C's RISE / FALL / MOVER_MIN_SOLD), with today's launch-low / peak rule as the fallback;
+// without API data (no rule) today's hints
+function moversHintText(rule, dir) {
+  const up = dir === "up";
+  const old = up ? "50% or more over their launch low, at least 20 listed, launch low 10c or more."
+    : "30% or more under their peak: a chance to buy, or a market flooding.";
+  const pct = rulePct(rule && (up ? rule.RISE : rule.FALL)), sold = rule && cellNum(rule.MOVER_MIN_SOLD);
+  if (pct == null) return old;
+  return `Market value ${up ? "up" : "down"} ${pct}% or more over 7 days, or a new price level that has held for 2 days`
+    + ` (API${sold != null ? `, ${sold}+ sold a day` : ""}). Items without enough API data yet: `
+    + (up ? "50% or more over their launch low, as before." : "30% or more under their peak, as before.");
+}
+// A new price level (the engine's shifted), as the drawer and Movers mark it
+const shiftPill = sh => `<span class="pill ${sh.dir === "up" ? "kill" : "fc"}" title="A new price level that has held over the last 48 hours, with sales">new price level</span>`;
+// Why an item is in Rising (dir "up") or Fallen ("down"): its moveBasis from Sg.movers
+function moveBasisText(it, dir) {
+  const b = it && it.moveBasis;
+  return b === "shifted" ? "new price level" : b === "trend" ? "7-day trend" : b === "scan" ? (dir === "down" ? "vs peak" : "vs launch low") : "";
+}
+// Faction vs Neutral: the cuts and the listing floor the build used (FLIP_MIN_LISTED); today's text without API data
+function flipsHintText(rule) {
+  const c = houseCuts(rule), min = rule && cellNum(rule.FLIP_MIN_LISTED) != null ? rule.FLIP_MIN_LISTED : 5;
+  return `Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (${cutTxt(c.neutral)} at Neutral, ${cutTxt(c.faction)} at Faction).`
+    + ` One stray listing sets the price in a thin market, so the default view keeps items with ${min} or more listed at both houses.`
+    + (rule ? " Prices are the newer of your last scan and the API's latest snapshot." : "");
 }
 const scansPill = '<span class="pill" title="No API market value for this item: its usual price from your in-game scans">scans</span>';
 // now, with where it came from in the tooltip
@@ -2160,19 +2193,44 @@ function modBrowse() {
 function modMovers() {
   const M = MKT(); if (!M || !Object.keys(M.items || {}).length) return noMarket();
   marketHeader(M);
-  const get = id => M.items[String(id)], days = M.days || [];
+  const get = id => M.items[String(id)], days = M.days || [], rule = DATA.signalRule;
   const up = (M.rising || []).map(get).filter(Boolean), down = (M.falling || []).map(get).filter(Boolean);
+  el("risingHint").textContent = moversHintText(rule, "up");
+  el("fallingHint").textContent = moversHintText(rule, "down");
+  const listedCell = it => { const v = it.nowFrom === "api" ? it.units : it.available; return cellNum(v) != null ? `<span data-sort="${v}">${short(v)}</span>` : ""; };
+  const haveCell = it => it.have ? `<span data-sort="${it.have}">${short(it.have)}</span>` : "";
+  if (!rule) {   // no API data: today's launch-low / peak tables
+    el("kpis").innerHTML = [
+      kpi("Rising", String(up.length), "50%+ over launch low"),
+      kpi("Falling", String(down.length), "30%+ under peak"),
+      kpi("You hold", String(up.filter(it => it.have).length), "of the risers"),
+    ].join("");
+    table("risingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "Change", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }],
+      up.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.low), signedPct(it.change), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`, haveCell(it)])),
+      days.length < 2 ? "Needs two scan days." : "Nothing up 50% or more.", { onRender: () => pickRows(mktItem) });
+    table("fallingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Peak", n: 1 }, { t: "Down", n: 1 }, { t: "Listed", n: 1 }],
+      down.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.peak), signedPct(it.peak ? it.now / it.peak - 1 : null), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`])),
+      days.length < 2 ? "Needs two scan days." : "Nothing down 30% or more from its peak.", { onRender: () => pickRows(mktItem) });
+    return;
+  }
+  // The API's numbers first: a new price level's move, the 7-day trend, else today's change (scan items)
+  const change = (it, dir) => it.moveBasis === "shifted" && it.shifted ? cellNum(it.shifted.pct)
+    : it.moveBasis === "trend" ? cellNum(it.trend)
+    : dir === "down" ? (it.peak && cellNum(it.now) != null ? it.now / it.peak - 1 : null) : cellNum(it.change);
+  const rows = (list, dir) => list.map(it => rowId(it.id, [
+    whItem(it.id, it.name) + (it.moveBasis === "shifted" && it.shifted ? " " + shiftPill(it.shifted) : ""),
+    nowMoney(it), signedPct(change(it, dir)), `<span class="muted" style="white-space:nowrap">${esc(moveBasisText(it, dir))}</span>`,
+    soldCell(it.soldPerDay), listedCell(it), haveCell(it)]));
+  const cols = [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Change", n: 1 }, { t: "Basis" }, { t: "Sold/day", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }];
+  const pct = v => rulePct(v) != null ? `${rulePct(v)}%` : "";
   el("kpis").innerHTML = [
-    kpi("Rising", String(up.length), "50%+ over launch low"),
-    kpi("Falling", String(down.length), "30%+ under peak"),
+    kpi("Rising", String(up.length), `+${pct(rule.RISE)} over 7 days, or a new level`),
+    kpi("Falling", String(down.length), `−${pct(rule.FALL)} over 7 days, or a new level`),
+    kpi("New price levels", String(up.concat(down).filter(it => it.moveBasis === "shifted").length), "held for 2 days, with sales"),
     kpi("You hold", String(up.filter(it => it.have).length), "of the risers"),
   ].join("");
-  table("risingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "Change", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }],
-    up.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.low), signedPct(it.change), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`, it.have ? `<span data-sort="${it.have}">${short(it.have)}</span>` : ""])),
-    days.length < 2 ? "Needs two scan days." : "Nothing up 50% or more.", { onRender: () => pickRows(mktItem) });
-  table("fallingTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Peak", n: 1 }, { t: "Down", n: 1 }, { t: "Listed", n: 1 }],
-    down.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.peak), signedPct(it.peak ? it.now / it.peak - 1 : null), `<span data-sort="${it.available || 0}">${short(it.available)}</span>`])),
-    days.length < 2 ? "Needs two scan days." : "Nothing down 30% or more from its peak.", { onRender: () => pickRows(mktItem) });
+  table("risingTable", cols, rows(up, "up"), "Nothing rising at this house right now.", { onRender: () => pickRows(mktItem) });
+  table("fallingTable", cols, rows(down, "down"), "Nothing falling at this house right now.", { onRender: () => pickRows(mktItem) });
 }
 
 function modNeutral() {
@@ -2189,7 +2247,9 @@ function modNeutral() {
     el("who").innerHTML = `<span class="pill neutral">Neutral AH</span> ${n.toLocaleString()} items priced${N.last ? `, last scanned by Ledger Link ${date(N.last)}` : ""}.`
       + (moved.length ? ` Includes ${moved.join(", ")}, moved out of the faction book (neutral_days.txt).` : "")
       + ` <span class="pill faction">Faction AH</span> prices come from Auctionator.`;
-    const deep = r => (r.nListed || 0) >= GAP_MIN && (r.fListed || 0) >= GAP_MIN;
+    const rule = DATA.signalRule, cuts = houseCuts(rule), min = gapMin();
+    el("gapHint").textContent = flipsHintText(rule);
+    const deep = r => (r.nListed || 0) >= min && (r.fListed || 0) >= min;
     const modes = [["deep", `Well listed (${list.filter(deep).length})`], ["mine", `You hold (${list.filter(r => r.have).length})`], ["all", `All (${list.length})`]];
     if (!modes.some(m => m[0] === gapMode)) gapMode = "deep";
     el("gapChips").innerHTML = modes.map(([k, l]) => `<button type="button" class="chip" data-gap="${k}" aria-pressed="${k === gapMode}">${esc(l)}</button>`).join("");
@@ -2198,19 +2258,23 @@ function modNeutral() {
     const spreads = list.map(r => r.spread).sort((a, b) => a - b);
     const med = spreads.length ? spreads[Math.floor(spreads.length / 2)] : null;
     const toN = list.filter(r => r.toNeutral > 0), toF = list.filter(r => r.toFaction > 0);
-    const heldGain = list.filter(r => r.have).reduce((a, r) => { const g = (Math.floor(r.neutral * 0.85) - Math.floor(r.faction * 0.95)) * r.have; return g > 0 ? a + g : a; }, 0);
+    const heldGain = list.filter(r => r.have).reduce((a, r) => { const g = (Math.floor(r.neutral * (1 - cuts.neutral)) - Math.floor(r.faction * (1 - cuts.faction))) * r.have; return g > 0 ? a + g : a; }, 0);
     el("kpis").innerHTML = [
       kpi("Priced at both", String(all.length), `of ${n} Neutral items; ${list.length} in this view`),
       kpi("Typical gap", med == null ? "?" : gapPct(med), "median in this view"),
-      kpi("Flip to Neutral", String(toN.length), "buy at Faction, still ahead after the 15% cut"),
-      kpi("Flip to Faction", String(toF.length), "buy at Neutral, ahead after 5%"),
+      kpi("Flip to Neutral", String(toN.length), `buy at Faction, still ahead after the ${cutTxt(cuts.neutral)} cut`),
+      kpi("Flip to Faction", String(toF.length), `buy at Neutral, ahead after ${cutTxt(cuts.faction)}`),
       kpi("Your extra at Neutral", money(heldGain, { short: true }), "selling there instead, after each cut"),
     ].join("");
     const flip = v => `<span class="${v > 0 ? "pos" : "muted"}" data-sort="${v}">${v > 0 ? "+" : ""}${money(v)}</span>`;
     const listed = (a, b) => `<span data-sort="${Math.min(a || 0, b || 0)}">${a != null ? short(a) : "?"} <span class="muted">/</span> ${b != null ? short(b) : "?"}</span>`;
-    table("gapTable", [{ t: "Item" }, { t: "Faction", n: 1 }, { t: "Neutral", n: 1 }, { t: "Gap", n: 1 }, { t: "Flip to Neutral", n: 1 }, { t: "Flip to Faction", n: 1 }, { t: "Listed (F / N)", n: 1 }, { t: "Have", n: 1 }],
-      list.map(r => rowId(r.id, [whItem(r.id, r.name), money(r.faction), money(r.neutral), gapPct(r.spread), flip(r.toNeutral), flip(r.toFaction),
-        listed(r.fListed, r.nListed), r.have ? `<span data-sort="${r.have}">${short(r.have)}</span>` : ""])),
+    // With API data: each side's price marked API or scan (when, in the title), and both houses' sales a day
+    const side = (v, from, at) => money(v) + (rule && from ? ` <small class="muted" title="${esc(when(at))}">${from === "api" ? "API" : "scan"}</small>` : "");
+    const sold = (a, b) => `<span data-sort="${Math.min(cellNum(a) || 0, cellNum(b) || 0)}">${cellNum(a) != null ? short(a) : "?"} <span class="muted">/</span> ${cellNum(b) != null ? short(b) : "?"}</span>`;
+    table("gapTable", [{ t: "Item" }, { t: "Faction", n: 1 }, { t: "Neutral", n: 1 }, { t: "Gap", n: 1 }, { t: "Flip to Neutral", n: 1 }, { t: "Flip to Faction", n: 1 },
+        ...(rule ? [{ t: "Sold/day (F / N)", n: 1 }] : []), { t: "Listed (F / N)", n: 1 }, { t: "Have", n: 1 }],
+      list.map(r => rowId(r.id, [whItem(r.id, r.name), side(r.faction, r.fFrom, r.fAt), side(r.neutral, r.nFrom, r.nAt), gapPct(r.spread), flip(r.toNeutral), flip(r.toFaction),
+        ...(rule ? [sold(r.fSold, r.nSold)] : []), listed(r.fListed, r.nListed), r.have ? `<span data-sort="${r.have}">${short(r.have)}</span>` : ""])),
       "No item is priced at both houses yet.", { limit: 300, onRender: (shown, match) => {
         pickRows(mktItem);
         el("gapMeta").textContent = shown < match ? `top ${shown} of ${match.toLocaleString()}; search or sort for the rest` : `${match.toLocaleString()} items`;
@@ -2538,7 +2602,7 @@ function drawHeader() {
   el("drShift").hidden = !(sh && sh.dir);
   el("drShift").innerHTML = !(sh && sh.dir) ? "" : (() => {
     const d = new Date(sh.since * 1000);
-    return `<span class="pill ${sh.dir === "up" ? "kill" : "fc"}" title="A new price level that has held over the last 48 hours, with sales">new price level</span> `
+    return shiftPill(sh) + " "
       + `<span class="${sh.dir === "up" ? "pos" : "cheap"}">${esc(`${sh.dir} ${Math.round(Math.abs(cellNum(sh.pct) || 0) * 100)}% since ${WEEKDAYS[(d.getDay() + 6) % 7]} ${hm(sh.since)}`)}</span>`;
   })();
 }
@@ -3295,7 +3359,8 @@ function modReplay() {
 
 // ------------------------------------------------------------------ The drawer's "Your scans" (both houses on one chart)
 const inspCharts = [];
-const GAP_MIN = 5;
+// listings at both houses for the "Well listed" view: the build's FLIP_MIN_LISTED (Sg.C), 5 without API data
+const gapMin = () => { const v = DATA.signalRule && cellNum(DATA.signalRule.FLIP_MIN_LISTED); return v != null ? v : 5; };
 let gapMode = "deep";
 // big gaps read better as a multiple: +1,150% is ×12.5
 const gapPct = v => v == null ? "" : v >= 1

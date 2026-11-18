@@ -586,6 +586,8 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
             have = o and o.count or 0, holders = o and o.holders or nil,
             -- the API's figures and where "now" came from (R.merge); nil without market data
             market = p.market, nowFrom = p.nowFrom, nowAt = p.nowAt, soldPerDay = p.soldPerDay, trend = p.trend,
+            -- listed at the API's latest snapshot: Movers' Listed when now is the API's (movers only, to keep the page small)
+            units = moveBasis[id] and p.nowFrom == "api" and p.units or nil,
             shifted = p.shifted, moveBasis = moveBasis[id],
         }
     end
