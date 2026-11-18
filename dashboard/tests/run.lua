@@ -1328,7 +1328,11 @@ test("reconcile: no api returns the book unchanged (same table)", function()
     local book = { prices = {} }
     eq(R.merge(book, nil, function() end), book)
     eq(R.merge(book, { items = {} }, function() end), book, "an api without a snapshot time is no api")
-    eq(R.agreement(book, { latest = scan, recent = {} }, function() end), nil)
+    local ab = { prices = { [1] = { now = 100, seenAt = 5000, days = { { day = 2000 } } } } }
+    local snaps = { { t = 5100, min = { [1] = 100 } } }
+    local atSeen = function(p) return p.seenAt end
+    eq(R.agreement(ab, { recent = snaps }, atSeen), nil, "no snapshot time: the guard is the only reason")
+    truthy(R.agreement(ab, { latest = 5100, recent = snaps }, atSeen), "with latest the same data agrees")
 end)
 
 test("reconcile: boundaries (tie, listed without now, no scan time)", function()
