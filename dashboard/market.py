@@ -20,6 +20,8 @@ import bnet
 import market_profile as mp
 import market_store
 
+FORMAT = 2   # bump when market.lua's shape changes: the stamp then differs and the file is rewritten
+
 # Every threshold in one place.
 C = {
     "MARKET_DAYS": 14,        # window of the market value
@@ -114,7 +116,7 @@ def trend(buckets, now):
     if not buckets or min(b.lo for b in buckets) > then:
         return None
     a, b = market_value(buckets, now), market_value(buckets, then)
-    if a is None or b is None:
+    if a is None or not b:
         return None
     return a / b - 1
 
@@ -496,8 +498,8 @@ def stamp(db, keys, wanted_text, sig=None):
     page's wanted items must rewrite the file. `sig`: signature(db), when the caller already has it."""
     if sig is None:
         sig = signature(db)
-    return "-- sig: %s|%s|w=%s" % (sig, ",".join("%d=%s" % kv for kv in sorted(keys.items())),
-                                   hashlib.sha1(wanted_text.encode("utf-8")).hexdigest()[:12])
+    return "-- sig: f=%d|%s|%s|w=%s" % (FORMAT, sig, ",".join("%d=%s" % kv for kv in sorted(keys.items())),
+                                          hashlib.sha1(wanted_text.encode("utf-8")).hexdigest()[:12])
 
 
 def run(db_path, out_path, cfg, now=None, wanted_path=None):

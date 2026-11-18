@@ -1,5 +1,6 @@
 -- Insights: market deals, play-session recaps and items to mail between your characters.
 -- Pure functions over the tables the readers produce (no file access), so every figure can be tested offline.
+local Signals = require("signals")
 local I = {}
 
 local function num(v)
@@ -488,7 +489,7 @@ I.FAMILIES = {
         7080, 7082, 12803, 12808, 7972, 5498, 5500, 7971, 13926, 774, 818, 1210, 1206, 1529, 1705, 3864, 7909, 7910,
         12361, 12363, 12364, 12799, 12800 } },
 }
-I.MOVERS = { limit = 30, minNow = 20, minLow = 10, minAvailable = 20, minRise = 0.5 }
+I.MOVERS = { minNow = 20, minLow = 10, minAvailable = 20, minRise = 0.5 }
 
 -- One item's figures: launch low (lowest daily low), peak (highest daily low: a one-off high listing isn't a price
 -- anyone paid), change of today's price against the low, supply now vs the first day
@@ -551,24 +552,24 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
     table.sort(ownedList, function(a, b) if a.value ~= b.value then return a.value > b.value end return a.id < b.id end)
     for i, r in ipairs(ownedList) do out.owned[i] = r.id end
 
-    -- Movers: up the most from their launch low, and down the most from their peak (with enough on sale to matter)
-    local up, down = {}, {}
-    for id, p in pairs(prices) do
+    -- Movers: the API's 7-day trend and new price levels first; items without them keep today's rule: up the most
+    -- from their launch low, down the most from their peak (with enough on sale to matter)
+    local function scanRule(_, p)
         local s = itemStats(p)
         if #(p.days or {}) >= 2 and s.now and s.now >= cfg.minNow and (s.available or 0) >= cfg.minAvailable then
-            if s.change and s.change >= cfg.minRise and (s.low or 0) >= cfg.minLow then up[#up + 1] = { id = id, v = s.change } end
+            local upV, downV
+            if s.change and s.change >= cfg.minRise and (s.low or 0) >= cfg.minLow then upV = s.change end
             if s.peak and s.peak > 0 and s.now < s.peak then
                 local drop = 1 - s.now / s.peak
-                if drop >= 0.3 then down[#down + 1] = { id = id, v = drop } end
+                if drop >= 0.3 then downV = drop end
             end
+            return upV, downV
         end
     end
-    local function top(list, dest)
-        table.sort(list, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.id < b.id end)
-        for i = 1, math.min(cfg.limit, #list) do dest[i] = list[i].id; add(list[i].id) end
-    end
-    top(up, out.rising)
-    top(down, out.falling)
+    local moveBasis
+    out.rising, out.falling, moveBasis = Signals.movers(prices, scanRule)
+    for _, id in ipairs(out.rising) do add(id) end
+    for _, id in ipairs(out.falling) do add(id) end
 
     for id in pairs(include) do
         local p = prices[id]
@@ -585,7 +586,9 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
             have = o and o.count or 0, holders = o and o.holders or nil,
             -- the API's figures and where "now" came from (R.merge); nil without market data
             market = p.market, nowFrom = p.nowFrom, nowAt = p.nowAt, soldPerDay = p.soldPerDay, trend = p.trend,
-            shifted = p.shifted,
+            -- listed at the API's latest snapshot: Movers' Listed when now is the API's (movers only, to keep the page small)
+            units = moveBasis[id] and p.nowFrom == "api" and p.units or nil,
+            shifted = p.shifted, moveBasis = moveBasis[id],
         }
     end
     return out
@@ -661,8 +664,14 @@ I.CUT = { faction = 0.05, neutral = 0.15 }
 
 -- Items priced at both houses. Returns { { id, name, faction, neutral, spread (neutral / faction - 1),
 -- toNeutral (buy at faction, sell at neutral: copper per item after the 15% cut), toFaction (the reverse, after
--- 5%), have, neutralAt (when Ledger Link last saw it) } }, biggest gap first.
+-- 5%), have, neutralAt (when it was last priced), fListed / nListed, fSold / nSold (per day, API only), fAt / nAt,
+-- fFrom / nFrom ("api" or "scan") } }, biggest gap first.
 function I.compareHouses(faction, neutral, nameOf, owned)
+    -- items listed: the API's count when the price came from it, else the last scanned day's
+    local function listed(e)
+        if e.nowFrom == "api" then return e.units end
+        return e.days and #e.days > 0 and e.days[#e.days].available or nil
+    end
     local out = {}
     local fp = faction and faction.prices or {}
     for id, n in pairs(neutral and neutral.prices or {}) do
@@ -673,9 +682,9 @@ function I.compareHouses(faction, neutral, nameOf, owned)
                 spread = n.now / f.now - 1,
                 toNeutral = math.floor(n.now * (1 - I.CUT.neutral)) - f.now,
                 toFaction = math.floor(f.now * (1 - I.CUT.faction)) - n.now,
-                have = o and o.count or 0, neutralAt = n.seenAt,
-                fListed = f.days and #f.days > 0 and f.days[#f.days].available or nil,
-                nListed = n.days and #n.days > 0 and n.days[#n.days].available or nil }
+                have = o and o.count or 0, neutralAt = n.nowAt or n.seenAt,
+                fListed = listed(f), nListed = listed(n), fSold = f.soldPerDay, nSold = n.soldPerDay,
+                fAt = f.nowAt, nAt = n.nowAt, fFrom = f.nowFrom, nFrom = n.nowFrom }
         end
     end
     table.sort(out, function(a, b)

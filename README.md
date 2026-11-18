@@ -112,14 +112,33 @@ for each item whose price changed, so each /reload after an AH scan is another p
   the house in view and a separate chart of how many were listed.
 - **Signals**: your stockpile's value per scan day with its forecast, your best sellers, buy low / sell high (with
   who holds each item worth selling, and how many in their bags, bank and mail). Click any row for its price history.
+  With API data, buy low / sell high become two lists per house on the API's market value (items the API has no
+  market value for keep the old scan-based rows, marked *scans*):
+  - **Deals**: items priced 50% or more under their market value that sell 5 or more a day. Profit each is what
+    one makes relisted at market value after the house's cut (5% Faction, 15% Neutral), at least 50c; per day is
+    that times what the market takes a day, capped by how many are listed. The best 25, by profit per day. An
+    item 90% or more under market is most likely one stray listing: it counts one unit a day and says *one cheap
+    listing?* next to its name. The house pill shows how old the API snapshot is.
+  - **Sell windows**: things any of your characters hold, priced 25% or more over market value at the house they'd
+    sell at and still selling (1 or more a day) and at least 50c above it each, with the extra
+    gold over market value, who holds them, and whether
+    this hour of the week usually prices the item (or its family) well.
 - **Stockpile** (all characters): now, launch low (lowest daily low), change against it, peak (highest daily
   low), supply (listed now vs the first scan day; fewer = green), trend, value, and a signal: *selling window*
   (2x the launch low or more and fewer listed), *rising* (+50%), *still cheap* (within 15% of the low).
 - **Browse**: the full price database, or one trade-goods family (id lists in `dashboard/lib/insights.lua`, `I.FAMILIES`).
 - **Movers**: rising fastest (+50% over a launch low of 10c or more, 20+ listed), fallen furthest (30% under peak).
+  With API data, an item selling 2 or more a day is judged by the API alone: rising at +25% market value over 7
+  days, fallen at -20%, or a *new price level* (most of the last 48 hours beyond its old market value, with sales),
+  which comes first in either list. Items the API sells fewer than 2 a day are left out; items the API has no
+  trend for yet keep the launch low and peak rules. Each row says
+  which rule put it there, with sold a day and how many are listed; 30 rows per list.
 - **Faction vs Neutral**: items priced at both houses, the gap, and what a flip makes after each house's cut (15%
   at Neutral, 5% at Faction). By default only items with 5+ listed at both, since one stray listing sets the price
-  in a thin market.
+  in a thin market. With API data each side's price is the newer of your last scan and the API's latest snapshot,
+  marked *API* or *scan* (hover for when), and the table adds both houses' sales a day. The 25 best flips with 5+
+  listed at both houses go on the engine's wanted list (`market_wanted.tsv`), like the top 25 deals, so their
+  price lines stay detailed.
 - **Your trades** and **Crafting** (the picked character): the AH ledger, and every craft at saved prices with
   what you'd pay after using what you hold, whether it will sell, and the cheapest skill-up route.
 - Item, creature and quest names link to Wowhead; player names link to the WoW Forever armory.
@@ -366,6 +385,7 @@ Notes:
 | `dashboard/lib/merge.lua` | Pure: merges each character's and account's saved files from several PCs (`data/pcs`) |
 | `dashboard/lib/trends.lua` | Pure: hour-of-week grids, families, the weekly reset (`ah_reset`) and best buy and sell hours |
 | `dashboard/lib/insights.lua` | Pure: market deals, session recaps, items to mail between characters, Faction vs Neutral |
+| `dashboard/lib/signals.lua` | Pure: Deals, Sell windows, Rising and Fallen on the API's numbers, and the flips worth keeping in detail; every threshold in one table, `Sg.C` |
 | `dashboard/template.html` | The page; `build.lua` puts the data where `/*DATA*/null` is |
 | `dashboard/server.py` | Live server: rebuilds on SavedVariables changes, follows the newest combat log, serves the page and screenshots |
 | `dashboard/livelog.py` | Pure: turns combat-log lines into the Live module's picture (you, fights, kills, players around you) |

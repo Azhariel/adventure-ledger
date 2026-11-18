@@ -17,6 +17,7 @@ local Mg = require("merge")
 local H = require("houses")
 local R = require("reconcile")
 local T = require("trends")
+local Sg = require("signals")
 
 local Build = {}
 
@@ -244,12 +245,31 @@ end
 
 -- UTC hour h on this week's Tuesday (weeks start Monday) -> the local hour and the day shift (-1, 0, 1), for
 -- ah_reset's default; this week's, so a summer-time zone gets today's offset. now: epoch (default os.time()).
-function Build.utcHourToLocal(h, now)
+function Build.thisTuesday(now)
     now = now or os.time()
     local u = os.date("!*t", now)
-    local tuesday = now - ((u.wday - 2) % 7 - 1) * 86400 - u.hour * 3600 - u.min * 60 - u.sec
-    local t = os.date("*t", tuesday + h * 3600)
+    return now - ((u.wday - 2) % 7 - 1) * 86400 - u.hour * 3600 - u.min * 60 - u.sec
+end
+
+function Build.utcHourToLocal(h, now)
+    local t = os.date("*t", Build.thisTuesday(now) + h * 3600)
     return t.hour, t.wday - 3
+end
+
+-- Writes text to path through path .. ".tmp" and a rename, so a reader never sees half a file. os.rename won't
+-- replace an existing file on Windows, so the target goes first. Returns true, or nil and the error.
+function Build.writeAtomic(path, text)
+    local tmp = path .. ".tmp"
+    local f, err = io.open(tmp, "wb")
+    if not f then return nil, err end
+    local ok, werr = f:write(text)
+    local cok, cerr = f:close()
+    if not ok then os.remove(tmp); return nil, werr end
+    if not cok then os.remove(tmp); return nil, cerr end
+    os.remove(path)
+    local rok, rerr = os.rename(tmp, path)
+    if not rok then os.remove(tmp); return nil, rerr end
+    return true
 end
 
 -- Returns the dashboard data: { generated, characters = { ... } }
@@ -668,6 +688,42 @@ function Build.data(wow, opts)
             if it.id then traded[it.id] = true end
         end
     end
+    -- Deals (per house with API data) and Sell windows (holdings at each holder's own faction house). Their items
+    -- are wanted too, so the drawer and the hour check have their grids
+    if next(apiByKey) then
+        local also = {}
+        for id in pairs(traded) do also[id] = true end
+        result.deals = {}
+        -- the thresholds the page states in its hints, with the houses' cuts (a copy: Sg.C stays as it is)
+        result.signalRule = { cut = I.CUT }
+        for k, v in pairs(Sg.C) do result.signalRule[k] = v end
+        for _, key in ipairs(keys) do
+            if apiByKey[key] then
+                local cut = key:match(" Neutral$") and I.CUT.neutral or I.CUT.faction
+                local list = Sg.deals(merged[key], cut, acctNameOf, owned,
+                    key == factionKey and result.market.buy or nil)
+                result.deals[key] = list
+                for i = 1, math.min(#list, Sg.C.WANTED_LIST) do also[list[i].id] = true end
+            end
+        end
+        -- the faction house has no API data (only the other house does): its list is the scans' Buy low rows, so
+        -- the page keeps showing it
+        if factionKey and not result.deals[factionKey] then
+            result.deals[factionKey] = Sg.deals(merged[factionKey] or market, I.CUT.faction, acctNameOf, owned,
+                result.market.buy)
+        end
+        -- a holder's own faction house; nil (the default house) when its realm or faction can't be told
+        local houseById = {}
+        for _, r in ipairs(result.account.characters) do houseById[r.id] = (H.forChar(r.realm, r.faction)) end
+        for _, c in ipairs(result.characters) do
+            if c.id and c.houses then houseById[c.id] = c.houses.faction end
+        end
+        result.sellWindows = Sg.sellWindows(holders, function(id) return houseById[id] end, merged, acctNameOf,
+            result.market.sell, factionKey)
+        for _, r in ipairs(result.sellWindows) do also[r.id] = true end
+        for _, id in ipairs(Sg.flipIds(result.houses)) do also[id] = true end
+        traded = also
+    end
     if next(apiByKey) then
         result.trends = T.page(apiByKey, I.FAMILIES, function(id) return names[id] or known[id] end, result.reset,
             factionKey, T.wantedIds(I.FAMILIES, owned, traded), owned)
@@ -726,7 +782,7 @@ function Build.run(wow, outFile, data)
         neutralDays = neutralDays, otherPCs = Build.otherPCs(data), market = marketEnv and marketEnv.LedgerMarket,
         reset = Build.config().ah_reset,
         wanted = function(text)
-            if (U.readFile(wantedPath) or "") ~= text then U.writeFile(wantedPath, text) end
+            if (U.readFile(wantedPath) or "") ~= text then assert(Build.writeAtomic(wantedPath, text)) end
         end,
         worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
             local f = io.open(worthPath, "ab")
