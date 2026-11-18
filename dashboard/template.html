@@ -2556,7 +2556,7 @@ function modTrends() {
     const w = fam.week;
     el("trendsLeftHint").textContent = !w ? "No hourly prices for this family at this house yet."
       : `Price against each item's usual, weighted by units sold. ` + (w.enough
-        ? `${plural((fam.ids || []).length, "item")}; ${NUM.format(w.ownCount || 0)} ${w.ownCount === 1 ? "has its" : "have their"} own grid.`
+        ? `${plural(w.members || 0, "item")}; ${NUM.format(w.ownCount || 0)} ${w.ownCount === 1 ? "has its" : "have their"} own grid.`
         : `${plural(spanDays, "day")} of data; patterns fill in over about a week.`);
     el("trendsLeft").innerHTML = w ? heatGrid(w, { kind: "price", reset, title: `${fam.label}: price vs usual` }) : "";
     const txt = stripText(computeStrip(w));
