@@ -316,19 +316,21 @@ def _buckets_sql(cuts):
     seg = "+".join("(t>%d)" % e for e in cuts) or "0"
     return ("SELECT item, date(t, 'unixepoch', 'localtime') AS day, %s AS seg, MIN(t), MAX(t), "
             "TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*market END), "
-            "TOTAL(CASE WHEN market IS NOT NULL THEN sold+1 END), TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*t END), "
+            "TOTAL(CASE WHEN market IS NOT NULL THEN sold+1 END), "
+            "TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*t END), "
             "COUNT(market), TOTAL(sold), TOTAL(market) "
-            "FROM hourly NOT INDEXED WHERE house=? GROUP BY item, day, seg" % seg)
+            "FROM hourly NOT INDEXED WHERE house=? AND t<=? GROUP BY item, day, seg" % seg)
 
 
 def _house(db, house, keys, now):
+    """Every hourly read stops at the latest snapshot: rows past it belong to one still being recorded."""
     snaps = db.execute("SELECT t, auctions FROM snapshot WHERE house=? ORDER BY t", (house,)).fetchall()
     latest, first, count = snaps[-1][0], snaps[0][0], len(snaps)
     newest = [t for t, _ in reversed(snaps[-6:])]
     cut = now - C["SHIFT_HOURS"] * 3600
 
     buckets = {}
-    for item, day, _seg, lo, hi, wm, w, wt, n, sold, msum in db.execute(_buckets_sql(edges(now)), (house,)):
+    for item, day, _seg, lo, hi, wm, w, wt, n, sold, msum in db.execute(_buckets_sql(edges(now)), (house, latest)):
         buckets.setdefault(item, []).append(Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum))
 
     # Per hour only the recent rows: the shift window, and the newest snapshots' prices (older than the window
@@ -336,9 +338,8 @@ def _house(db, house, keys, now):
     recent, last, recent_min = {}, {}, {t: {} for t in newest}
     since = min(cut, newest[-1] - 1)
     for item, t, mn, market, units, listings, sold in db.execute(
-            "SELECT item, t, min, market, units, listings, sold FROM hourly NOT INDEXED WHERE house=? AND t>? "
-            "ORDER BY item, t",
-            (house, since)):
+            "SELECT item, t, min, market, units, listings, sold FROM hourly NOT INDEXED "
+            "WHERE house=? AND t>? AND t<=? ORDER BY item, t", (house, since, latest)):
         row = (t, mn, market, units, listings, sold)
         if t == latest:
             last[item] = row
@@ -346,7 +347,8 @@ def _house(db, house, keys, now):
             recent_min[t][item] = mn
         if t > cut:
             recent.setdefault(item, []).append(row)
-    sold_by_t = dict(db.execute("SELECT t, SUM(sold) FROM hourly NOT INDEXED WHERE house=? GROUP BY t", (house,)))
+    sold_by_t = dict(db.execute(
+        "SELECT t, SUM(sold) FROM hourly NOT INDEXED WHERE house=? AND t<=? GROUP BY t", (house, latest)))
 
     lo_day = market_store.local_day(now - C["HIST_DAYS"] * DAY)
     by_day = {}
@@ -377,6 +379,8 @@ def run(db_path, out_path, cfg, now=None):
     if db is None:
         return "no data"
     try:
+        # One read transaction: every query below sees one state of the db, whatever the fetcher commits meanwhile.
+        db.execute("BEGIN")
         sig = signature(db)
         if not sig:
             return "no data"

@@ -128,7 +128,8 @@ class MarketTests(unittest.TestCase):
             st.db.commit()
             now = rows[-1][0]
             got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum)
-                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum in st.db.execute(m._buckets_sql(m.edges(now)), (113,))),
+                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum
+                          in st.db.execute(m._buckets_sql(m.edges(now)), (113, now))),
                          key=lambda b: b.lo)
             st.close()
             self.assertEqual(got, B(rows, now))
@@ -202,6 +203,23 @@ class RunTests(unittest.TestCase):
             text = fh.read()
         self.assertEqual(text.count('["week"]='), 1)   # the house's only
         self.assertIn('["market"]=110', text)
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_a_recording_in_progress_is_not_read(self):
+        # the snapshot at T is whole; hourly rows at T+1h have no snapshot row yet (the fetcher is recording)
+        t = self.NOW + 1800
+        self.store.db.execute("INSERT INTO snapshot VALUES (113, ?, 2, 2)", (t,))
+        self.store.db.executemany("INSERT INTO hourly VALUES (?,?,?,?,?,?,?,?)", [
+            (113, t, 2589, 100, 110, 5, 3, 1), (113, t, 777, 50, 55, 2, 1, 0),
+            (113, t + 3600, 2589, 90, 95, 4, 2, 50), (113, t + 3600, 777, 40, 45, 1, 1, 50)])
+        self.store.db.commit()
+        self.assertEqual(m.run(self.db, self.out, {}, now=t + 3600 + 60), "written")
+        code = ("dofile([[%s]]) local h = LedgerMarket.houses[113] "
+                "print(h.latest, h.recent[1].t, h.items[2589].now, h.items[777].now, h.items[2589].soldPerDay, "
+                "h.items[777].soldPerDay)") % self.out.replace("\\", "/")
+        got = subprocess.run([LUA, "-e", code], capture_output=True, text=True)
+        # 2589 sold 1 in each of the 9 recorded hours; the unrecorded hour's 50 sales are not read
+        self.assertEqual(got.stdout.split(), [str(t), str(t), "100", "50", "9.0", "0.0"], got.stderr)
 
     def test_run_new_snapshot_rewrites(self):
         self.assertEqual(self.run_(), "written")
