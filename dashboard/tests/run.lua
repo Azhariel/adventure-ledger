@@ -1327,6 +1327,19 @@ end)
 test("reconcile: no api returns the book unchanged (same table)", function()
     local book = { prices = {} }
     eq(R.merge(book, nil, function() end), book)
+    eq(R.merge(book, { items = {} }, function() end), book, "an api without a snapshot time is no api")
+    eq(R.agreement(book, { latest = scan, recent = {} }, function() end), nil)
+end)
+
+test("reconcile: boundaries (tie, listed without now, no scan time)", function()
+    local at = function(p) return p.seenAt end
+    local book = { prices = { [1] = { now = 100, seenAt = 2000, days = {} }, [2] = { now = 70, seenAt = 1000, days = {} },
+        [3] = { now = 60, days = {} } } }
+    local api = { latest = 2000, items = { [1] = { now = 90, market = 95 }, [2] = { market = 50 }, [3] = { now = 55 } } }
+    local m = R.merge(book, api, at)
+    eq(m.prices[1].now, 100, "a tie keeps the scan"); eq(m.prices[1].nowFrom, "scan")
+    eq(m.prices[2].now, nil); eq(m.prices[2].nowFrom, "api"); eq(m.prices[2].market, 50)
+    eq(m.prices[3].now, 55, "no scan time: the api wins"); eq(m.prices[3].nowFrom, "api")
 end)
 
 test("reconcile: Auctionator day stamped by the last faction visit of that day", function()
@@ -1356,15 +1369,15 @@ test("reconcile: agreement against the nearest recent snapshot", function()
         [2] = { now = 200, seenAt = scan - 60, days = { { day = 2000 } } },
         [3] = { now = 1000, seenAt = scan - 120, days = { { day = 2000 } } },
         [4] = { now = 5, seenAt = scan - 86400, days = { { day = 1999 } } } } }
-    local api = { recent = {
+    local api = { latest = scan, recent = {
         { t = t0 + 19 * h + 24 * 60, min = { [1] = 100, [2] = 200, [3] = 1040, [4] = 5 } },
         { t = t0 + 15 * h, min = { [1] = 1 } } } }
     local a = R.agreement(book, api, at)
     eq(a.apiAt, t0 + 19 * h + 24 * 60); eq(a.scanAt, scan)
     eq(a.shared, 3); eq(a.exact, 2); eq(a.near, 3)
-    local far = { recent = { { t = scan - 5 * h, min = { [1] = 100 } }, { t = scan + 5 * h, min = { [1] = 100 } } } }
+    local far = { latest = scan, recent = { { t = scan - 5 * h, min = { [1] = 100 } }, { t = scan + 5 * h, min = { [1] = 100 } } } }
     eq(R.agreement(book, far, at), nil)
-    eq(R.agreement(book, { recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
+    eq(R.agreement(book, { latest = scan, recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
 end)
 
 for _, t in ipairs(tests) do

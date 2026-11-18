@@ -27,7 +27,7 @@ local FROM_API = { "market", "historical", "soldPerDay", "trend", "units", "list
 -- The book with the API's market data laid over it. api == nil: the book itself, untouched.
 -- scanAt(p) -> time of that entry's scan (a closure over R.scanAt).
 function R.merge(book, api, scanAt)
-    if not api then return book end
+    if not api or not api.latest then return book end
     local out = { prices = {}, vendor = book.vendor, apiLatest = api.latest }
     for k, v in pairs(book) do
         if out[k] == nil and k ~= "prices" then out[k] = v end
@@ -39,6 +39,7 @@ function R.merge(book, api, scanAt)
         local p, item = book.prices and book.prices[id], api.items and api.items[id]
         local e = {}
         for k, v in pairs(p or {}) do e[k] = v end
+        -- read-only: shared with the raw book (the price logs are written from it)
         e.days = p and p.days or {}
         for _, f in ipairs(FROM_API) do e[f] = item and item[f] or nil end
         e.apiDays = item and item.days or nil
@@ -57,7 +58,7 @@ end
 -- How well the latest scan matches the API snapshot nearest in time (within 3 hours): { scanAt, apiAt, shared,
 -- exact, near } (near includes exact: within 5%, like fetcher.match_score), or nil when nothing can be compared.
 function R.agreement(book, api, scanAt)
-    if not api or not api.recent then return nil end
+    if not api or not api.latest or not api.recent then return nil end
     local day = nil
     for _, p in pairs(book.prices or {}) do
         local l = p.days and p.days[#p.days]
