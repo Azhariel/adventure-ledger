@@ -2445,7 +2445,7 @@ function drPriceRows() {
   if (range === "14") {
     if (embH || hH) { list = last(embH || hH, 14); hourly = true; }
     else {
-      list = spk || last(embD, 14);
+      list = last(embD, 14) || spk;
       if (!SERVED) notes.push("hourly prices: run wowstats live");
       else if (waiting) notes.push("loading hourly prices…");
     }

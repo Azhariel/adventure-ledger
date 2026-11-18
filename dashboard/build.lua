@@ -670,7 +670,7 @@ function Build.data(wow, opts)
     end
     if next(apiByKey) then
         result.trends = T.page(apiByKey, I.FAMILIES, function(id) return names[id] or known[id] end, result.reset,
-            factionKey, T.wantedIds(I.FAMILIES, owned, traded))
+            factionKey, T.wantedIds(I.FAMILIES, owned, traded), owned)
     end
     if opts.wanted then
         local houseKeys, seenKey = {}, {}

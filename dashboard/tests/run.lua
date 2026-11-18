@@ -866,7 +866,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     local logged, wanted = {}, {}
     local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [12345] = "Nobody's Item" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
-            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false } }, [12345] = { now = 1, spark = { 1 } } },
+            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false }, hourly = { min = { 80 }, market = { 85 } } }, [12345] = { now = 1, spark = { 1 } } },
         recent = {} } } },
         priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end },
         reset = "Wed 9", wanted = function(text) wanted[#wanted + 1] = text end })
@@ -875,6 +875,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(#th.families, #I.FAMILIES); eq(th.families[3].key, "cloth"); eq(th.families[3].ids[1], 2592)
     eq(th.items["2592"].name, "Wool Cloth"); eq(th.items["2592"].spark[2], 90); eq(th.items["2592"].spark[3], false)
     eq(th.items["12345"], nil, "an engine item nobody wants isn't embedded")
+    eq(th.items["2592"].hourly.min[1], 80, "a held item keeps its hourly series")
     eq(api.trends.default, "R Horde")
     eq(api.reset.dow, 2, "Wed"); eq(api.reset.hour, 9); eq(api.trends.reset, api.reset)
     eq(#wanted, 1, "one wanted list per build")
@@ -1690,6 +1691,32 @@ test("trends.page: only wanted items are embedded, with their spark", function()
     local h = r.houses["PvP Horde"]
     eq(h.items["1"].spark[2], 2); eq(h.items["3"], nil, "not wanted: no summary, no spark")
     eq(h.families[1].ids[1], 3, "family ids still list the house's members")
+end)
+
+test("trends.page: hourly only for held items, the best HOURLY_MAX sellers", function()
+    local items = {}
+    for id = 1, 5 do
+        items[id] = { now = id, soldPerDay = id, spark = { id }, week = { own = true }, daily = { market = { id } },
+            hourly = { min = { id }, market = { id } } }
+    end
+    local api = { ["PvP Horde"] = { id = 113, key = "PvP Horde", latest = 5, items = items } }
+    eq(TR.C.HOURLY_MAX, 60)
+    local saved = TR.C.HOURLY_MAX
+    TR.C.HOURLY_MAX = 2
+    local ok, r = pcall(TR.page, api, { { key = "f", label = "F", ids = { 1 } } }, tostring, { dow = 1, hour = 12 },
+        "PvP Horde", { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true }, { [2] = true, [3] = true, [4] = true })
+    TR.C.HOURLY_MAX = saved
+    assert(ok, r)
+    local h = r.houses["PvP Horde"]
+    eq(h.items["4"].hourly.min[1], 4, "held, best seller"); eq(h.items["3"].hourly.market[1], 3)
+    eq(h.items["2"].hourly, nil, "held but past the cap")
+    eq(h.items["1"].hourly, nil, "family member: no hourly"); eq(h.items["5"].hourly, nil, "traded only: no hourly")
+    for id = 1, 5 do
+        local e = h.items[tostring(id)]
+        eq(e.daily.market[1], id); eq(e.spark[1], id); eq(e.week.own, true)
+    end
+    local none = TR.page(api, {}, tostring, { dow = 1, hour = 12 }, "PvP Horde", nil)
+    eq(none.houses["PvP Horde"].items["5"].hourly, nil, "no held set: no hourly")
 end)
 
 test("trends.page: unknown items skipped, false holes survive", function()

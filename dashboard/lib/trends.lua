@@ -3,7 +3,8 @@
 local T = {}
 
 -- MIN_N and MIN_CELLS mirror the engine's WEEK_MIN_N and WEEK_MIN_CELLS (market.py).
-T.C = { MIN_N = 2, MIN_CELLS = 0.6, STRIP_PCT = 0.05, STRIP_MIN_HOURS = 2, STRIP_RUNS = 2 }
+-- HOURLY_MAX: per house, at most this many held items carry their hourly series in the page (best sellers first).
+T.C = { MIN_N = 2, MIN_CELLS = 0.6, STRIP_PCT = 0.05, STRIP_MIN_HOURS = 2, STRIP_RUNS = 2, HOURLY_MAX = 60 }
 
 local DAYS = { "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday" }
 local CELLS = 168
@@ -146,20 +147,40 @@ function T.wanted(families, ownedIds, tradedIds, houseKeys)
 end
 
 local ITEM_FIELDS = { "now", "market", "historical", "soldPerDay", "trend", "days", "shifted", "spark", "week",
-    "hourly", "daily" }
+    "daily" }
+
+-- The held ids whose hourly series go in the page: those the house has with a series, best sellers first, at most
+-- HOURLY_MAX.
+local function hourlyIds(items, held)
+    local list = {}
+    for id in pairs(held or {}) do
+        local it = items[id]
+        if it and it.hourly then list[#list + 1] = id end
+    end
+    local function sold(id) return type(items[id].soldPerDay) == "number" and items[id].soldPerDay or 0 end
+    table.sort(list, function(a, b)
+        if sold(a) ~= sold(b) then return sold(a) > sold(b) end
+        return a < b
+    end)
+    local keep = {}
+    for i = 1, math.min(T.C.HOURLY_MAX, #list) do keep[list[i]] = true end
+    return keep
+end
 
 -- result.trends: per house key, the engine's data trimmed to what the page uses, plus the family grids.
 -- wanted (optional { [id] = true }, T.wantedIds): only those items are embedded; the page reads every other
--- item's numbers from the market tabs.
-function T.page(apiByKey, families, nameOf, reset, defaultKey, wanted)
+-- item's numbers from the market tabs. held (optional { [id] = true }, what the characters hold): only those carry
+-- their hourly series (hourlyIds); the rest keep week, daily and spark, and the live drawer asks /history.
+function T.page(apiByKey, families, nameOf, reset, defaultKey, wanted, held)
     local out = { reset = reset, default = defaultKey, stripRule = T.C, houses = {} }
     for key, h in pairs(apiByKey or {}) do
-        local items = {}
+        local items, withHourly = {}, hourlyIds(h.items or {}, held)
         for id, it in pairs(h.items or {}) do
             local name = (wanted == nil or wanted[id]) and nameOf(id) or nil
             if name ~= nil then
                 local e = { name = name }
                 for _, k in ipairs(ITEM_FIELDS) do e[k] = it[k] end
+                if withHourly[id] then e.hourly = it.hourly end
                 items[tostring(id)] = e
             end
         end
