@@ -925,6 +925,15 @@ test("replay: timed points with their state, and the moments worth showing with 
     eq(p[3][6], "Grouped with Dank"); eq(p[3][7], "")
 end)
 
+test("restock buy price: the cheaper of vendor and AH, where AH is now else market (as for crafts)", function()
+    local price = require("build").priceFn({ prices = { [1] = { now = 40, market = 50 }, [2] = { market = 50 },
+        [3] = { market = 50 } }, vendor = { [3] = 30 } })
+    local v, src = price(1); eq(v, 40); eq(src, "ah")
+    v, src = price(2); eq(v, 50); eq(src, "ah")     -- sold out now: priced at its market value, not skipped
+    v, src = price(3); eq(v, 30); eq(src, "vendor")
+    eq(price(4), nil)
+end)
+
 test("zones for map art: read from the live server's zones.py", function()
     local z = require("build").zones()
     eq(z["1442"], 406); eq(z["1413"], 17)

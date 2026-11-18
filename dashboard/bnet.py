@@ -26,12 +26,14 @@ for _ids in ((110, 113, 116), (111, 114, 117), (119, 120, 121), (123, 124, 125))
 
 # Only used by the legacy ah_ruleset key (and to build the API path); "PvP" is the only name verified in game
 RULESETS = {1: "PvP", 2: "Normal", 3: "Roleplay", 15: "Roleplay PvP"}
+_RULESET_NAME = {n.lower(): n for n in RULESETS.values()}
 
 
 def parse_houses(cfg):
     """The houses to fetch, in config order: [{"key": "PvP Horde", "ruleset": "PvP", "side": "Horde", "id": 113}].
-    `ah_houses = PvP 113, PvP 116` (last token is the id, the rest the ruleset name); without it, the legacy
-    ah_ruleset / ah_faction / ah_neutral keys. Raises ValueError naming the bad entry."""
+    `ah_houses = PvP 113, PvP 116` (last token is the id, the rest the ruleset name, matched to a known name in
+    any case: "pvp" is "PvP"); without it, the legacy ah_ruleset / ah_faction / ah_neutral keys.
+    Raises ValueError naming the bad entry."""
     raw = str(cfg.get("ah_houses") or "").strip()
     if raw:
         entries = [e.strip() for e in raw.split(",")]
@@ -57,9 +59,15 @@ def parse_houses(cfg):
             raise ValueError("%r: house %d is listed twice" % (entry, house_id))
         seen.add(house_id)
         ruleset = " ".join(words)
+        ruleset = _RULESET_NAME.get(ruleset.lower(), ruleset)   # the house key must match the in-game book's
         side = SIDE_OF[house_id]
         houses.append({"key": "%s %s" % (ruleset, side), "ruleset": ruleset, "side": side, "id": house_id})
     return houses
+
+
+def unknown_rulesets(houses):
+    """Ruleset names in `houses` that aren't one of RULESETS (kept as written; the dashboard may not match them)."""
+    return sorted({h["ruleset"] for h in houses} - set(RULESETS.values()))
 
 
 class Config:

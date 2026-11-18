@@ -332,6 +332,19 @@ class RobustnessTests(unittest.TestCase):
         with open(os.path.join(self.dir, "fetcher_status.json")) as fh:
             self.assertEqual(json.load(fh)["houses"]["116"]["key"], "PvP Neutral")
 
+    def test_unknown_ruleset_name_is_warned_once(self):
+        cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret", "ah_houses": "Mystery 113, pvp 116"}
+        c = FakeClient({h: ([auction(1, 10)], []) for h in (113, 116)})
+        with unittest.mock.patch.object(fetcher.bnet, "Client", return_value=c):
+            self.assertEqual(fetcher.main(["--once"], cfg=cfg, data=self.dir), 0)
+        fetcher._lock_handle.close()
+        fetcher._lock_handle = None
+        with open(os.path.join(self.dir, "fetcher.log"), encoding="utf-8") as fh:
+            warnings = [line for line in fh if " WARNING " in line]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Mystery", warnings[0])
+        self.assertIn("unknown ruleset name Mystery (", warnings[0])   # pvp is PvP, not unknown
+
     def test_crash_is_logged(self):
         cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret"}
         with unittest.mock.patch.object(fetcher, "run_once", side_effect=RuntimeError("boom")):
@@ -382,7 +395,9 @@ class MatchHouses(unittest.TestCase):
         cfg = dict({"wow": "x", "bnet_id": "abcd", "bnet_secret": "s"}, **(cfg_extra or {}))
         config = bnet.Config.from_cfg(cfg)
         out = io.StringIO()
-        with unittest.mock.patch.object(fetcher, "read_book", return_value=books),                 unittest.mock.patch.object(fetcher.bnet, "Client", self.Client),                 unittest.mock.patch.object(sys, "stdout", out):
+        with (unittest.mock.patch.object(fetcher, "read_book", return_value=books),
+              unittest.mock.patch.object(fetcher.bnet, "Client", self.Client),
+              unittest.mock.patch.object(sys, "stdout", out)):
             self.assertEqual(fetcher.match_houses(kind, cfg, config), 0)
         return out.getvalue()
 

@@ -71,11 +71,12 @@ function Build.planner(wow)
     return Build.makeOrBuy(wow).Planner
 end
 
--- Make or Buy's buy price: the cheaper of vendor and AH
-local function priceFn(market)
+-- Make or Buy's buy price: the cheaper of vendor and AH. AH is today's minimum, else the market value (a sold-out
+-- item), the same buy price crafts use (model.lua buyPrice).
+function Build.priceFn(market)
     return function(id)
         local p = market.prices[id]
-        local ah, vendor = p and p.now, market.vendor[id]
+        local ah, vendor = p and (p.now or p.market), market.vendor[id]
         if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
         if ah then return ah, "ah" end
         return nil
@@ -471,7 +472,7 @@ function Build.data(wow, opts)
             local shopping
             if mob and mob.recipes and mob.restock and next(mob.restock) and planner and mobLib.Restock then
                 local ok, r = pcall(mobLib.Restock.Build, mob.restock, mob.recipes, planner.IndexByOutput(mob.recipes),
-                    priceFn(charMkt), nil, heldMap(stockChar))
+                    Build.priceFn(charMkt), nil, heldMap(stockChar))
                 shopping = ok and r and r.shopping or nil
             end
             local uses, needs = I.uses(mob and mob.recipes, shopping)

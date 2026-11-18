@@ -204,7 +204,7 @@ def read_book(wow, kind):
                          capture_output=True, text=True, check=True).stdout
     books = {}
     for line in out.splitlines():
-        label, item, price = line.split("	")
+        label, item, price = line.split("\t")
         books.setdefault(label, {})[int(item)] = int(price)
     return books
 
@@ -321,6 +321,10 @@ def loop(args, cfg, data, log):
     last_rollup = 0
     skips = {}
     log.info("fetcher started: %r", config)
+    unknown = bnet.unknown_rulesets(config.houses)
+    if unknown:
+        log.warning("ah_houses: unknown ruleset name %s (known: %s); the dashboard may not match it to your scans",
+                    ", ".join(unknown), ", ".join(bnet.RULESETS.values()))
     try:
         while True:
             now = int(time.time())

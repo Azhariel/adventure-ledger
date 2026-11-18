@@ -89,6 +89,11 @@ class BnetTest(unittest.TestCase):
                          [("PvP Horde", 113), ("PvP Neutral", 116), ("Roleplay PvP Alliance", 119)])
         self.assertEqual(hs[0], {"key": "PvP Horde", "ruleset": "PvP", "side": "Horde", "id": 113})
 
+    def test_parse_houses_matches_ruleset_names_in_any_case(self):
+        hs = bnet.parse_houses({"ah_houses": "pvp 113, ROLEPLAY  pvp 119, Mystery 116"})
+        self.assertEqual([h["key"] for h in hs], ["PvP Horde", "Roleplay PvP Alliance", "Mystery Neutral"])
+        self.assertEqual(bnet.unknown_rulesets(hs), ["Mystery"])
+
     def test_parse_houses_legacy_keys(self):
         hs = bnet.parse_houses({"ah_faction": "113", "ah_neutral": "116"})
         self.assertEqual([h["key"] for h in hs], ["PvP Horde", "PvP Neutral"])
