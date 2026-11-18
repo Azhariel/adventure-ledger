@@ -15,22 +15,22 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 # bnet_region: the Battle.net region your characters play on: us or eu.
 # bnet_region = us
 #
-# ah_ruleset: the ruleset your characters are on. Forever has rulesets instead of realms:
-#   1 = PvP, 2 = Normal, 3 = Roleplay, 15 = Roleplay PvP.
-#   The API currently returns the same auction houses for every ruleset, so this rarely matters; set it anyway.
-# ah_ruleset = 1
-#
-# ah_faction, ah_neutral: the IDs of the two auction houses you trade at, your faction's and the Blackwater
-#   (goblin) one. The API doesn't say which house is whose, so find them by matching against your own scans:
+# ah_houses: the auction houses to fetch, one entry per ruleset and side, comma-separated. Each entry is the
+#   ruleset name followed by the house id:  ah_houses = PvP 113, PvP 116, Roleplay PvP 119
+#   The ruleset name is the one the dashboard shows for your character. Only "PvP" is verified so far; other
+#   names (Normal, Roleplay, Roleplay PvP) are passed through as you write them. Houses are never merged across
+#   entries: "PvP Horde" and "Roleplay PvP Horde" are separate.
+#   The side comes from the id, you don't write it. The houses come in sets of three (Alliance / Horde /
+#   Neutral, the Blackwater goblin one): 110/113/116, 111/114/117, 119/120/121, 123/124/125 (112, 115 and 118
+#   are empty). Horde on the PvP ruleset matched 113, and its Neutral house matched 116.
+#   The API doesn't say which house is whose, so find yours by matching against your own scans:
 #     1. Scan the AH in game (Auctionator), then /reload so the scan is saved.
-#     2. Run  python dashboard\fetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
+#     2. Run  python dashboardetcher.py --match faction   (or  --match neutral  after a scan at Booty Bay,
 #        Gadgetzan, Everlook or the Barrens AH outside the Crossroads). It ranks every house by how many prices
 #        match yours and names the best one.
-#   The houses come in sets of three (Alliance / Horde / Blackwater): 110/113/116, 111/114/117, 119/120/121,
-#   123/124/125 (112, 115 and 118 are empty). Horde on the PvP ruleset matched 113, and its Blackwater house
-#   matched 116.
-# ah_faction = 113
-# ah_neutral = 116
+#   The old keys ah_ruleset (1 = PvP, 2 = Normal, 3 = Roleplay, 15 = Roleplay PvP), ah_faction and ah_neutral
+#   still work when ah_houses is not set (defaults 1, 113 and 116).
+# ah_houses = PvP 113, PvP 116
 #
 # ah_every: minutes between checks (default 10). Blizzard makes a new snapshot about hourly, at no fixed minute
 #   (not documented). Each check asks only for data newer than the last snapshot: when there is none, Blizzard

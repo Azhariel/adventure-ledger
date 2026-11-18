@@ -19,27 +19,83 @@ class ApiError(Exception):
         self.path = path
 
 
+# The API's houses come in sets of three (Alliance / Horde / Neutral), so the side follows from the id
+SIDE_OF = {}
+for _ids in ((110, 113, 116), (111, 114, 117), (119, 120, 121), (123, 124, 125)):
+    SIDE_OF.update(zip(_ids, ("Alliance", "Horde", "Neutral")))
+
+# Only used by the legacy ah_ruleset key (and to build the API path); "PvP" is the only name verified in game
+RULESETS = {1: "PvP", 2: "Normal", 3: "Roleplay", 15: "Roleplay PvP"}
+
+
+def parse_houses(cfg):
+    """The houses to fetch, in config order: [{"key": "PvP Horde", "ruleset": "PvP", "side": "Horde", "id": 113}].
+    `ah_houses = PvP 113, PvP 116` (last token is the id, the rest the ruleset name); without it, the legacy
+    ah_ruleset / ah_faction / ah_neutral keys. Raises ValueError naming the bad entry."""
+    raw = str(cfg.get("ah_houses") or "").strip()
+    if raw:
+        entries = [e.strip() for e in raw.split(",")]
+    else:
+        try:
+            name = RULESETS[int(cfg.get("ah_ruleset") or 1)]
+            ids = (int(cfg.get("ah_faction") or 113), int(cfg.get("ah_neutral") or 116))
+        except (KeyError, ValueError) as e:
+            raise ValueError("bad legacy house setting: %s" % e) from None
+        entries = ["%s %d" % (name, i) for i in ids]
+    houses, seen = [], set()
+    for entry in entries:
+        *words, last = entry.split() or [""]
+        if not words:
+            raise ValueError("%r needs a ruleset name before the id" % entry)
+        try:
+            house_id = int(last)
+        except ValueError:
+            raise ValueError("%r: %r is not a house id" % (entry, last)) from None
+        if house_id not in SIDE_OF:
+            raise ValueError("%r: unknown house id %d" % (entry, house_id))
+        if house_id in seen:
+            raise ValueError("%r: house %d is listed twice" % (entry, house_id))
+        seen.add(house_id)
+        ruleset = " ".join(words)
+        side = SIDE_OF[house_id]
+        houses.append({"key": "%s %s" % (ruleset, side), "ruleset": ruleset, "side": side, "id": house_id})
+    return houses
+
+
 class Config:
-    def __init__(self, client_id, secret, region="us", ruleset=1, faction=113, neutral=116, every=10):
+    def __init__(self, client_id, secret, region="us", houses=None, every=10):
         self.client_id = client_id
         self.secret = secret
         self.region = region
-        self.ruleset = int(ruleset)
-        self.faction = int(faction)
-        self.neutral = int(neutral)
+        self.houses = houses if houses is not None else parse_houses({})
         self.every = int(every)   # minutes between fetches
+
+    # until the fetcher reads houses (next task)
+    @property
+    def faction(self):
+        return next((h["id"] for h in self.houses if h["side"] != "Neutral"), None)
+
+    # until the fetcher reads houses (next task)
+    @property
+    def neutral(self):
+        return next((h["id"] for h in self.houses if h["side"] == "Neutral"), None)
 
     @classmethod
     def from_cfg(cls, cfg):
         if not cfg.get("bnet_id") or not cfg.get("bnet_secret"):
             return None
         return cls(cfg["bnet_id"], cfg["bnet_secret"], cfg.get("bnet_region", "us"),
-                   cfg.get("ah_ruleset", 1), cfg.get("ah_faction", 113),
-                   cfg.get("ah_neutral", 116), cfg.get("ah_every", 10))
+                   parse_houses(cfg), cfg.get("ah_every", 10))
+
+    def ruleset_id(self, house):
+        """The API path's ruleset number for a configured house (1 when the name isn't one we know)."""
+        name = next((h["ruleset"] for h in self.houses if h["id"] == house), None)
+        return next((i for i, n in RULESETS.items() if n == name), 1)
 
     def __repr__(self):   # never show the secret
-        return "Config(client_id=...%s, region=%r, ruleset=%d, faction=%d, neutral=%d, every=%d)" % (
-            self.client_id[-4:], self.region, self.ruleset, self.faction, self.neutral, self.every)
+        return "Config(client_id=...%s, region=%r, houses=[%s], every=%d)" % (
+            self.client_id[-4:], self.region,
+            ", ".join("%s=%d" % (h["key"], h["id"]) for h in self.houses), self.every)
 
 
 class Client:
@@ -119,7 +175,7 @@ class Client:
             raise ApiError(status, path)
 
     def house(self, house):
-        base = "/data/wow/ruleset/%d/auctions/%d" % (self.config.ruleset, house)
+        base = "/data/wow/ruleset/%d/auctions/%d" % (self.config.ruleset_id(house), house)
         auctions = self.get(base).get("auctions") or []
         commodities = self.get(base + "/commodities").get("auctions") or []
         return auctions, commodities
@@ -127,7 +183,7 @@ class Client:
     def house_since(self, house, since):
         """(auctions, commodities, snapshot time or None), or None when neither list changed after `since`.
         The snapshot time is Blizzard's Last-Modified, the moment the data was made, not when we fetched it."""
-        base = "/data/wow/ruleset/%d/auctions/%d" % (self.config.ruleset, house)
+        base = "/data/wow/ruleset/%d/auctions/%d" % (self.config.ruleset_id(house), house)
         auctions, a_mod = self.get_since(base, since)
         commodities, c_mod = self.get_since(base + "/commodities", since)
         if auctions is None and commodities is None:

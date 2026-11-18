@@ -67,13 +67,37 @@ class BnetTest(unittest.TestCase):
 
     def test_from_cfg_defaults(self):
         c = bnet.Config.from_cfg(CFG)
-        self.assertEqual((c.region, c.ruleset, c.faction, c.neutral, c.every), ("us", 1, 113, 116, 10))
+        self.assertEqual((c.region, c.faction, c.neutral, c.every), ("us", 113, 116, 10))
+        self.assertEqual([h["key"] for h in c.houses], ["PvP Horde", "PvP Neutral"])
         self.assertNotIn("s3cret", repr(c))
+        self.assertIn("PvP Horde=113", repr(c))
         self.assertIsNone(bnet.Config.from_cfg({"bnet_secret": "x"}))
 
     def test_from_cfg_converts_ints(self):
         c = bnet.Config.from_cfg(dict(CFG, ah_ruleset="2", ah_faction="114", ah_neutral="117", ah_every="30"))
-        self.assertEqual((c.ruleset, c.faction, c.neutral, c.every), (2, 114, 117, 30))
+        self.assertEqual(([h["key"] for h in c.houses], c.every), (["Normal Horde", "Normal Neutral"], 30))
+        self.assertEqual((c.faction, c.neutral), (114, 117))
+
+    def test_from_cfg_houses_setting_wins(self):
+        c = bnet.Config.from_cfg(dict(CFG, ah_houses="Roleplay PvP 119", ah_faction="114"))
+        self.assertEqual([h["id"] for h in c.houses], [119])
+        self.assertEqual((c.faction, c.neutral, c.ruleset_id(119)), (119, None, 15))
+
+    def test_parse_houses_list(self):
+        hs = bnet.parse_houses({"ah_houses": "PvP 113, PvP 116, Roleplay PvP 119"})
+        self.assertEqual([(h["key"], h["id"]) for h in hs],
+                         [("PvP Horde", 113), ("PvP Neutral", 116), ("Roleplay PvP Alliance", 119)])
+        self.assertEqual(hs[0], {"key": "PvP Horde", "ruleset": "PvP", "side": "Horde", "id": 113})
+
+    def test_parse_houses_legacy_keys(self):
+        hs = bnet.parse_houses({"ah_faction": "113", "ah_neutral": "116"})
+        self.assertEqual([h["key"] for h in hs], ["PvP Horde", "PvP Neutral"])
+
+    def test_parse_houses_errors_name_the_entry(self):
+        for bad in ("PvP 999", "113", "PvP x", "PvP 113, PvP 113"):
+            with self.assertRaises(ValueError) as cm:
+                bnet.parse_houses({"ah_houses": bad})
+            self.assertIn(bad.split(",")[-1].strip(), str(cm.exception))
 
     def test_token_cached(self):
         op = FakeOpener([(200, {})] * 3)
