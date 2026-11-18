@@ -228,6 +228,43 @@ class MarketWatch(unittest.TestCase):
         self.assertEqual(lua.call_count, 1)
         self.assertTrue(self.app.last_build["ok"])
 
+    def test_a_failing_engine_is_logged_and_the_page_still_builds(self):
+        for err in (RuntimeError("boom"), sqlite3.OperationalError("database is locked")):
+            with self.subTest(err=err):
+                app = server.App("wow", 0)
+                built = []
+                real_build, app.build = app.build, lambda: built.append(1)
+                with mock.patch.object(server.market, "run", side_effect=err) as run:
+                    with self.assertLogs("server", "ERROR") as logs:
+                        app.market_tick("stale")
+                    self.assertIn("market engine failed", logs.output[0])
+                    self.assertEqual(built, [])            # nothing new to show: no rebuild from the tick
+                    app.build = real_build
+                    with self.lua_ok() as lua:
+                        app.build()                        # a later build runs build.lua and never the engine
+                    self.assertEqual(run.call_count, 1)
+                self.assertEqual(lua.call_count, 1)
+                self.assertTrue(app.last_build["ok"])
+
+    def test_a_locked_db_never_stops_the_page_build(self):
+        self.store.db.execute("PRAGMA locking_mode=EXCLUSIVE")   # the fetcher mid-write, as readers see it
+        self.store.db.execute("BEGIN EXCLUSIVE")
+        connect = sqlite3.connect
+        try:
+            built = []
+            real_build, self.app.build = self.app.build, lambda: built.append(1)
+            # readers give up at once instead of after the default 5 s
+            with mock.patch.object(server.market.sqlite3, "connect", lambda *a, **k: connect(*a, timeout=0, **k)):
+                self.app.market_tick("stale")
+            self.assertFalse(os.path.exists(os.path.join(self.data, "market.lua")))   # the engine could not read
+            self.assertEqual(built, [])
+            self.app.build = real_build
+            with self.lua_ok() as lua:
+                self.app.build()
+            self.assertEqual(lua.call_count, 1)
+        finally:
+            self.store.db.rollback()
+
     def test_startup_runs_the_engine_before_the_first_build(self):
         order = []
         self.app.run_engine = lambda: order.append("engine")
