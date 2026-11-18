@@ -67,7 +67,7 @@ class BnetTest(unittest.TestCase):
 
     def test_from_cfg_defaults(self):
         c = bnet.Config.from_cfg(CFG)
-        self.assertEqual((c.region, c.faction, c.neutral, c.every), ("us", 113, 116, 10))
+        self.assertEqual((c.region, [h["id"] for h in c.houses], c.every), ("us", [113, 116], 10))
         self.assertEqual([h["key"] for h in c.houses], ["PvP Horde", "PvP Neutral"])
         self.assertNotIn("s3cret", repr(c))
         self.assertIn("PvP Horde=113", repr(c))
@@ -76,12 +76,12 @@ class BnetTest(unittest.TestCase):
     def test_from_cfg_converts_ints(self):
         c = bnet.Config.from_cfg(dict(CFG, ah_ruleset="2", ah_faction="114", ah_neutral="117", ah_every="30"))
         self.assertEqual(([h["key"] for h in c.houses], c.every), (["Normal Horde", "Normal Neutral"], 30))
-        self.assertEqual((c.faction, c.neutral), (114, 117))
+        self.assertEqual([h["id"] for h in c.houses], [114, 117])
 
     def test_from_cfg_houses_setting_wins(self):
         c = bnet.Config.from_cfg(dict(CFG, ah_houses="Roleplay PvP 119", ah_faction="114"))
         self.assertEqual([h["id"] for h in c.houses], [119])
-        self.assertEqual((c.faction, c.neutral, c.ruleset_id(119)), (119, None, 15))
+        self.assertEqual(c.ruleset_id(119), 15)
 
     def test_parse_houses_list(self):
         hs = bnet.parse_houses({"ah_houses": "PvP 113, PvP 116, Roleplay PvP 119"})

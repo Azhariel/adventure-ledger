@@ -27,7 +27,7 @@ SNAPSHOT_EVERY = 60   # minutes: Blizzard makes a new snapshot about hourly (see
 SHRINK_FROM = 1000   # a house this big never really halves between two snapshots an hour apart
 SHRINK_SKIPS = 3     # ...but if it stays halved over this many snapshots in a row, it really did
 REPLACE_TRIES = 5   # 0.2 s apart
-BAD_NUMBER = "bad number in ledger.cfg (ah_ruleset, ah_faction, ah_neutral or ah_every)"
+BAD_NUMBER = "bad value in ledger.cfg (ah_houses, ah_ruleset, ah_faction, ah_neutral or ah_every)"
 _lock_handle = None   # held for the process lifetime
 
 
@@ -76,11 +76,12 @@ def read_status(path):
         return {}
 
 
-def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None):
+def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None, keys=None):
     """Fetch and record every house. One house failing never stops the others.
     every: minutes between fetches. skips: {house: (partial snapshots skipped in a row, the last one's time)},
-    kept by the caller."""
+    kept by the caller. keys: {house: its name, e.g. "PvP Horde"}, shown in the status."""
     skips = {} if skips is None else skips
+    keys = keys or {}
     out = {"last_ok": last_ok, "last_try": now, "next": None, "error": None, "houses": {}}
     errors = []
     for house in houses:
@@ -135,6 +136,9 @@ def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None
             out["houses"][str(house)] = {"ok": False, "t": None, "items": 0}
             errors.append("house %s: %s" % (house, e))
             log.exception("house %s failed: %s", house, e)
+    for house, entry in out["houses"].items():
+        if int(house) in keys:
+            entry["key"] = keys[int(house)]
     if any(h["ok"] for h in out["houses"].values()):
         out["last_ok"] = now
     out["error"] = "; ".join(errors) or None
@@ -195,53 +199,72 @@ def match_score(book, rows):
 
 
 def read_book(wow, kind):
-    """The prices saved in game ({item: copper}), through dump_prices.lua."""
+    """The prices saved in game, per book: {label: {item: copper}}, through dump_prices.lua."""
     out = subprocess.run([server.lua_exe(), os.path.join(HERE, "dump_prices.lua"), wow, kind],
                          capture_output=True, text=True, check=True).stdout
-    book = {}
+    books = {}
     for line in out.splitlines():
-        item, _, price = line.partition("\t")
-        book[int(item)] = int(price)
-    return book
+        label, item, price = line.split("	")
+        books.setdefault(label, {})[int(item)] = int(price)
+    return books
+
+
+def book_ruleset(label):
+    """The ruleset of a book label: the label minus a trailing side word ("PvP Horde" -> "PvP")."""
+    name, _, last = label.rpartition(" ")
+    return name if last in ("Horde", "Alliance", "Neutral") else label
 
 
 def match_houses(kind, cfg, config):
-    """Compare the saved in-game book with every house of that kind; print which one is ours."""
+    """Compare each saved in-game book with every house of that kind; print which one is ours, per book."""
     wow = cfg.get("wow")
     if not wow:
         print("no wow folder: set wow = your _forever_ folder in ledger.cfg")
         return 1
-    book = read_book(wow, kind)
-    if not book:
+    books = read_book(wow, kind)
+    if not books:
         if kind == "neutral":
             print("no Neutral prices saved yet: scan the Neutral AH, /reload, then run this again")
         else:
             print("no Auctionator prices saved yet: scan the AH, /reload, then run this again")
         return 0
-    client = bnet.Client(config)
-    scores = []
-    for house in KIND_HOUSES[kind]:
-        try:
-            auctions, commodities = client.house(house)
-        except Exception as e:
-            print("house %d: failed: %s" % (house, e))
-            continue
-        scores.append((house, match_score(book, market_reduce.reduce(auctions, commodities))))
-    scores.sort(key=lambda hs: hs[1]["exact"], reverse=True)
-    print("%d %s prices saved in game" % (len(book), kind))
-    for house, sc in scores:
-        pct = lambda n: 100 * n // len(book)   # noqa: E731
-        print("house %d: %d shared, %d exact (%d%%), %d within 5%% (%d%%)" % (
-            house, sc["shared"], sc["exact"], pct(sc["exact"]), sc["near"], pct(sc["near"])))
-    if scores:
-        best = scores[0][0]
-        configured = config.faction if kind == "faction" else config.neutral
-        key = "ah_" + kind
-        if best == configured:
-            print("%s = %d matches best" % (key, best))
-        else:
-            print("%s = %d, but house %d matches best: set %s = %d in ledger.cfg" % (
-                key, configured, best, key, best))
+    neutral_rulesets = {h["ruleset"] for h in config.houses if h["side"] == "Neutral"}
+    only_neutral = next(iter(neutral_rulesets)) if len(neutral_rulesets) == 1 else None
+    fetched = {}   # (ruleset, house) -> reduced rows or the error, shared by books of one ruleset
+    for label, book in books.items():
+        legacy = label == "? Neutral"   # saved before Ledger Link keyed its books: ruleset unknown
+        ruleset = (only_neutral or "PvP") if legacy else book_ruleset(label)
+        suggest = (only_neutral or "<ruleset>") if legacy else ruleset
+        # the client picks the API path from the config's houses, so describe the candidates in this ruleset
+        candidates = [{"key": "%s %d" % (ruleset, i), "ruleset": ruleset, "side": bnet.SIDE_OF.get(i, "?"), "id": i}
+                      for i in KIND_HOUSES[kind]]
+        client = bnet.Client(bnet.Config(config.client_id, config.secret, config.region, candidates, config.every))
+        scores = []
+        for house in KIND_HOUSES[kind]:
+            if (ruleset, house) not in fetched:
+                try:
+                    auctions, commodities = client.house(house)
+                    fetched[(ruleset, house)] = market_reduce.reduce(auctions, commodities)
+                except Exception as e:
+                    fetched[(ruleset, house)] = e
+            rows = fetched[(ruleset, house)]
+            if isinstance(rows, Exception):
+                print("house %d: failed: %s" % (house, rows))
+                continue
+            scores.append((house, match_score(book, rows)))
+        scores.sort(key=lambda hs: hs[1]["exact"], reverse=True)
+        print('book "%s": %d prices saved in game' % (label, len(book)))
+        for house, sc in scores:
+            pct = lambda n: 100 * n // len(book)   # noqa: E731
+            print("house %d: %d shared, %d exact (%d%%), %d within 5%% (%d%%)" % (
+                house, sc["shared"], sc["exact"], pct(sc["exact"]), sc["near"], pct(sc["near"])))
+        if scores:
+            best = scores[0][0]
+            name = '"%s %d"' % (suggest, best)
+            if best in {h["id"] for h in config.houses}:
+                print("%s matches best (already in ah_houses)" % name)
+            else:
+                print("%s matches best: add %s to ah_houses" % (name, name))
     return 0
 
 
@@ -281,7 +304,7 @@ def loop(args, cfg, data, log):
     except ValueError as e:
         log.error("%s: %s", BAD_NUMBER, e)
         write_status(status_path, {"last_ok": None, "last_try": None, "next": None,
-                                   "error": BAD_NUMBER, "houses": {}}, log)
+                                   "error": "%s: %s" % (BAD_NUMBER, e), "houses": {}}, log)
         return 2
     if config is None:
         write_status(status_path, {"last_ok": None, "last_try": None, "next": None,
@@ -292,7 +315,8 @@ def loop(args, cfg, data, log):
         return 0
     client = bnet.Client(config, log=log)
     store = market_store.Store(os.path.join(data, "market.db"))
-    houses = [config.faction, config.neutral]
+    houses = [h["id"] for h in config.houses]
+    keys = {h["id"]: h["key"] for h in config.houses}
     last_ok = read_status(status_path).get("last_ok")
     last_rollup = 0
     skips = {}
@@ -300,7 +324,7 @@ def loop(args, cfg, data, log):
     try:
         while True:
             now = int(time.time())
-            status = run_once(client, store, houses, now, log, last_ok, config.every, skips)
+            status = run_once(client, store, houses, now, log, last_ok, config.every, skips, keys)
             last_ok = status["last_ok"]
             if now - last_rollup >= 86400:
                 rollup(store, now, log)

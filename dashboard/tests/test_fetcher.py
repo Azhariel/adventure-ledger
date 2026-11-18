@@ -53,6 +53,11 @@ class FetcherTests(unittest.TestCase):
         self.store.close()
         self.dir.cleanup()
 
+    def test_status_carries_house_key(self):
+        c = FakeClient({113: ([auction(1, 10)], [])})
+        st = fetcher.run_once(c, self.store, [113], 1000, LOG, keys={113: "PvP Horde"})
+        self.assertEqual(st["houses"]["113"]["key"], "PvP Horde")
+
     def test_run_once_records_both(self):
         c = FakeClient({113: ([auction(1, 10)], []), 116: ([auction(2, 20), auction(3, 21)], [])})
         st = fetcher.run_once(c, self.store, [113, 116], 1000, LOG)
@@ -308,6 +313,25 @@ class RobustnessTests(unittest.TestCase):
         self.assertNotIn("Traceback", text)
         self.assertNotIn("s3cret", text)
 
+    def test_bad_house_entry_is_named_in_the_status(self):
+        cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret", "ah_houses": "PvP 999"}
+        self.assertNotEqual(fetcher.main(["--once"], cfg=cfg, data=self.dir), 0)
+        with open(os.path.join(self.dir, "fetcher_status.json")) as fh:
+            error = json.load(fh)["error"]
+        self.assertIn("ah_houses", error)
+        self.assertIn("PvP 999", error)
+
+    def test_loop_fetches_each_configured_house_once(self):
+        cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret", "ah_houses": "PvP 113, PvP 116, PvP 119"}
+        c = FakeClient({h: ([auction(1, 10)], []) for h in (113, 116, 119)})
+        with unittest.mock.patch.object(fetcher.bnet, "Client", return_value=c):
+            self.assertEqual(fetcher.main(["--once"], cfg=cfg, data=self.dir), 0)
+        fetcher._lock_handle.close()
+        fetcher._lock_handle = None
+        self.assertEqual([h for h, _ in c.asked], [113, 116, 119])
+        with open(os.path.join(self.dir, "fetcher_status.json")) as fh:
+            self.assertEqual(json.load(fh)["houses"]["116"]["key"], "PvP Neutral")
+
     def test_crash_is_logged(self):
         cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret"}
         with unittest.mock.patch.object(fetcher, "run_once", side_effect=RuntimeError("boom")):
@@ -342,6 +366,43 @@ class ImportTests(unittest.TestCase):
                                  env=dict(os.environ, LEDGER_DATA=tmp), capture_output=True, text=True, check=True)
             self.assertEqual(out.stdout.strip(), "0")
             self.assertFalse(os.path.exists(os.path.join(tmp, "server.log")))
+
+
+class MatchHouses(unittest.TestCase):
+    class Client:
+        def __init__(self, config, **kw):
+            self.config = config
+
+        def house(self, h):
+            # house 113 sells item 1 at 100, 116 item 2 at 50, the rest nothing
+            return ([auction(1, 1, qty=1, buyout=100)] if h == 113 else [auction(2, 2, qty=1, buyout=50)] if h == 116 else []), []
+
+    def run_match(self, books, cfg_extra=None, kind="faction"):
+        import io
+        cfg = dict({"wow": "x", "bnet_id": "abcd", "bnet_secret": "s"}, **(cfg_extra or {}))
+        config = bnet.Config.from_cfg(cfg)
+        out = io.StringIO()
+        with unittest.mock.patch.object(fetcher, "read_book", return_value=books),                 unittest.mock.patch.object(fetcher.bnet, "Client", self.Client),                 unittest.mock.patch.object(sys, "stdout", out):
+            self.assertEqual(fetcher.match_houses(kind, cfg, config), 0)
+        return out.getvalue()
+
+    def test_match_reports_per_book(self):
+        out = self.run_match({"PvP": {1: 100}, "Normal": {2: 50}}, {"ah_houses": "PvP 116"})
+        self.assertEqual(out.count("house 113:"), 2)   # one ranking per book
+        self.assertIn('book "PvP"', out)
+        self.assertIn('book "Normal"', out)
+        self.assertIn('add "PvP 113" to ah_houses', out)
+
+    def test_match_configured_house_says_so(self):
+        out = self.run_match({"PvP Horde": {1: 100}}, {"ah_houses": "PvP 113"})
+        self.assertIn('"PvP 113" matches best', out)
+        self.assertNotIn("to ah_houses", out)
+
+    def test_match_legacy_book_uses_the_neutral_ruleset(self):
+        out = self.run_match({"? Neutral": {2: 50}}, {"ah_houses": "Normal 113, Normal 116"}, "neutral")
+        self.assertIn('"Normal 116" matches best', out)
+        out = self.run_match({"? Neutral": {2: 50}}, {"ah_houses": "PvP 113"}, "neutral")
+        self.assertIn('add "<ruleset> 116" to ah_houses', out)
 
 
 class MatchScore(unittest.TestCase):

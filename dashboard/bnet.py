@@ -70,16 +70,6 @@ class Config:
         self.houses = houses if houses is not None else parse_houses({})
         self.every = int(every)   # minutes between fetches
 
-    # until the fetcher reads houses (next task)
-    @property
-    def faction(self):
-        return next((h["id"] for h in self.houses if h["side"] != "Neutral"), None)
-
-    # until the fetcher reads houses (next task)
-    @property
-    def neutral(self):
-        return next((h["id"] for h in self.houses if h["side"] == "Neutral"), None)
-
     @classmethod
     def from_cfg(cls, cfg):
         if not cfg.get("bnet_id") or not cfg.get("bnet_secret"):
