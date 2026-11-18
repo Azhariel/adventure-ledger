@@ -1841,6 +1841,23 @@ test("trends.page: unknown items skipped, false holes survive", function()
     eq(js, "[false,5]")
 end)
 
+test("trends.page: an item's week only once it is its own; families still pool every member", function()
+    local function grid(own, p)
+        local w = { own = own, p = {}, n = {}, s = {} }
+        for i = 1, 168 do w.p[i], w.n[i], w.s[i] = p, 3, 1 end
+        return w
+    end
+    local api = { ["PvP Horde"] = { id = 113, latest = 5, items = {
+        [1] = { now = 10, week = grid(true, 0.1) }, [2] = { now = 20, week = grid(false, 0.3) }, [3] = { now = 30 } } } }
+    local fams = { { key = "f", label = "F", ids = { 1, 2 } } }
+    local h = TR.page(api, fams, function(id) return "Item " .. id end, { dow = 1, hour = 12 }, "PvP Horde").houses["PvP Horde"]
+    eq(h.items["1"].week.own, true, "its own grid is embedded")
+    eq(h.items["2"].week, nil, "a partial grid the page never shows is left out")
+    eq(h.items["3"].week, nil)
+    local direct = TR.familyWeek({ grid(true, 0.1), grid(false, 0.3) })
+    eq(U.json(h.families[1].week), U.json(direct), "the family grid still pools both members")
+end)
+
 test("Build.thisTuesday: the Tuesday of the Monday-first week", function()
     local Build = require("build")
     eq(Build.thisTuesday(1704708000), 1704758400, "Mon 8 Jan")

@@ -162,8 +162,7 @@ function T.wanted(families, ownedIds, tradedIds, houseKeys)
     return table.concat(lines)
 end
 
-local ITEM_FIELDS = { "now", "market", "historical", "soldPerDay", "trend", "days", "shifted", "spark", "week",
-    "daily" }
+local ITEM_FIELDS = { "now", "market", "historical", "soldPerDay", "trend", "days", "shifted", "spark", "daily" }
 
 -- The held ids whose hourly series go in the page: those the house has with a series, best sellers first, at most
 -- HOURLY_MAX.
@@ -186,7 +185,7 @@ end
 -- result.trends: per house key, the engine's data trimmed to what the page uses, plus the family grids.
 -- wanted (optional { [id] = true }, T.wantedIds): only those items are embedded; the page reads every other
 -- item's numbers from the market tabs. held (optional { [id] = true }, what the characters hold): only those carry
--- their hourly series (hourlyIds); the rest keep week, daily and spark, and the live drawer asks /history.
+-- their hourly series (hourlyIds); the rest keep daily and spark (and week once it is their own), and the live drawer asks /history.
 function T.page(apiByKey, families, nameOf, reset, defaultKey, wanted, held)
     local out = { reset = reset, default = defaultKey, stripRule = T.C, houses = {} }
     for key, h in pairs(apiByKey or {}) do
@@ -196,6 +195,9 @@ function T.page(apiByKey, families, nameOf, reset, defaultKey, wanted, held)
             if name ~= nil then
                 local e = { name = name }
                 for _, k in ipairs(ITEM_FIELDS) do e[k] = it[k] end
+                -- the page shows an item's grid only once it is its own (else its family's, pooled below): a
+                -- partial grid would be ~2 KB per item the page never reads
+                if type(it.week) == "table" and it.week.own == true then e.week = it.week end
                 if withHourly[id] then e.hourly = it.hourly end
                 items[tostring(id)] = e
             end
