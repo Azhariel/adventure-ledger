@@ -1,6 +1,9 @@
 """AH market engine. Calculations first (pure, no I/O); the sqlite/file glue lives below its own section.
 `rows` is always one item's [(t, min, market, units, listings, sold)] hourly rows, oldest first.
-min/market are None for an hour the item was sold out; sold is an int. Days are local days."""
+min/market are None for an hour the item was sold out; sold is an int. Days are local days.
+`buckets` are one item's rows summed per (local day, window segment): see day_buckets. The long windows
+(market value, trend, sales, history) read buckets, so a month of hours never passes through Python."""
+import collections
 import math
 import os
 import pathlib
@@ -37,51 +40,106 @@ CELLS = 168
 
 # ---------------------------------------------------------------- calculations (pure)
 
-def market_value(rows, end):
-    """Sales- and recency-weighted mean of the hourly market price over the 14 days up to `end`."""
+# One (local day, segment) of an item's rows. lo/hi: first and last hour; wm = sum((sold+1)*market),
+# w = sum(sold+1) and wt = sum((sold+1)*t) over priced hours; n = priced hours; sold = units sold;
+# msum = sum(market) (for the day's mean).
+Bucket = collections.namedtuple("Bucket", "day lo hi wm w wt n sold msum")
+
+
+def edges(now):
+    """Every window edge the engine reads. Buckets are split at each one, so a bucket sits wholly inside or
+    outside every window; only the decay inside a bucket is approximated."""
+    span = C["MARKET_DAYS"] * DAY
+    then = now - C["TREND_DAYS"] * DAY
+    cut = now - C["SHIFT_HOURS"] * 3600
+    return sorted({now - span, then, then - span, cut, cut - span, now - C["HIST_DAYS"] * DAY})
+
+
+def segment(t, cuts):
+    return sum(1 for e in cuts if t > e)
+
+
+def day_buckets(rows, cuts=()):
+    """Rows -> buckets, the same sums the engine's SQL makes (for tests and small inputs)."""
+    acc = {}
+    for t, _mn, market, _u, _l, sold in rows:
+        key = (market_store.local_day(t), segment(t, cuts))
+        b = acc.get(key) or [t, t, 0, 0, 0, 0, 0, 0]
+        b[0], b[1] = min(b[0], t), max(b[1], t)
+        b[6] += sold
+        if market is not None:
+            b[2] += (sold + 1) * market
+            b[3] += sold + 1
+            b[4] += (sold + 1) * t
+            b[5] += 1
+            b[7] += market
+        acc[key] = b
+    return sorted((Bucket(day, *b) for (day, _s), b in acc.items()), key=lambda b: b.lo)
+
+
+def _mid(b):
+    return (b.lo + b.hi) / 2
+
+
+def market_value(buckets, end):
+    """Sales- and recency-weighted mean of the hourly market price over the 14 days up to `end`.
+    Each bucket decays as a whole, at its rows' weighted mean time (exact to first order)."""
     lo = end - C["MARKET_DAYS"] * DAY
     num = den = 0.0
     count = 0
-    for t, _mn, market, _u, _l, sold in rows:
-        if market is None or not (lo < t <= end):
+    hl = DAY * C["MARKET_HALF_LIFE_DAYS"]
+    for _d, b_lo, b_hi, wm, w, wt, n, _s, _m in buckets:
+        if not n or not (lo < (b_lo + b_hi) / 2 <= end):
             continue
-        w = (sold + 1) * 0.5 ** ((end - t) / DAY / C["MARKET_HALF_LIFE_DAYS"])
-        num += w * market
-        den += w
-        count += 1
+        f = 0.5 ** ((end - wt / w) / hl)
+        num += f * wm
+        den += f * w
+        count += n
     if count < C["MIN_SNAPSHOTS"]:
         return None
     return int(round(num / den))
 
 
-def trend(rows, now):
+def trend(buckets, now):
     """Market value now vs a week ago, as a fraction. None until the data reaches back a week."""
     then = now - C["TREND_DAYS"] * DAY
-    if not rows or rows[0][0] > then:
+    if not buckets or min(b.lo for b in buckets) > then:
         return None
-    a, b = market_value(rows, now), market_value(rows, then)
+    a, b = market_value(buckets, now), market_value(buckets, then)
     if a is None or b is None:
         return None
     return a / b - 1
 
 
-def sold_per_day(rows, now):
-    if not rows:
+def sold_per_day(buckets, now):
+    if not buckets:
         return 0.0
     lo = now - C["MARKET_DAYS"] * DAY
-    total = sum(r[5] for r in rows if r[0] > lo)
-    return total / max(1, min(C["MARKET_DAYS"], (now - rows[0][0]) / DAY))
+    total = sum(b.sold for b in buckets if _mid(b) > lo)
+    return total / max(1, min(C["MARKET_DAYS"], (now - min(b.lo for b in buckets)) / DAY))
 
 
 def historical(day_means):
     return sum(day_means) / len(day_means) if day_means else None
 
 
-def shifted(rows, now):
-    """A new price level that is holding: most of the last 48h sits beyond +-SHIFT_PCT of the
+def hourly_day_means(buckets, now):
+    """{local day: mean market price} over the priced hours of the last HIST_DAYS."""
+    lo = now - C["HIST_DAYS"] * DAY
+    sums = {}
+    for b in buckets:
+        if b.n and _mid(b) > lo:
+            s = sums.setdefault(b.day, [0, 0])
+            s[0] += b.msum
+            s[1] += b.n
+    return {day: ms / n for day, (ms, n) in sums.items()}
+
+
+def shifted(buckets, rows, now):
+    """A new price level that is holding: most of the last 48h (`rows`) sits beyond +-SHIFT_PCT of the
     market value from before that window, with real sales. A one-night dump fails the share test."""
     cut = now - C["SHIFT_HOURS"] * 3600
-    ref = market_value(rows, cut)
+    ref = market_value(buckets, cut)
     if not ref:
         return None
     inwin = [r for r in rows if cut < r[0] <= now]
@@ -155,18 +213,20 @@ def house_week(snapshots, sold_by_t):
     return {"listings": listings, "sold": sold_out}
 
 
-def item_summary(rows, day_means, stored, upto, latest, now):
+def item_summary(buckets, recent, last, day_means, now):
+    """One item: `buckets` over the whole retention, `recent` its rows of the last SHIFT_HOURS (oldest first),
+    `last` its row in the latest snapshot (None when it was not listed).
+    The per-item `week` (item_week) is left out until the build reads it: step 2 of the AH market plan wires it
+    in, from the stored profile plus the weeks still in hourly."""
     out = {"units": 0, "listings": 0}
-    last = rows[-1] if rows else None
-    if last and last[0] == latest and last[1] is not None:
+    if last and last[1] is not None:
         out["units"], out["listings"], out["now"] = last[3], last[4], last[1]
-    out["market"] = market_value(rows, now)
+    out["market"] = market_value(buckets, now)
     out["historical"] = historical(day_means)
-    out["soldPerDay"] = round(sold_per_day(rows, now), 2)
-    out["trend"] = trend(rows, now)
-    out["days"] = len({time.strftime("%Y-%m-%d", time.localtime(r[0])) for r in rows})
-    out["shifted"] = shifted(rows, now)
-    out["week"] = item_week(stored, upto, rows, now)
+    out["soldPerDay"] = round(sold_per_day(buckets, now), 2)
+    out["trend"] = trend(buckets, now)
+    out["days"] = len({b.day for b in buckets})
+    out["shifted"] = shifted(buckets, recent, now)
     return {k: v for k, v in out.items() if v is not None}
 
 
@@ -221,7 +281,9 @@ def open_ro(db_path):
     """Read-only connection (the fetcher owns writes). None when there is no db file."""
     if not os.path.isfile(db_path):
         return None
-    return sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+    db = sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+    db.execute("PRAGMA threads=4")   # the engine's GROUP BYs sort millions of rows: let the sorter use helpers
+    return db
 
 
 def _has(db, table):
@@ -247,16 +309,45 @@ def _house_keys(cfg):
         return {}
 
 
+def _buckets_sql(cuts):
+    """The day_buckets sums in SQL: one row per (item, local day, segment) instead of one per hour.
+    NOT INDEXED: the (house, item, t) index would cost a table lookup per row; reading the table in order and
+    sorting is several times faster."""
+    seg = "+".join("(t>%d)" % e for e in cuts) or "0"
+    return ("SELECT item, date(t, 'unixepoch', 'localtime') AS day, %s AS seg, MIN(t), MAX(t), "
+            "TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*market END), "
+            "TOTAL(CASE WHEN market IS NOT NULL THEN sold+1 END), TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*t END), "
+            "COUNT(market), TOTAL(sold), TOTAL(market) "
+            "FROM hourly NOT INDEXED WHERE house=? GROUP BY item, day, seg" % seg)
+
+
 def _house(db, house, keys, now):
-    latest, first, count = db.execute(
-        "SELECT MAX(t), MIN(t), COUNT(*) FROM snapshot WHERE house=?", (house,)).fetchone()
     snaps = db.execute("SELECT t, auctions FROM snapshot WHERE house=? ORDER BY t", (house,)).fetchall()
-    # One pass over the hourly rows feeds the items, the per-hour sales and the recent prices (the index is
-    # (house, item, t), so separate queries by t would each scan the whole house).
-    sold_by_t = {}
+    latest, first, count = snaps[-1][0], snaps[0][0], len(snaps)
     newest = [t for t, _ in reversed(snaps[-6:])]
-    recent_min = {t: {} for t in newest}
-    upto, stored = market_store.read_profile(db, house) if _has(db, "profile") and _has(db, "profile_state") else (None, {})
+    cut = now - C["SHIFT_HOURS"] * 3600
+
+    buckets = {}
+    for item, day, _seg, lo, hi, wm, w, wt, n, sold, msum in db.execute(_buckets_sql(edges(now)), (house,)):
+        buckets.setdefault(item, []).append(Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum))
+
+    # Per hour only the recent rows: the shift window, and the newest snapshots' prices (older than the window
+    # when the fetcher was off for a while).
+    recent, last, recent_min = {}, {}, {t: {} for t in newest}
+    since = min(cut, newest[-1] - 1)
+    for item, t, mn, market, units, listings, sold in db.execute(
+            "SELECT item, t, min, market, units, listings, sold FROM hourly NOT INDEXED WHERE house=? AND t>? "
+            "ORDER BY item, t",
+            (house, since)):
+        row = (t, mn, market, units, listings, sold)
+        if t == latest:
+            last[item] = row
+        if mn is not None and t in recent_min:
+            recent_min[t][item] = mn
+        if t > cut:
+            recent.setdefault(item, []).append(row)
+    sold_by_t = dict(db.execute("SELECT t, SUM(sold) FROM hourly NOT INDEXED WHERE house=? GROUP BY t", (house,)))
+
     lo_day = market_store.local_day(now - C["HIST_DAYS"] * DAY)
     by_day = {}
     for item, day, market in (db.execute(
@@ -265,30 +356,11 @@ def _house(db, house, keys, now):
         by_day.setdefault(item, {})[day] = market
 
     items = {}
-
-    def finish(item, rows):
+    for item, bs in buckets.items():
+        bs.sort(key=lambda b: b.lo)
         days = dict(by_day.get(item, {}))
-        hourly = {}
-        for t, _mn, market, _u, _l, _s in rows:
-            if market is not None and t > now - C["HIST_DAYS"] * DAY:
-                hourly.setdefault(market_store.local_day(t), []).append(market)
-        for day, v in hourly.items():
-            days[day] = sum(v) / len(v)   # hourly wins: daily only holds folded days, the two rarely overlap
-        items[item] = item_summary(rows, list(days.values()), stored.get(item), upto, latest, now)
-
-    cur_item, rows = None, []
-    for item, t, mn, market, units, listings, sold in db.execute(
-            "SELECT item, t, min, market, units, listings, sold FROM hourly WHERE house=? ORDER BY item, t", (house,)):
-        if item != cur_item and cur_item is not None:
-            finish(cur_item, rows)
-            rows = []
-        cur_item = item
-        sold_by_t[t] = sold_by_t.get(t, 0) + sold
-        if mn is not None and t in recent_min:
-            recent_min[t][item] = mn
-        rows.append((t, mn, market, units, listings, sold))
-    if cur_item is not None:
-        finish(cur_item, rows)
+        days.update(hourly_day_means(bs, now))   # hourly wins: daily only holds folded days, the two rarely overlap
+        items[item] = item_summary(bs, recent.get(item, []), last.get(item), list(days.values()), now)
 
     recent = [{"t": t, "min": recent_min[t]} for t in newest]
     out = {"id": house, "latest": latest, "first": first, "snapshots": count,

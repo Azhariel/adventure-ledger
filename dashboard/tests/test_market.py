@@ -21,57 +21,67 @@ def hours(start, n, market, sold=0):
     return [(start + i * 3600, market, market, 5, 3, sold) for i in range(n)]
 
 
+def B(rows, now):
+    """The buckets the engine's SQL would make for these rows at `now`."""
+    return m.day_buckets(rows, m.edges(now))
+
+
+def shifted(rows):
+    now = rows[-1][0]
+    return m.shifted(B(rows, now), [r for r in rows if r[0] > now - m.C["SHIFT_HOURS"] * 3600], now)
+
+
 class MarketTests(unittest.TestCase):
     def test_market_value_follows_a_jump_in_days(self):
         rows = hours(START, 14 * 24, 100) + hours(START + 14 * 86400, 72, 200, sold=1)
         now = rows[-1][0]
-        self.assertTrue(160 < m.market_value(rows, now) < 200)
+        self.assertTrue(160 < m.market_value(B(rows, now), now) < 200)
         flat = hours(START, 14 * 24, 100)
-        self.assertEqual(m.market_value(flat, flat[-1][0]), 100)
+        self.assertEqual(m.market_value(B(flat, flat[-1][0]), flat[-1][0]), 100)
 
     def test_market_value_needs_min_snapshots(self):
         rows = hours(START, 5, 100)
-        self.assertIsNone(m.market_value(rows, rows[-1][0]))
+        self.assertIsNone(m.market_value(B(rows, rows[-1][0]), rows[-1][0]))
 
     def test_trend_needs_both_ends(self):
         short = hours(START, 6 * 24, 100)
-        self.assertIsNone(m.trend(short, short[-1][0]))
+        self.assertIsNone(m.trend(B(short, short[-1][0]), short[-1][0]))
         # a +10% step; the trend lags it by design (recency-weighted value now vs a week ago) -> +0.08
         rows = hours(START, 7 * 24, 100) + hours(START + 7 * 86400, 7 * 24, 110)
-        self.assertAlmostEqual(m.trend(rows, rows[-1][0]), 0.08, delta=0.01)
+        self.assertAlmostEqual(m.trend(B(rows, rows[-1][0]), rows[-1][0]), 0.08, delta=0.01)
 
     def test_shifted_up_after_a_real_jump(self):
         jump = START + 12 * 86400
         rows = hours(START, 12 * 24, 100) + hours(jump, 36, 190, sold=1)
-        got = m.shifted(rows, rows[-1][0])
+        got = shifted(rows)
         self.assertEqual(got["dir"], "up")
         self.assertAlmostEqual(got["pct"], 0.9, delta=0.05)
         self.assertEqual(got["since"], jump)
 
     def test_one_night_dump_is_not_a_shift(self):
         rows = hours(START, 14 * 24 - 8, 100) + hours(START + (14 * 24 - 8) * 3600, 8, 40, sold=1)
-        self.assertIsNone(m.shifted(rows, rows[-1][0]))
+        self.assertIsNone(shifted(rows))
 
     def test_shifted_down_after_a_real_drop(self):
         rows = hours(START, 12 * 24, 100) + hours(START + 12 * 86400, 36, 50, sold=1)
-        self.assertEqual(m.shifted(rows, rows[-1][0])["dir"], "down")
+        self.assertEqual(shifted(rows)["dir"], "down")
 
     def test_sales_in_sold_out_hours_count_toward_a_shift(self):
         start = START + 12 * 86400 - 8 * 3600
         jump = [(start + i * 3600, None, None, 0, 0, 1) if i % 8 == 0 else (start + i * 3600, 190, 190, 5, 3, 0)
                 for i in range(44)]   # the only sales (6) happen in sold-out hours
         rows = hours(START, 12 * 24 - 8, 100) + jump
-        self.assertEqual(m.shifted(rows, rows[-1][0])["dir"], "up")
+        self.assertEqual(shifted(rows)["dir"], "up")
 
     def test_sold_per_day(self):
         rows = hours(START, 14 * 24, 100, sold=2)
-        self.assertAlmostEqual(m.sold_per_day(rows, rows[-1][0] + 3600), 48, delta=1)
+        self.assertAlmostEqual(m.sold_per_day(B(rows, rows[-1][0] + 3600), rows[-1][0] + 3600), 48, delta=1)
         young = hours(START, 3 * 24, 100, sold=1)
-        self.assertAlmostEqual(m.sold_per_day(young, START + 3 * 86400), 24, delta=0.5)
+        self.assertAlmostEqual(m.sold_per_day(B(young, START + 3 * 86400), START + 3 * 86400), 24, delta=0.5)
 
     def test_shift_needs_sales(self):
         rows = hours(START, 12 * 24, 100) + hours(START + 12 * 86400, 36, 190)
-        self.assertIsNone(m.shifted(rows, rows[-1][0]))
+        self.assertIsNone(shifted(rows))
 
     def _week_rows(self, days):
         rows = []
@@ -103,10 +113,28 @@ class MarketTests(unittest.TestCase):
     def test_sold_out_item_summary(self):
         rows = hours(START, 14 * 24, 100)
         latest = rows[-1][0] + 3600
-        got = m.item_summary(rows, [100.0], None, None, latest, latest)
+        got = m.item_summary(B(rows, latest), rows[-48:], None, [100.0], latest)
         self.assertNotIn("now", got)
         self.assertEqual(got["units"], 0)
         self.assertEqual(got["market"], 100)
+
+    def test_sql_buckets_match_day_buckets(self):
+        d = tempfile.mkdtemp()
+        try:
+            st = ms.Store(os.path.join(d, "market.db"))
+            rows = [(START + i * 3600, None if i % 5 == 0 else 100 + i, None if i % 5 == 0 else 100 + i, 5, 3, i % 3)
+                    for i in range(20 * 24 - 10)]   # ends at 13:00, so the edges split days
+            st.db.executemany("INSERT INTO hourly VALUES (113,?,7,?,?,?,?,?)", rows)
+            st.db.commit()
+            now = rows[-1][0]
+            got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum)
+                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum in st.db.execute(m._buckets_sql(m.edges(now)), (113,))),
+                         key=lambda b: b.lo)
+            st.close()
+            self.assertEqual(got, B(rows, now))
+            self.assertGreater(len(got), 20)   # split at the edges, not only by day
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
     def test_house_week_shape(self):
         snaps = [(START, 40), (START + 3600, 50)]
@@ -167,6 +195,13 @@ class RunTests(unittest.TestCase):
         before = os.stat(self.out).st_mtime_ns
         self.assertEqual(self.run_(), "unchanged")
         self.assertEqual(os.stat(self.out).st_mtime_ns, before)
+
+    def test_run_leaves_the_item_week_out(self):
+        self.assertEqual(self.run_(), "written")
+        with open(self.out, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertEqual(text.count('["week"]='), 1)   # the house's only
+        self.assertIn('["market"]=110', text)
 
     def test_run_new_snapshot_rewrites(self):
         self.assertEqual(self.run_(), "written")
