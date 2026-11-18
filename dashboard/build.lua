@@ -17,6 +17,7 @@ local Mg = require("merge")
 local H = require("houses")
 local R = require("reconcile")
 local T = require("trends")
+local Sg = require("signals")
 
 local Build = {}
 
@@ -685,6 +686,32 @@ function Build.data(wow, opts)
         for _, it in ipairs(c.money and c.money.ahTrades and c.money.ahTrades.items or {}) do
             if it.id then traded[it.id] = true end
         end
+    end
+    -- Deals (per house with API data) and Sell windows (holdings at each holder's own faction house). Their items
+    -- are wanted too, so the drawer and the hour check have their grids
+    if next(apiByKey) then
+        local also = {}
+        for id in pairs(traded) do also[id] = true end
+        result.deals = {}
+        for _, key in ipairs(keys) do
+            if apiByKey[key] then
+                local cut = key:match(" Neutral$") and I.CUT.neutral or I.CUT.faction
+                local list = Sg.deals(merged[key], cut, acctNameOf, owned,
+                    key == factionKey and result.market.buy or nil)
+                result.deals[key] = list
+                for i = 1, math.min(#list, Sg.C.WANTED_LIST) do also[list[i].id] = true end
+            end
+        end
+        -- a holder's own faction house; nil (the default house) when its realm or faction can't be told
+        local houseById = {}
+        for _, r in ipairs(result.account.characters) do houseById[r.id] = (H.forChar(r.realm, r.faction)) end
+        for _, c in ipairs(result.characters) do
+            if c.id and c.houses then houseById[c.id] = c.houses.faction end
+        end
+        result.sellWindows = Sg.sellWindows(holders, function(id) return houseById[id] end, merged, acctNameOf,
+            result.market.sell, factionKey)
+        for _, r in ipairs(result.sellWindows) do also[r.id] = true end
+        traded = also
     end
     if next(apiByKey) then
         result.trends = T.page(apiByKey, I.FAMILIES, function(id) return names[id] or known[id] end, result.reset,

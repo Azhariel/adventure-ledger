@@ -849,6 +849,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     truthy(not page:find("/*DATA*/", 1, true), "placeholder replaced")
     eq(data.marketTab.items["2592"].now, 100, "no market data: the scan's price, as before")
     eq(data.trends, nil, "no market data: no Trends")
+    eq(data.deals, nil, "no market data: no Deals"); eq(data.sellWindows, nil, "no market data: no Sell windows")
     truthy(data.reset and data.reset.dow and data.reset.hour, "the reset is there without API data too")
     -- The API's newer snapshot of R Horde. Ledger Link saw a faction visit at 10:00 on the last scan day (when
     -- Auctionator's price was taken) and a Neutral one at 20:00, which must not stamp the faction book's scan.
@@ -864,10 +865,11 @@ test("end to end: fixture SavedVariables -> one character with every section, em
         log = { "10|3600|1|1|1|zo|Elwynn", "20|3610|1|1|1|xp|100|kill|Wolf", "30|3620|1|1|1|mn|50|loot", "40|5400|1|1|1|lv|12",
             "45|5405|1|1|1|ah|sold|950|Woolen Bag", "45|5405|1|1|1|mn|950|auction|Woolen Bag" } }]])
     local logged, wanted = {}, {}
-    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [2901] = "Mining Pick", [12345] = "Nobody's Item" }, listDirs = listDirs, repoAddons = repo,
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [2901] = "Mining Pick", [12345] = "Nobody's Item", [99001] = "Bargain Ore" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
             items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false }, hourly = { min = { 80 }, market = { 85 } } }, [12345] = { now = 1, spark = { 1 } },
-                [2901] = { now = 40, spark = { 40 } }, [4241] = { now = 30, spark = { 30 } } },
+                [2901] = { now = 40, spark = { 40 } }, [4241] = { now = 30, spark = { 30 } },
+                [99001] = { now = 100, market = 1000, soldPerDay = 5, units = 3, spark = { 100 } } },
         recent = {} } } },
         priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end },
         reset = "Wed 9", wanted = function(text) wanted[#wanted + 1] = text end })
@@ -888,6 +890,14 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     truthy(wanted[1]:find("R Horde\t2447\n", 1, true), "a family member is wanted")
     truthy(wanted[1]:find("R Neutral\t2592\n", 1, true), "the character's Neutral house too")
     eq(api.characters[1].houses.faction, "R Horde"); eq(api.characters[1].houses.neutral, "R Neutral")
+    -- Deals per house with API data; their ids join the wanted list and the Trends items (the drawer's grids)
+    local deals = api.deals and api.deals["R Horde"]
+    truthy(deals, "Deals for the API's house"); eq(type(deals), "table")
+    eq(deals[1].id, 99001); eq(deals[1].basis, "api"); eq(deals[1].profit, 850, "950 after the 5% cut, less 100")
+    eq(api.deals["R Neutral"], nil, "no API data for R Neutral: no Deals there")
+    eq(type(api.sellWindows), "table")
+    truthy(th.items["99001"], "a deal is embedded")
+    truthy(wanted[1]:find("R Horde\t99001\n", 1, true), "a deal is wanted")
     eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")
     eq(api.marketTab.items["2592"].nowFrom, "api"); eq(api.marketTab.items["2592"].market, 95)
     eq(#logged, 1); truthy(logged[1]:find("\t2592\t100\n"), "the log keeps the scan: " .. logged[1])
@@ -1823,6 +1833,109 @@ test("Build.writeAtomic: through a temp file, replacing an existing target", fun
     truthy(Build.writeAtomic(path, "two\n")); eq(U.readFile(path), "two\n", "replaced")
     eq(io.open(path .. ".tmp", "rb"), nil, "no temp file left")
     os.remove(path)
+end)
+
+----------------------------------------------------------------------------------------------------
+-- Signals: deals and sell windows on the API's market values
+
+local Sg = require("signals")
+local itemName = function(id) return "Item " .. id end
+
+test("signals.deals: under market, selling, ranked by profit per day", function()
+    local book = { prices = {
+        [1] = { now = 450, market = 1000, soldPerDay = 10, units = 4, nowFrom = "api", nowAt = 5 },
+        [2] = { now = 100, market = 2000, soldPerDay = 4.5, units = 10 },  -- more profit, but too few sales
+        [3] = { now = 550, market = 1000, soldPerDay = 10, units = 4 },    -- 0.55 of market: not low enough
+        [4] = { now = 400, market = 1000, soldPerDay = 5, units = 3 },     -- more per item, less per day
+        [5] = { now = 50, market = 100, soldPerDay = 10, units = 9 },      -- 95 - 50 = 45: under MIN_GAIN
+    } }
+    local list = Sg.deals(book, I.CUT.faction, itemName, { [1] = { count = 3 } }, nil)
+    eq(#list, 2)
+    local d = list[1]
+    eq(d.id, 1); eq(d.name, "Item 1"); eq(d.now, 450); eq(d.market, 1000); near(d.pct, 0.55)
+    eq(d.profit, 500, "950 after the cut, less 450"); eq(d.perDay, 2000, "500 times the 4 listed")
+    eq(d.soldPerDay, 10); eq(d.units, 4); eq(d.nowFrom, "api"); eq(d.nowAt, 5); eq(d.have, 3); eq(d.basis, "api")
+    eq(list[2].id, 4); eq(list[2].profit, 550); eq(list[2].perDay, 1650, "550 times the 3 listed")
+    eq(list[2].have, 0)
+end)
+
+test("signals.deals: neutral cut, zero and sold-out items", function()
+    local book = { prices = {
+        [1] = { now = 450, market = 1000, soldPerDay = 10, units = 4 },
+        [6] = { now = 10, market = 0, soldPerDay = 5, units = 3 },
+        [7] = { now = 0, market = 1000, soldPerDay = 5, units = 3 },
+        [8] = { now = nil, nowFrom = "api", market = 1000, soldPerDay = 10, units = 0 },
+    } }
+    local list = Sg.deals(book, I.CUT.neutral, itemName, nil, nil)
+    eq(#list, 1); eq(list[1].id, 1)
+    eq(list[1].profit, 400, "850 after the Neutral cut, less 450"); eq(list[1].perDay, 1600)
+    eq(#Sg.deals({ prices = {} }, I.CUT.faction, itemName, nil, nil), 0)
+end)
+
+test("signals.deals: legacy buy rows only for items without API market", function()
+    local book = { prices = {
+        [1] = { now = 450, market = 1000, soldPerDay = 10, units = 4 },
+        [9] = { now = 100, market = 500 },  -- the API knows its value (no sales): no scans row either
+        [10] = { now = 100, days = {} },
+    } }
+    local legacy = {
+        { id = 9, name = "Item 9", now = 100, usual = 400, pct = 0.75, available = 2, days = 3 },
+        { id = 10, name = "Item 10", now = 100, usual = 200, pct = 0.5, available = 3, days = 3 },
+    }
+    local list = Sg.deals(book, I.CUT.faction, itemName, nil, legacy)
+    eq(#list, 2)
+    eq(list[1].id, 1); eq(list[1].basis, "api")
+    local l = list[2]
+    eq(l.id, 10); eq(l.basis, "scans"); eq(l.name, "Item 10"); eq(l.now, 100); eq(l.usual, 200); near(l.pct, 0.5)
+    eq(l.available, 3)
+end)
+
+test("signals.sellWindows: per holder's house", function()
+    local held = function(bags, bank, mail) return { bags = bags, bank = bank or 0, mail = mail or 0 } end
+    local holders = {
+        { id = "a", name = "A", holds = { [7] = held(10) } },
+        { id = "b", name = "B", holds = { [7] = held(2, 3), [8] = held(2) } },   -- no house: the default one
+        { id = "c", name = "C", holds = { [7] = held(0, 8) } },
+        { id = "d", name = "D", holds = { [7] = held(4) } },                      -- a house with no book at all
+        { id = "e", name = "E", holds = {} },
+    }
+    local houses = { a = "PvP Horde", c = "Roleplay Horde", d = "Ghost Horde" }
+    local books = {
+        ["PvP Horde"] = { prices = { [7] = { now = 1500, market = 1000, soldPerDay = 3 } } },
+        ["Roleplay Horde"] = { prices = { [7] = { now = 900, market = 1000, soldPerDay = 3 } } },
+    }
+    local legacy = {
+        { id = 7, name = "Item 7", now = 1500, usual = 1000, pct = 0.5, count = 15, extra = 7500 },
+        { id = 8, name = "Item 8", now = 300, usual = 200, pct = 0.5, count = 2, extra = 200, holders = { "B 2" },
+            where = { { name = "B", bags = 2, bank = 0, mail = 0 } }, days = 3 },
+    }
+    local list = Sg.sellWindows(holders, function(id) return houses[id] end, books, itemName, legacy, "PvP Horde")
+    eq(#list, 2)
+    local r = list[1]
+    eq(r.id, 7); eq(r.key, "PvP Horde"); eq(r.basis, "api"); eq(r.name, "Item 7")
+    eq(r.now, 1500); eq(r.market, 1000); near(r.pct, 0.5); eq(r.soldPerDay, 3)
+    eq(r.count, 15, "A's 10 and B's 5; C sells elsewhere"); eq(r.extra, 7500)
+    eq(#r.where, 2); eq(r.where[1].name, "A"); eq(r.where[1].bags, 10)
+    eq(r.where[2].name, "B"); eq(r.where[2].bags, 2); eq(r.where[2].bank, 3)
+    local l = list[2]
+    eq(l.id, 8); eq(l.key, "PvP Horde"); eq(l.basis, "scans"); eq(l.count, 2); eq(l.extra, 200); eq(l.where[1].name, "B")
+end)
+
+test("signals.sellWindows: not selling or not high enough", function()
+    local holders = { { id = "a", name = "A", holds = {
+        [1] = { bags = 5, bank = 0, mail = 0 }, [2] = { bags = 5, bank = 0, mail = 0 },
+        [3] = { bags = 5, bank = 0, mail = 0 }, [4] = { bags = 5, bank = 0, mail = 0 },
+        [5] = { bags = 5, bank = 0, mail = 0 }, [6] = { bags = 5, bank = 0, mail = 0 } } } }
+    local books = { ["PvP Horde"] = { prices = {
+        [1] = { now = 1500, market = 1000, soldPerDay = 0 },
+        [2] = { now = 1200, market = 1000, soldPerDay = 3 },            -- 1.2 of market
+        [3] = { now = 140, market = 100, soldPerDay = 3 },              -- 1.4, but only 40 copper more
+        [4] = { now = nil, nowFrom = "api", market = 1000, soldPerDay = 3 },
+        [5] = { now = 1500, market = 0, soldPerDay = 3 },
+        [6] = { now = 0, market = 1000, soldPerDay = 3 },
+    } } }
+    eq(#Sg.sellWindows(holders, function() return nil end, books, itemName, nil, "PvP Horde"), 0)
+    eq(#Sg.sellWindows({}, function() return nil end, {}, itemName, nil, "PvP Horde"), 0)
 end)
 
 for _, t in ipairs(tests) do
