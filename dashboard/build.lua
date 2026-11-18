@@ -693,6 +693,7 @@ function Build.data(wow, opts)
         local also = {}
         for id in pairs(traded) do also[id] = true end
         result.deals = {}
+        result.signalRule = Sg.C   -- the thresholds the page states in its hints
         for _, key in ipairs(keys) do
             if apiByKey[key] then
                 local cut = key:match(" Neutral$") and I.CUT.neutral or I.CUT.faction

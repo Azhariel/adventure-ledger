@@ -442,7 +442,9 @@ tr.flash td { animation: flash .8s ease-out; }
         <p class="hint">What everything you hold now was worth on each scan day, at that day's lowest price. Pink: the next 7 days if the recent trend holds, with an 80% band.</p>
         <div class="chart tall"><canvas id="valueChart"></canvas></div><div class="method" id="valueMethod"></div></article>
       <article class="panel w4"><div class="ph"><h2>Your best sellers</h2></div><p class="hint">Your holdings furthest above their launch low. Click one for its chart.</p><div class="scroll"><table id="windowTable"></table></div></article>
-      <article class="panel w12"><div class="ph"><h2>Buy low, sell high</h2><span class="pill faction">faction AH</span></div><p class="hint" id="marketHint"></p><div id="marketBox"></div></article>
+      <article class="panel w12" id="marketPanel"><div class="ph"><h2>Buy low, sell high</h2><span class="pill faction">faction AH</span></div><p class="hint" id="marketHint"></p><div id="marketBox"></div></article>
+      <article class="panel w12" id="dealsPanel" hidden><div class="ph"><h2>Deals</h2><span class="pill" id="dealsHouse"></span></div><p class="hint" id="dealsHint"></p><div class="scroll"><table id="dealTable"></table></div></article>
+      <article class="panel w12" id="sellWinPanel" hidden><div class="ph"><h2>Sell windows</h2></div><p class="hint" id="sellWinHint"></p><div class="scroll"><table id="sellWinTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="stockpile" hidden>
@@ -1848,15 +1850,75 @@ function renderMarket(m) {
   table("buyTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Under", n: 1 }, { t: "Listed", n: 1 }],
     m.buy.map(b => rowId(b.id, [whItem(b.id, b.name), money(b.now), money(b.usual), `<span class="pos" data-sort="${b.pct}">${pct(b.pct)}</span>`, b.available ?? ""])),
     "Nothing well under its usual price in the last scan.", { onRender: () => pickRows(mktItem) });
-  // "Azhariel: 30 in bags, 12 in bank" per character holding it
-  const where = x => (x.where || []).map(w => {
-    const spots = [["bags", "in bags"], ["bank", "in the bank"], ["mail", "in the mail"]].filter(([k]) => w[k] > 0).map(([k, l]) => `${w[k]} ${l}`);
-    return `<b>${esc(w.name)}</b>: ${spots.join(", ")}`;
-  }).join("<br>");
   table("sellTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Usual", n: 1 }, { t: "Over", n: 1 }, { t: "You have", n: 1 }, { t: "Where" }, { t: "Extra", n: 1 }],
     m.sell.map(x => rowId(x.id, [whItem(x.id, x.name), money(x.now), money(x.usual), `<span class="pos" data-sort="${x.pct}">+${pct(x.pct)}</span>`,
-      `<span data-sort="${x.count}">${x.count}</span>`, `<span class="muted">${where(x) || esc(x.holders.join(", "))}</span>`, money(x.extra)])),
+      `<span data-sort="${x.count}">${x.count}</span>`, `<span class="muted">${whereText(x) || esc(x.holders.join(", "))}</span>`, money(x.extra)])),
     "Nothing you own is well above its usual price.", { onRender: () => pickRows(mktItem) });
+}
+// "Azhariel: 30 in bags, 12 in bank" per character holding it
+const whereText = x => (x.where || []).map(w => {
+  const spots = [["bags", "in bags"], ["bank", "in the bank"], ["mail", "in the mail"]].filter(([k]) => w[k] > 0).map(([k, l]) => `${w[k]} ${l}`);
+  return `<b>${esc(w.name)}</b>: ${spots.join(", ")}`;
+}).join("<br>");
+
+// Deals and Sell windows (the build's Sg.deals / Sg.sellWindows on the API's market values). rule: DATA.signalRule
+// (Sg.C), the thresholds the build used; the hints fall back to words without numbers when it's missing.
+const rulePct = v => typeof v === "number" && isFinite(v) ? Math.round(Math.abs(v) * 100) : null;
+function dealsHintText(rule) {
+  const under = rulePct(rule && rule.DEAL_BELOW != null ? 1 - rule.DEAL_BELOW : null), sold = rule && cellNum(rule.DEAL_MIN_SOLD);
+  return (under != null && sold != null ? `Under its market value by ${under}% or more and selling ${sold}+ a day. `
+    : "Well under its market value and selling steadily. ")
+    + "Profit each: relisted at market value after the house's cut (5% Faction, 15% Neutral). Per day: profit each × what the market takes a day, capped by what's listed. Sales are an estimate (an auction that vanished early probably sold).";
+}
+function sellWinHintText(rule) {
+  const over = rulePct(rule && rule.SELL_ABOVE != null ? rule.SELL_ABOVE - 1 : null);
+  return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
+}
+const scansPill = '<span class="pill" title="No API market value for this item: its usual price from your in-game scans">scans</span>';
+// now, with where it came from in the tooltip
+const nowMoney = r => r.nowFrom ? `<span title="${esc(r.nowFrom === "api" ? "API" : "Your scan")}${r.nowAt ? " " + esc(when(r.nowAt)) : ""}">${money(r.now)}</span>` : money(r.now);
+const soldCell = v => cellNum(v) != null ? `<span data-sort="${v}">${short(v)}</span>` : "";
+
+function renderDeals(list, key, rule) {
+  const pill = el("dealsHouse");
+  pill.textContent = key ? houseLabel(key) : "";
+  pill.className = "pill " + (isNeutralKey(key) ? "neutral" : "faction");
+  el("dealsHint").textContent = dealsHintText(rule);
+  const pctTxt = x => Math.round(x * 100) + "%";
+  table("dealTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Market", n: 1 }, { t: "Under", n: 1 }, { t: "Sold/day", n: 1 },
+      { t: "Listed", n: 1 }, { t: "Profit each", n: 1 }, { t: "Per day", n: 1 }],
+    (list || []).map(d => {
+      const api = d.basis === "api";
+      return rowId(d.id, [whItem(d.id, d.name), nowMoney(d), api ? money(d.market) : `${money(d.usual)} ${scansPill}`,
+        `<span class="pos" data-sort="${d.pct}">${pctTxt(d.pct)}</span>`, api ? soldCell(d.soldPerDay) : "",
+        (api ? d.units : d.available) ?? "", api ? money(d.profit) : "", api ? money(d.perDay) : ""], key);
+    }),
+    list ? "Nothing well under its market value and selling at this house right now." : "No API prices for this house yet.",
+    { defaultCol: 7, onRender: () => pickRows(mktItem) });
+}
+
+function renderSellWindows(list, rule) {
+  list = list || [];
+  el("sellWinHint").textContent = sellWinHintText(rule);
+  const ci = nowCell(), multi = new Set(list.map(x => x.key)).size > 1;
+  const pctTxt = x => Math.round(x * 100) + "%";
+  const hourCell = (id, key) => {
+    const u = hourUsual(id, key, ci), v = hourVerdict(u);
+    if (!v) return "";
+    const cls = v === "good hour" ? "pos" : v === "slow hour" ? "cheap" : "muted";
+    return `<span class="${cls}" data-sort="${u.p}" title="This hour of the week usually prices it ${esc(pctVsUsual(u.p))} against its usual">${v} (${pctVsUsual(u.p)})</span>` + hourFamPill(u);
+  };
+  const head = [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Market", n: 1 }, { t: "Over", n: 1 }, { t: "Sold/day", n: 1 }, { t: "You have", n: 1 },
+    { t: "Where" }, { t: "Extra", n: 1 }, { t: "This hour", n: 1 }].concat(multi ? [{ t: "House" }] : []);
+  table("sellWinTable", head, list.map(x => {
+    const api = x.basis === "api";
+    const cells = [whItem(x.id, x.name), nowMoney(x), api ? money(x.market) : `${money(x.usual)} ${scansPill}`,
+      `<span class="pos" data-sort="${x.pct}">+${pctTxt(x.pct)}</span>`, api ? soldCell(x.soldPerDay) : "",
+      `<span data-sort="${x.count}">${x.count}</span>`, `<span class="muted">${whereText(x) || esc((x.holders || []).join(", "))}</span>`,
+      money(x.extra), hourCell(x.id, x.key)];
+    if (multi) cells.push(`<span class="pill ${isNeutralKey(x.key) ? "neutral" : "faction"}">${esc(houseLabel(x.key))}</span>`);
+    return rowId(x.id, cells, x.key);
+  }), "Nothing you hold is priced well over its market value right now.", { defaultCol: 7, onRender: () => pickRows(mktItem) });
 }
 
 function renderMail(list, people) {
@@ -2031,8 +2093,15 @@ function modSignals() {
   table("windowTable", [{ t: "Item" }, { t: "vs low", n: 1 }, { t: "Value", n: 1 }],
     best.map(it => rowId(it.id, [whItem(it.id, it.name) + " " + signal(it), signedPct(it.change), money(it.now * it.have, { short: true })])),
     "Nothing you hold is above its launch low.");
-  // Buy low / sell high (faction prices, from the build)
-  renderMarket(DATA.market);
+  // Deals (the market switch's house) and Sell windows (each holder's own house) on the API's market values;
+  // without API data, today's Buy low / sell high (faction prices, from the build)
+  const api = !!DATA.deals;
+  el("marketPanel").hidden = api; el("dealsPanel").hidden = !api; el("sellWinPanel").hidden = !api;
+  if (api) {
+    const key = segHouseKey();
+    renderDeals(key != null ? DATA.deals[key] : null, key, DATA.signalRule);
+    renderSellWindows(DATA.sellWindows, DATA.signalRule);
+  } else renderMarket(DATA.market);
 }
 
 function modStockpile() {
@@ -2306,6 +2375,23 @@ function defaultPair() {
 const segHouseKey = () => { const p = defaultPair(); return house === "neutral" && hasNeutral() ? p.neutral : p.faction; };
 const trendsAt = key => (key != null && DATA.trends && DATA.trends.houses && DATA.trends.houses[key]) || null;
 const apiItem = (id, key) => { const H = trendsAt(key); return (H && H.items && H.items[String(id)]) || null; };
+// What hour-of-week cell ci usually does to an item's price at a house: { p, fam }, p a fraction vs its usual price.
+// Its own grid when it has one (week.own) and the cell holds MIN_N observations, else its family's (fam: the
+// family's label), else null: no grid, or too thin a cell, says nothing.
+function hourUsual(id, key, ci) {
+  const H = trendsAt(key);
+  if (!H) return null;
+  const minN = stripRule().MIN_N;
+  const cell = w => w && cellNum(w.p && w.p[ci]) != null && (cellNum(w.n && w.n[ci]) || 0) >= minN ? w.p[ci] : null;
+  const it = H.items && H.items[String(id)];
+  const own = it && it.week && it.week.own === true ? cell(it.week) : null;
+  if (own != null) return { p: own, fam: false };
+  const f = (H.families || []).find(f => (f.ids || []).some(x => Number(x) === Number(id)));
+  const fp = cell(f && f.week);
+  return fp != null ? { p: fp, fam: f.label } : null;
+}
+const hourVerdict = u => !u ? "" : u.p >= stripRule().STRIP_PCT ? "good hour" : u.p <= -stripRule().STRIP_PCT ? "slow hour" : "usual";
+const hourFamPill = u => u && u.fam ? ` <span class="pill" title="Not enough data for this item's own pattern yet; showing ${esc(u.fam)}">family</span>` : "";
 const isNeutralKey = key => key != null ? / Neutral$/.test(key) : house === "neutral" && hasNeutral();
 // the market tab holding this house's scan prices: the default pair only (any key when the page has no house keys)
 function tabItem(id, key) {
@@ -2584,7 +2670,6 @@ function modTrends() {
   el("trendsFind").hidden = true;
   el("trendsItems").innerHTML = Object.values(items).map(it => it.name).sort().map(n => `<option value="${esc(n)}"></option>`).join("");
   const fam = trendsFam === "house" ? null : fams.find(f => f.key === trendsFam);
-  const famOf = id => fams.find(f => (f.ids || []).includes(id));
   const spanDays = H.first && H.latest ? Math.max(1, Math.ceil((H.latest - H.first) / 86400)) : 0;
   // left: the family's prices by hour (or the house's listings); right: what the house sells by hour
   const strip = el("trendsStrip");
@@ -2608,20 +2693,12 @@ function modTrends() {
   el("trendsRightHint").textContent = "Units sold at each hour of the week, per week seen.";
   el("trendsRight").innerHTML = heatGrid(H.week, { kind: "sold", reset, title: "Units sold" });
   // Right now: each item against its market value, and what this hour usually does to its price
-  const ci = nowCell(), minN = stripRule().MIN_N;
-  const usual = it => {
-    const own = it.week && it.week.own === true ? it.week : null;
-    const cell = w => w && cellNum(w.p && w.p[ci]) != null && (cellNum(w.n && w.n[ci]) || 0) >= minN ? w.p[ci] : null;
-    if (cell(own) != null) return { p: cell(own), fam: false };
-    const f = famOf(it.id), fp = cell(f && f.week);
-    return fp != null ? { p: fp, fam: f.label } : null;
-  };
+  const ci = nowCell();
   const usualCell = u => {
     if (!u) return "";
     const word = u.p >= stripRule().STRIP_PCT ? " (sell)" : u.p <= -stripRule().STRIP_PCT ? " (buy)" : "";
     const cls = u.p >= stripRule().STRIP_PCT ? "pos" : u.p <= -stripRule().STRIP_PCT ? "cheap" : "muted";
-    return `<span class="${cls}" data-sort="${u.p}">${pctVsUsual(u.p)}${word}</span>`
-      + (u.fam ? ` <span class="pill" title="Not enough data for this item's own pattern yet; showing ${esc(u.fam)}">family</span>` : "");
+    return `<span class="${cls}" data-sort="${u.p}">${pctVsUsual(u.p)}${word}</span>` + hourFamPill(u);
   };
   const ids = fam ? (fam.ids || []).map(String) : Object.keys(items);
   const list = ids.map(id => items[id] ? Object.assign({ id: Number(id) }, items[id]) : null).filter(Boolean);
@@ -2633,7 +2710,7 @@ function modTrends() {
   table("trendsTable", [{ t: "Item" }, { t: "Now vs market", n: 1 }, { t: "This hour usually", n: 1 }, { t: "Sold/day", n: 1 }, { t: "Trend", n: 1 }],
     list.map(it => {
       const sold = cellNum(it.soldPerDay);
-      return rowId(it.id, [whItem(it.id, it.name), signedPct(vsMarket(it)), usualCell(usual(it)),
+      return rowId(it.id, [whItem(it.id, it.name), signedPct(vsMarket(it)), usualCell(hourUsual(it.id, key, ci)),
         sold != null ? `<span data-sort="${sold}">${short(sold)}</span>` : "", signedPct(cellNum(it.trend))], key);
     }), fam ? "None of this family's items are at this house yet." : "No tracked items at this house yet.", { defaultCol: 3 });
   // how old the data is, and how well the in-game scans agree with the API

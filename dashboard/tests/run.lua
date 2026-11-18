@@ -850,6 +850,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(data.marketTab.items["2592"].now, 100, "no market data: the scan's price, as before")
     eq(data.trends, nil, "no market data: no Trends")
     eq(data.deals, nil, "no market data: no Deals"); eq(data.sellWindows, nil, "no market data: no Sell windows")
+    eq(data.signalRule, nil, "no market data: no signal rule")
     truthy(data.reset and data.reset.dow and data.reset.hour, "the reset is there without API data too")
     -- The API's newer snapshot of R Horde. Ledger Link saw a faction visit at 10:00 on the last scan day (when
     -- Auctionator's price was taken) and a Neutral one at 20:00, which must not stamp the faction book's scan.
@@ -896,6 +897,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(deals[1].id, 99001); eq(deals[1].basis, "api"); eq(deals[1].profit, 850, "950 after the 5% cut, less 100")
     eq(api.deals["R Neutral"], nil, "no API data for R Neutral: no Deals there")
     eq(type(api.sellWindows), "table")
+    eq(api.signalRule, require("signals").C, "the page states the thresholds the build used")
     truthy(th.items["99001"], "a deal is embedded")
     truthy(wanted[1]:find("R Horde\t99001\n", 1, true), "a deal is wanted")
     eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")

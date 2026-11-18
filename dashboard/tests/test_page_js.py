@@ -252,3 +252,52 @@ process.stdout.write(JSON.stringify([forecastShown(100, 110), forecastShown(100,
   forecastShown(100, 400), forecastShown(0, 5), forecastShown(100, NaN)]));
 """
         self.assertEqual(json.loads(run_node(js)), [True, False, True, False, True, False, False])
+
+    HOUR_DATA = """
+const grid = (ci, p, n) => { const w = { p: Array(168).fill(false), n: Array(168).fill(false) }; w.p[ci] = p; w.n[ci] = n; return w; };
+const DATA = { trends: { stripRule: { MIN_N: 2, STRIP_PCT: 0.05 }, houses: { "PvP Horde": {
+  items: {
+    "1": { week: Object.assign(grid(30, 0.08, 3), { own: true }) },
+    "2": { week: Object.assign(grid(30, 0.20, 3), { own: false }) },
+    "3": { week: Object.assign(grid(30, 0.20, 1), { own: true }) },
+    "5": { week: Object.assign(grid(30, 0.20, 1), { own: true }) },
+  },
+  families: [{ key: "herb", label: "Herbs", ids: [2, 3, 4], week: grid(30, -0.06, 4) },
+             { key: "ore", label: "Ore", ids: [5], week: grid(30, 0.3, 1) }] } } } };
+"""
+
+    def test_hour_usual(self):
+        js = page_js(["cellNum", "stripRule", "trendsAt", "hourUsual"], self.HOUR_DATA) + """
+process.stdout.write(JSON.stringify([hourUsual(1, "PvP Horde", 30), hourUsual(2, "PvP Horde", 30), hourUsual(3, "PvP Horde", 30),
+  hourUsual(4, "PvP Horde", 30), hourUsual(5, "PvP Horde", 30), hourUsual(1, "PvP Horde", 31), hourUsual(9, "PvP Horde", 30),
+  hourUsual(1, "PvP Neutral", 30)]));
+"""
+        own, fam, thin, famOnly, thinFam, otherHour, unknown, noGrid = json.loads(run_node(js))
+        self.assertEqual(own, {"p": 0.08, "fam": False})
+        self.assertEqual(fam, {"p": -0.06, "fam": "Herbs"}, "own week not own: the family's cell")
+        self.assertEqual(thin, {"p": -0.06, "fam": "Herbs"}, "own cell with n < MIN_N is skipped")
+        self.assertEqual(famOnly, {"p": -0.06, "fam": "Herbs"}, "an item with no grid of its own still has its family's")
+        self.assertIsNone(thinFam, "family cell with n < MIN_N is skipped too")
+        self.assertIsNone(otherHour)
+        self.assertIsNone(unknown)
+        self.assertIsNone(noGrid, "no grid for the house: nothing")
+
+    def test_sell_hour_text(self):
+        js = page_js(["stripRule", "hourVerdict"], "const DATA = { trends: { stripRule: { MIN_N: 2, STRIP_PCT: 0.05 } } };") + """
+process.stdout.write(JSON.stringify([hourVerdict({ p: 0.05 }), hourVerdict({ p: 0.2, fam: "Herbs" }), hourVerdict({ p: -0.05 }),
+  hourVerdict({ p: 0.049 }), hourVerdict({ p: -0.01 }), hourVerdict(null)]));
+"""
+        self.assertEqual(json.loads(run_node(js)), ["good hour", "good hour", "slow hour", "usual", "usual", ""])
+
+    def test_signal_hints_follow_the_rule(self):
+        js = page_js(["cellNum", "rulePct", "dealsHintText", "sellWinHintText"]) + """
+const rule = { DEAL_BELOW: 0.5, DEAL_MIN_SOLD: 5, SELL_ABOVE: 1.25 };
+process.stdout.write(JSON.stringify([dealsHintText(rule), dealsHintText(undefined), sellWinHintText(rule), sellWinHintText(null)]));
+"""
+        deal, dealBare, sell, sellBare = json.loads(run_node(js))
+        self.assertTrue(deal.startswith("Under its market value by 50% or more and selling 5+ a day. Profit each:"), deal)
+        self.assertNotIn("undefined", dealBare)
+        self.assertNotIn("NaN", dealBare)
+        self.assertIn("(5% Faction, 15% Neutral)", dealBare)
+        self.assertTrue(sell.startswith("Things you hold priced 25% or more over market value, still selling."), sell)
+        self.assertTrue(sellBare.startswith("Things you hold priced well over market value"), sellBare)
