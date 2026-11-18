@@ -147,14 +147,18 @@ function T.wantedIds(families, ownedIds, tradedIds)
     return ids
 end
 
--- Sorted "key\tid\n" lines: the wanted ids (T.wantedIds) for every house key.
+-- "key\tid\n" lines sorted by key, then numeric id: the wanted ids (T.wantedIds) for every house key.
 function T.wanted(families, ownedIds, tradedIds, houseKeys)
     local ids = T.wantedIds(families, ownedIds, tradedIds)
     local lines = {}
     for _, key in ipairs(houseKeys or {}) do
-        for id in pairs(ids) do lines[#lines + 1] = key .. "\t" .. tostring(id) .. "\n" end
+        for id in pairs(ids) do lines[#lines + 1] = { key, id } end
     end
-    table.sort(lines)
+    table.sort(lines, function(a, b)
+        if a[1] ~= b[1] then return a[1] < b[1] end
+        return (tonumber(a[2]) or 0) < (tonumber(b[2]) or 0)
+    end)
+    for i, l in ipairs(lines) do lines[i] = l[1] .. "\t" .. tostring(l[2]) .. "\n" end
     return table.concat(lines)
 end
 

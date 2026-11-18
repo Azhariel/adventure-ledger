@@ -864,9 +864,10 @@ test("end to end: fixture SavedVariables -> one character with every section, em
         log = { "10|3600|1|1|1|zo|Elwynn", "20|3610|1|1|1|xp|100|kill|Wolf", "30|3620|1|1|1|mn|50|loot", "40|5400|1|1|1|lv|12",
             "45|5405|1|1|1|ah|sold|950|Woolen Bag", "45|5405|1|1|1|mn|950|auction|Woolen Bag" } }]])
     local logged, wanted = {}, {}
-    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [12345] = "Nobody's Item" }, listDirs = listDirs, repoAddons = repo,
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [2901] = "Mining Pick", [12345] = "Nobody's Item" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
-            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false }, hourly = { min = { 80 }, market = { 85 } } }, [12345] = { now = 1, spark = { 1 } } },
+            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false }, hourly = { min = { 80 }, market = { 85 } } }, [12345] = { now = 1, spark = { 1 } },
+                [2901] = { now = 40, spark = { 40 } }, [4241] = { now = 30, spark = { 30 } } },
         recent = {} } } },
         priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end },
         reset = "Wed 9", wanted = function(text) wanted[#wanted + 1] = text end })
@@ -875,6 +876,8 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(#th.families, #I.FAMILIES); eq(th.families[3].key, "cloth"); eq(th.families[3].ids[1], 2592)
     eq(th.items["2592"].name, "Wool Cloth"); eq(th.items["2592"].spark[2], 90); eq(th.items["2592"].spark[3], false)
     eq(th.items["12345"], nil, "an engine item nobody wants isn't embedded")
+    truthy(th.items["2901"], "an item held but in no family is embedded")
+    truthy(th.items["4241"], "an item only traded at the AH is embedded")
     eq(th.items["2592"].hourly.min[1], 80, "a held item keeps its hourly series")
     eq(api.trends.default, "R Horde")
     eq(api.reset.dow, 2, "Wed"); eq(api.reset.hour, 9); eq(api.trends.reset, api.reset)
@@ -1772,6 +1775,29 @@ test("trends.page: unknown items skipped, false holes survive", function()
     eq(#h.families[1].ids, 1); eq(r.default, "PvP Horde"); eq(r.stripRule.MIN_N, 2)
     local js = U.json(h.items["1"].spark)
     eq(js, "[false,5]")
+end)
+
+test("Build.thisTuesday: the Tuesday of the Monday-first week", function()
+    local Build = require("build")
+    eq(Build.thisTuesday(1704708000), 1704758400, "Mon 8 Jan")
+    eq(Build.thisTuesday(1704841200), 1704758400, "Tue 9 Jan 23:00")
+    eq(Build.thisTuesday(1705273200), 1704758400, "Sun 14 Jan 23:00")
+end)
+
+test("trends.wanted: ids sort as numbers", function()
+    local lines = {}
+    for l in TR.wanted({}, { [9] = true, [10] = true, [100] = true }, {}, { "PvP Horde" }):gmatch("[^\n]+") do lines[#lines + 1] = l end
+    eq(lines[1], "PvP Horde\t9"); eq(lines[2], "PvP Horde\t10"); eq(lines[3], "PvP Horde\t100")
+end)
+
+test("Build.writeAtomic: through a temp file, replacing an existing target", function()
+    local Build = require("build")
+    local path = os.tmpname()
+    os.remove(path)
+    truthy(Build.writeAtomic(path, "one\n")); eq(U.readFile(path), "one\n")
+    truthy(Build.writeAtomic(path, "two\n")); eq(U.readFile(path), "two\n", "replaced")
+    eq(io.open(path .. ".tmp", "rb"), nil, "no temp file left")
+    os.remove(path)
 end)
 
 for _, t in ipairs(tests) do

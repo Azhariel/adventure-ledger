@@ -244,12 +244,30 @@ end
 
 -- UTC hour h on this week's Tuesday (weeks start Monday) -> the local hour and the day shift (-1, 0, 1), for
 -- ah_reset's default; this week's, so a summer-time zone gets today's offset. now: epoch (default os.time()).
-function Build.utcHourToLocal(h, now)
+function Build.thisTuesday(now)
     now = now or os.time()
     local u = os.date("!*t", now)
-    local tuesday = now - ((u.wday - 2) % 7 - 1) * 86400 - u.hour * 3600 - u.min * 60 - u.sec
-    local t = os.date("*t", tuesday + h * 3600)
+    return now - ((u.wday - 2) % 7 - 1) * 86400 - u.hour * 3600 - u.min * 60 - u.sec
+end
+
+function Build.utcHourToLocal(h, now)
+    local t = os.date("*t", Build.thisTuesday(now) + h * 3600)
     return t.hour, t.wday - 3
+end
+
+-- Writes text to path through path .. ".tmp" and a rename, so a reader never sees half a file. os.rename won't
+-- replace an existing file on Windows, so the target goes first. Returns true, or nil and the error.
+function Build.writeAtomic(path, text)
+    local tmp = path .. ".tmp"
+    local f, err = io.open(tmp, "wb")
+    if not f then return nil, err end
+    local ok, werr = f:write(text)
+    f:close()
+    if not ok then os.remove(tmp); return nil, werr end
+    os.remove(path)
+    local rok, rerr = os.rename(tmp, path)
+    if not rok then os.remove(tmp); return nil, rerr end
+    return true
 end
 
 -- Returns the dashboard data: { generated, characters = { ... } }
@@ -726,7 +744,7 @@ function Build.run(wow, outFile, data)
         neutralDays = neutralDays, otherPCs = Build.otherPCs(data), market = marketEnv and marketEnv.LedgerMarket,
         reset = Build.config().ah_reset,
         wanted = function(text)
-            if (U.readFile(wantedPath) or "") ~= text then U.writeFile(wantedPath, text) end
+            if (U.readFile(wantedPath) or "") ~= text then assert(Build.writeAtomic(wantedPath, text)) end
         end,
         worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
             local f = io.open(worthPath, "ab")
