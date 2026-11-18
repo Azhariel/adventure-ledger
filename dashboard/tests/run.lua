@@ -1934,6 +1934,21 @@ test("signals.deals: under market, selling, ranked by profit per day", function(
     eq(list[2].have, 0)
 end)
 
+test("signals.deals: far under market counts one unit and is marked lone", function()
+    local book = { prices = {
+        [1] = { now = 50, market = 1000, soldPerDay = 10, units = 4 },    -- 95% under: probably one stray listing
+        [2] = { now = 400, market = 1000, soldPerDay = 10, units = 4 },   -- 60% under: judged as before
+        [3] = { now = 100, market = 1000, soldPerDay = 10, units = 4 },   -- exactly 90% under: lone
+    } }
+    local list = Sg.deals(book, I.CUT.faction, itemName, nil, nil)
+    local by = {}
+    for _, r in ipairs(list) do by[r.id] = r end
+    eq(by[1].profit, 900); eq(by[1].perDay, 900, "one unit, not the 4 listed"); eq(by[1].lone, true)
+    eq(by[2].perDay, 2200, "550 times the 4 listed"); eq(by[2].lone, nil)
+    eq(by[3].lone, true); eq(by[3].perDay, 850)
+    eq(list[1].id, 2, "still ranked by per day: the honest deal is first")
+end)
+
 test("signals.deals: neutral cut, zero and sold-out items", function()
     local book = { prices = {
         [1] = { now = 450, market = 1000, soldPerDay = 10, units = 4 },

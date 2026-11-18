@@ -1872,16 +1872,26 @@ const houseCuts = rule => {
 const cutTxt = v => `${Math.round(v * 1000) / 10}%`;
 function dealsHintText(rule) {
   const c = houseCuts(rule);
+  const suspect = rulePct(rule && rule.DEAL_SUSPECT);
   const under = rulePct(rule && rule.DEAL_BELOW != null ? 1 - rule.DEAL_BELOW : null), sold = rule && cellNum(rule.DEAL_MIN_SOLD);
   return (under != null && sold != null ? `Under its market value by ${under}% or more and selling ${sold}+ a day. `
     : "Well under its market value and selling steadily. ")
-    + `Profit each: relisted at market value after the house's cut (${cutTxt(c.faction)} Faction, ${cutTxt(c.neutral)} Neutral). Per day: profit each × what the market takes a day, capped by what's listed. Sales are an estimate (an auction that vanished early probably sold).`;
+    + `Profit each: relisted at market value after the house's cut (${cutTxt(c.faction)} Faction, ${cutTxt(c.neutral)} Neutral). Per day: profit each × what the market takes a day, capped by what's listed. Sales are an estimate (an auction that vanished early probably sold).`
+    + (suspect != null ? ` Items ${suspect}% or more under are probably one stray listing: per day counts one unit.` : "");
 }
+// A deal this far under market is probably one stray listing (the build marked it lone): said next to the name
+const LONE_TITLE = "Far under market: probably a single stray listing. Per day counts one unit.";
+const lonePill = d => d && d.lone ? ` <span class="pill" title="${LONE_TITLE}">one cheap listing?</span>` : "";
+// When the house's API snapshot was taken (DATA.priceSources, from the build); "" when there is none
+const apiAsOf = (key, sources) => {
+  const s = (sources || []).find(x => x.key === key);
+  return s && s.apiAt ? `API as of ${when(s.apiAt)}` : "";
+};
 function sellWinHintText(rule) {
   const over = rulePct(rule && rule.SELL_ABOVE != null ? rule.SELL_ABOVE - 1 : null);
   return `Things you hold priced ${over != null ? `${over}% or more` : "well"} over market value, still selling. This hour: how this hour of the week usually prices it (its own pattern, or its family's).`;
 }
-// Movers: the API's rule (Sg.C's RISE / FALL / MOVER_MIN_SOLD), with today's launch-low / peak rule as the fallback;
+// Movers: the API's rule (Sg.C's RISE / FALL / MOVER_MIN_SOLD), with today's launch-low / peak rule for items the API has no trend for;
 // without API data (no rule) today's hints
 function moversHintText(rule, dir) {
   const up = dir === "up";
@@ -1890,7 +1900,9 @@ function moversHintText(rule, dir) {
   const pct = rulePct(rule && (up ? rule.RISE : rule.FALL)), sold = rule && cellNum(rule.MOVER_MIN_SOLD);
   if (pct == null) return old;
   return `Market value ${up ? "up" : "down"} ${pct}% or more over 7 days, or a new price level that has held for 2 days`
-    + ` (API${sold != null ? `, ${sold}+ sold a day` : ""}). Items without enough API data yet: `
+    + ` (API${sold != null ? `, ${sold}+ sold a day` : ""}). `
+    + (sold != null ? `Items the API sells fewer than ${sold} a day are left out. ` : "")
+    + "Items the API has no trend for yet: "
     + (up ? "50% or more over their launch low, as before." : "30% or more under their peak, as before.");
 }
 // A new price level (the engine's shifted), as the drawer and Movers mark it
@@ -1901,6 +1913,10 @@ function moveBasisText(it, dir) {
   return b === "shifted" ? "new price level" : b === "trend" ? "7-day trend" : b === "scan" ? (dir === "down" ? "vs peak" : "vs launch low") : "";
 }
 // Faction vs Neutral: the cuts and the listing floor the build used (FLIP_MIN_LISTED); today's text without API data
+// Where the Faction AH prices on the Faction vs Neutral page come from: Auctionator alone without API data
+const factionPricesNote = rule => rule
+  ? "Each house's prices are the newer of your last scan and the API's latest snapshot."
+  : `<span class="pill faction">Faction AH</span> prices come from Auctionator.`;
 function flipsHintText(rule) {
   const c = houseCuts(rule), min = rule && cellNum(rule.FLIP_MIN_LISTED) != null ? rule.FLIP_MIN_LISTED : 5;
   return `Gap = Neutral against Faction. The flip columns are what one item makes after the house's cut (${cutTxt(c.neutral)} at Neutral, ${cutTxt(c.faction)} at Faction).`
@@ -1914,7 +1930,8 @@ const soldCell = v => cellNum(v) != null ? `<span data-sort="${v}">${short(v)}</
 
 function renderDeals(list, key, rule) {
   const pill = el("dealsHouse");
-  pill.textContent = key ? houseLabel(key) : "";
+  const asOf = key ? apiAsOf(key, DATA.priceSources) : "";
+  pill.textContent = key ? houseLabel(key) + (asOf ? " · " + asOf : "") : "";
   pill.className = "pill " + (isNeutralKey(key) ? "neutral" : "faction");
   el("dealsHint").textContent = dealsHintText(rule);
   const pctTxt = x => Math.round(x * 100) + "%";
@@ -1922,7 +1939,7 @@ function renderDeals(list, key, rule) {
       { t: "Listed", n: 1 }, { t: "Profit each", n: 1 }, { t: "Per day", n: 1 }],
     (list || []).map(d => {
       const api = d.basis === "api";
-      return rowId(d.id, [whItem(d.id, d.name), nowMoney(d), api ? money(d.market) : `${money(d.usual)} ${scansPill}`,
+      return rowId(d.id, [whItem(d.id, d.name) + lonePill(d), nowMoney(d), api ? money(d.market) : `${money(d.usual)} ${scansPill}`,
         `<span class="pos" data-sort="${d.pct}">${pctTxt(d.pct)}</span>`, api ? soldCell(d.soldPerDay) : "",
         (api ? d.units : d.available) ?? "", api ? money(d.profit) : "", api ? money(d.perDay) : ""], key);
     }),
@@ -2246,7 +2263,7 @@ function modNeutral() {
     const moved = (N.movedDays || []).map(t => date(t).split(",")[0]);
     el("who").innerHTML = `<span class="pill neutral">Neutral AH</span> ${n.toLocaleString()} items priced${N.last ? `, last scanned by Ledger Link ${date(N.last)}` : ""}.`
       + (moved.length ? ` Includes ${moved.join(", ")}, moved out of the faction book (neutral_days.txt).` : "")
-      + ` <span class="pill faction">Faction AH</span> prices come from Auctionator.`;
+      + " " + factionPricesNote(DATA.signalRule);
     const rule = DATA.signalRule, cuts = houseCuts(rule), min = gapMin();
     el("gapHint").textContent = flipsHintText(rule);
     const deep = r => (r.nListed || 0) >= min && (r.fListed || 0) >= min;

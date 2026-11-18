@@ -7,10 +7,11 @@ local Sg = {}
 -- DEAL_BELOW / SELL_ABOVE / MIN_GAIN start from I.MARKET (buyBelow, sellAbove, minGain). *_MIN_SOLD: sales a
 -- day the market must show. LIMIT: rows per list (and as many legacy rows). WANTED_LIST: deals per house whose
 -- series the engine keeps. FLIP_MIN_LISTED: listings at both houses for a flip to be wanted (the page's GAP_MIN).
--- RISE / FALL / MOVER_*: the movers list.
+-- RISE / FALL / MOVER_*: the movers list. DEAL_SUSPECT: a deal this far under market (0.90 = 90%) is most likely
+-- one stray listing, so it counts one unit, not what the market takes, and is marked lone.
 -- Deals are stricter than I.MARKET's buy rule: on the API's data (Nov 2026) 0.70 and 2 sales a day made 784
 -- deals at PvP Horde and 224 at PvP Neutral; 0.50 and 5 a day make about 200 and 75.
-Sg.C = { DEAL_BELOW = 0.50, DEAL_MIN_SOLD = 5, MIN_GAIN = 50, SELL_ABOVE = 1.25, SELL_MIN_SOLD = 1, LIMIT = 25,
+Sg.C = { DEAL_BELOW = 0.50, DEAL_SUSPECT = 0.90, DEAL_MIN_SOLD = 5, MIN_GAIN = 50, SELL_ABOVE = 1.25, SELL_MIN_SOLD = 1, LIMIT = 25,
     RISE = 0.25, FALL = -0.20, MOVER_MIN_SOLD = 2, MOVER_LIMIT = 30, WANTED_LIST = 25, FLIP_MIN_LISTED = 5 }
 
 local function num(v) return type(v) == "number" and v or nil end
@@ -40,8 +41,11 @@ function Sg.deals(book, cut, nameOf, owned, legacyBuy)
             local profit = math.floor(market * (1 - cut)) - now
             if profit >= C.MIN_GAIN then
                 local units = num(e.units) or 0
-                api[#api + 1] = { id = id, name = nameOf(id), now = now, market = market, pct = 1 - now / market,
-                    soldPerDay = sold, units = num(e.units), profit = profit, perDay = math.floor(profit * math.min(sold, units)),
+                local pct = 1 - now / market
+                local lone = pct >= C.DEAL_SUSPECT
+                api[#api + 1] = { id = id, name = nameOf(id), now = now, market = market, pct = pct,
+                    soldPerDay = sold, units = num(e.units), profit = profit,
+                    perDay = lone and profit or math.floor(profit * math.min(sold, units)), lone = lone or nil,
                     nowFrom = e.nowFrom, nowAt = e.nowAt, have = owned and owned[id] and owned[id].count or 0,
                     basis = "api" }
             end

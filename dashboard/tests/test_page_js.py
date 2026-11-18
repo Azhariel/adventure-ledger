@@ -319,13 +319,37 @@ process.stdout.write(JSON.stringify([moversHintText(RULE, "up"), moversHintText(
 """
         up, down, upBare, downBare, other = json.loads(run_node(js))
         self.assertEqual(up, "Market value up 25% or more over 7 days, or a new price level that has held for 2 days (API, 2+ sold a day)."
-                             " Items without enough API data yet: 50% or more over their launch low, as before.")
+                             " Items the API sells fewer than 2 a day are left out. Items the API has no trend for yet: 50% or more over their launch low, as before.")
         self.assertEqual(down, "Market value down 20% or more over 7 days, or a new price level that has held for 2 days (API, 2+ sold a day)."
-                               " Items without enough API data yet: 30% or more under their peak, as before.")
+                               " Items the API sells fewer than 2 a day are left out. Items the API has no trend for yet: 30% or more under their peak, as before.")
         self.assertEqual(upBare, "50% or more over their launch low, at least 20 listed, launch low 10c or more.", "no API: today's hint")
         self.assertEqual(downBare, "30% or more under their peak: a chance to buy, or a market flooding.")
         self.assertTrue(other.startswith("Market value up 40% or more over 7 days,"), other)
         self.assertIn("(API, 3+ sold a day)", other)
+        self.assertIn("fewer than 3 a day are left out.", other)
+
+    def test_lone_deal_pill_and_snapshot_age(self):
+        js = page_js(["cellNum", "rulePct", "houseCuts", "cutTxt", "dealsHintText", "LONE_TITLE", "lonePill", "apiAsOf"],
+                     "const when = t => 'T' + t;") + """
+process.stdout.write(JSON.stringify([lonePill({ lone: true }), lonePill({ id: 1 }), lonePill(null),
+  apiAsOf("PvP Horde", [{ key: "PvP Horde", apiAt: 5 }, { key: "PvP Neutral" }]), apiAsOf("PvP Neutral", [{ key: "PvP Neutral" }]),
+  apiAsOf("PvP Horde", undefined), dealsHintText({ DEAL_SUSPECT: 0.9 }), dealsHintText(undefined)]));
+"""
+        lone, plain, none, asof, noAt, noSrc, hint, hintBare = json.loads(run_node(js))
+        self.assertIn(">one cheap listing?</span>", lone)
+        self.assertIn('title="Far under market: probably a single stray listing. Per day counts one unit."', lone)
+        self.assertEqual((plain, none), ("", ""))
+        self.assertEqual((asof, noAt, noSrc), ("API as of T5", "", ""))
+        self.assertIn("Items 90% or more under are probably one stray listing: per day counts one unit.", hint)
+        self.assertNotIn("stray", hintBare)
+
+    def test_neutral_header_says_where_faction_prices_come_from(self):
+        js = page_js(["factionPricesNote"]) + """
+process.stdout.write(JSON.stringify([factionPricesNote({ DEAL_BELOW: 0.5 }), factionPricesNote(undefined)]));
+"""
+        withApi, without = json.loads(run_node(js))
+        self.assertEqual(withApi, "Each house's prices are the newer of your last scan and the API's latest snapshot.")
+        self.assertEqual(without, '<span class="pill faction">Faction AH</span> prices come from Auctionator.')
 
     def test_flip_hints_and_cuts_follow_the_rule(self):
         js = page_js(["cellNum", "rulePct", "houseCuts", "cutTxt", "dealsHintText", "flipsHintText", "gapMin"],
