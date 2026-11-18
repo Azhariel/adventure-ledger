@@ -1553,6 +1553,91 @@ test("reconcile: agreement against the nearest recent snapshot", function()
     eq(R.agreement(book, { latest = scan, recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
 end)
 
+local TR = require("trends")
+local function grid(fill) local g = { p = {}, s = {}, n = {} } for i = 1, 168 do g.p[i], g.s[i], g.n[i] = false, false, false end if fill then fill(g) end return g end
+local function cell(dow, hour) return dow * 24 + hour + 1 end
+
+test("trends.parseReset: default, names, hours and bad text", function()
+    local d = TR.parseReset(nil, function(h) return h - 3, 0 end)
+    eq(d.dow, 1); eq(d.hour, 12)
+    local d2, w2 = TR.parseReset("", function(h) return h - 3, 0 end)
+    eq(d2.hour, 12); eq(w2, nil)
+    local w = TR.parseReset("wed 9"); eq(w.dow, 2); eq(w.hour, 9)
+    local s = TR.parseReset("Sunday 23:00"); eq(s.dow, 6); eq(s.hour, 23)
+    local t = TR.parseReset("Tue 12:00"); eq(t.dow, 1); eq(t.hour, 12)
+    local x, warn = TR.parseReset("x", function(h) return h - 3, 0 end)
+    eq(x.dow, 1); eq(x.hour, 12)
+    eq(warn, 'ah_reset: couldn\'t read "x"; using Tue 12:00. Write it like: ah_reset = Tue 12:00')
+end)
+
+test("trends.parseReset: default wraps the day", function()
+    local d = TR.parseReset(nil, function(h) return 23, -1 end)
+    eq(d.dow, 0); eq(d.hour, 23)
+    local e = TR.parseReset(nil, function(h) return 1, 1 end)
+    eq(e.dow, 2); eq(e.hour, 1)
+    local f = TR.parseReset(nil, function(h) return 23, 6 - 7 end)
+    eq(f.dow, 0)
+end)
+
+test("trends.familyWeek: weighted by units sold", function()
+    local a = grid(function(g) local i = cell(0, 0); g.p[i], g.s[i], g.n[i] = 0.10, 9, 3 end)
+    local b = grid(function(g) local i = cell(0, 0); g.p[i], g.s[i], g.n[i] = -0.10, 0, 3 end)
+    local f = TR.familyWeek({ a, b })
+    near(f.p[1], (0.10 * 10 - 0.10 * 1) / 11); eq(f.s[1], 9); eq(f.n[1], 6)
+    eq(f.p[2], false); eq(f.members, 2)
+end)
+
+test("trends.familyWeek: partial members", function()
+    local a = grid(function(g) g.p[1], g.s[1], g.n[1] = 0.1, 1, 1 end)
+    local b = grid()
+    local f = TR.familyWeek({ a, b })
+    eq(f.p[1], false); eq(f.enough, false); eq(f.members, 2)
+    eq(TR.familyWeek({}), nil)
+    local own = grid(); own.own = true
+    eq(TR.familyWeek({ own, b }).ownCount, 1)
+end)
+
+test("trends.strip: best sell and buy runs", function()
+    local g = grid(function(g)
+        for h = 19, 22 do local i = cell(1, h); g.p[i], g.s[i], g.n[i] = 0.08, 1, 3 end
+        for h = 4, 8 do local i = cell(6, h); g.p[i], g.s[i], g.n[i] = -0.07, 1, 3 end
+    end)
+    g.own = true
+    local s = TR.strip(g)
+    eq(#s.sell, 1); eq(s.sell[1].dow, 1); eq(s.sell[1].from, 19); eq(s.sell[1].to, 23)
+    eq(#s.buy, 1); eq(s.buy[1].dow, 6); eq(s.buy[1].from, 4); eq(s.buy[1].to, 9)
+end)
+
+test("trends.strip: nil below the cell share", function()
+    local g = grid(); g.own = false; g.enough = false
+    eq(TR.strip(g), nil)
+end)
+
+test("trends.wanted: byte-identical regardless of insertion order", function()
+    local f1 = { { key = "a", label = "A", ids = { 3, 1, 2 } } }
+    local f2 = { { key = "a", label = "A", ids = { 2, 3, 1 } } }
+    local x = TR.wanted(f1, { [9] = true, [5] = true }, { [5] = true, [7] = true }, { "PvP Horde", "PvP Neutral" })
+    local y = TR.wanted(f2, { [5] = true, [9] = true }, { [7] = true, [5] = true }, { "PvP Neutral", "PvP Horde" })
+    eq(x, y)
+    local n = 0 for _ in x:gmatch("\n") do n = n + 1 end
+    eq(n, 12)
+end)
+
+test("trends.page: unknown items skipped, false holes survive", function()
+    local week = { listings = {}, sold = {} }
+    for i = 1, 168 do week.listings[i], week.sold[i] = false, false end
+    local api = { ["PvP Horde"] = { id = 113, key = "PvP Horde", latest = 5, first = 1, snapshots = 2, ts = { 1, 2 },
+        seriesDays = { "2026-01-01" }, sparkDays = { "2026-01-01" }, week = week,
+        items = { [1] = { units = 1, listings = 1, now = 10, soldPerDay = 0, days = 3, spark = { false, 5 }, junk = 1 } } } }
+    local fams = { { key = "f", label = "F", ids = { 1, 2 } } }
+    local r = TR.page(api, fams, function(id) return id == 1 and "One" or nil end, { dow = 1, hour = 12 }, "PvP Horde")
+    local h = r.houses["PvP Horde"]
+    eq(h.id, 113); eq(h.items["1"].name, "One"); eq(h.items["2"], nil); eq(h.items["1"].junk, nil)
+    eq(#h.families[1].ids, 1); eq(r.default, "PvP Horde"); eq(r.stripRule.MIN_N, 2)
+    local js = U.json(h.items["1"].spark)
+    eq(js, "[false,5]")
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then
