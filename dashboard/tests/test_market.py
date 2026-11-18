@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import market as m  # noqa: E402
@@ -194,6 +195,18 @@ class RunTests(unittest.TestCase):
             self.store.db.execute("DROP TABLE " + table)
         self.store.db.commit()
         self.assertEqual(self.run_(), "written")
+
+    def test_failed_replace_leaves_no_temp_file_and_the_old_output(self):
+        self.assertEqual(self.run_(), "written")
+        with open(self.out, encoding="utf-8") as fh:
+            old = fh.read()
+        self.snap(self.NOW + 1800)
+        with mock.patch("os.replace", side_effect=PermissionError), mock.patch("time.sleep"):
+            with self.assertRaises(PermissionError):
+                self.run_()
+        self.assertEqual([f for f in os.listdir(self.dir) if f.endswith(".tmp")], [])
+        with open(self.out, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), old)
 
     def test_run_leaves_the_db_alone(self):
         self.run_()

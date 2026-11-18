@@ -7,6 +7,7 @@ import pathlib
 import sqlite3
 import statistics
 import sys
+import tempfile
 import time
 
 import bnet
@@ -250,7 +251,11 @@ def _house(db, house, keys, now):
     latest, first, count = db.execute(
         "SELECT MAX(t), MIN(t), COUNT(*) FROM snapshot WHERE house=?", (house,)).fetchone()
     snaps = db.execute("SELECT t, auctions FROM snapshot WHERE house=? ORDER BY t", (house,)).fetchall()
-    sold_by_t = dict(db.execute("SELECT t, SUM(sold) FROM hourly WHERE house=? GROUP BY t", (house,)))
+    # One pass over the hourly rows feeds the items, the per-hour sales and the recent prices (the index is
+    # (house, item, t), so separate queries by t would each scan the whole house).
+    sold_by_t = {}
+    newest = [t for t, _ in reversed(snaps[-6:])]
+    recent_min = {t: {} for t in newest}
     upto, stored = market_store.read_profile(db, house) if _has(db, "profile") and _has(db, "profile_state") else (None, {})
     lo_day = market_store.local_day(now - C["HIST_DAYS"] * DAY)
     by_day = {}
@@ -278,14 +283,14 @@ def _house(db, house, keys, now):
             finish(cur_item, rows)
             rows = []
         cur_item = item
+        sold_by_t[t] = sold_by_t.get(t, 0) + sold
+        if mn is not None and t in recent_min:
+            recent_min[t][item] = mn
         rows.append((t, mn, market, units, listings, sold))
     if cur_item is not None:
         finish(cur_item, rows)
 
-    recent = []
-    for t, _ in reversed(snaps[-6:]):
-        mins = dict(db.execute("SELECT item, min FROM hourly WHERE house=? AND t=? AND min IS NOT NULL", (house, t)))
-        recent.append({"t": t, "min": mins})
+    recent = [{"t": t, "min": recent_min[t]} for t in newest]
     out = {"id": house, "latest": latest, "first": first, "snapshots": count,
            "week": house_week(snaps, sold_by_t), "recent": recent, "items": items}
     if house in keys:
@@ -322,18 +327,28 @@ def run(db_path, out_path, cfg, now=None):
 
 
 def _write_atomic(path, text, tries=10):
-    """Windows refuses the replace while another process has the file open: retry briefly."""
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-    for attempt in range(tries):
+    """Unique temp file (two processes may build at once), then replace. Windows refuses the replace while
+    another process has the file open: retry briefly. The temp file never outlives a failure."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        for attempt in range(tries):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == tries - 1:
+                    raise
+                time.sleep(0.2)
+    except BaseException:
         try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == tries - 1:
-                raise
-            time.sleep(0.2)
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def main():
