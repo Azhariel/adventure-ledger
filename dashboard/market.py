@@ -214,7 +214,7 @@ def item_week(stored, upto, rows, now):
         i = key[0] * 24 + key[1]
         n_out[i] = N[key]
         if w > 0:
-            p[i] = round(math.exp(WP[key] / w) - 1, 3)
+            p[i] = round(math.exp(WP[key] / w) - 1, 2)
             s[i] = round(WS[key] / w, 1)
     own = bool(spans or stored) and sum(1 for n in n_out if n >= C["WEEK_MIN_N"]) >= C["WEEK_MIN_CELLS"] * CELLS
     return {"p": p, "s": s, "n": n_out, "own": own}

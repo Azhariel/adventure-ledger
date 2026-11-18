@@ -111,6 +111,14 @@ class MarketTests(unittest.TestCase):
         rows = self._week_rows(15)
         self.assertIs(m.item_week(None, None, rows, rows[-1][0])["own"], True)
 
+    def test_item_week_p_has_two_decimals(self):
+        rows = [(START + i * 3600, 100 + (i * 7) % 13, 100 + (i * 7) % 13, 5, 3, 0) for i in range(15 * 24)]
+        got = m.item_week(None, None, rows, rows[-1][0])
+        ps = [v for v in got["p"] if v is not False]
+        self.assertTrue(any(v != 0 for v in ps))
+        for v in ps:
+            self.assertEqual(v, round(v, 2))
+
     def test_item_week_nothing_is_none(self):
         self.assertIsNone(m.item_week({}, None, [], START))
 
