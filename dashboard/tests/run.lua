@@ -1689,6 +1689,31 @@ test("trends.strip: runs carry across midnight and the week's end", function()
     eq(#w.sell, 1); eq(w.sell[1].dow, 0); eq(w.sell[1].from, 0); eq(w.sell[1].to, 168); eq(#w.buy, 0)
 end)
 
+test("trends.strip: a miss splits a run, and a lone hour is no run", function()
+    local g = grid(function(g)
+        for _, h in ipairs({ 19, 20, 22, 23 }) do local i = cell(1, h); g.p[i], g.s[i], g.n[i] = 0.08, 1, 3 end
+        local lone = cell(3, 12); g.p[lone], g.s[lone], g.n[lone] = 0.2, 1, 3
+    end)
+    g.own = true
+    local s = TR.strip(g)
+    eq(#s.sell, 2); eq(s.sell[1].from, 19); eq(s.sell[1].to, 21); eq(s.sell[2].from, 22); eq(s.sell[2].to, 24)
+    eq(#s.buy, 0)
+    local one = grid(function(g) local i = cell(3, 12); g.p[i], g.s[i], g.n[i] = 0.2, 1, 3 end)
+    one.own = true
+    eq(#TR.strip(one).sell, 0)
+end)
+
+test("trends.strip: only the strongest STRIP_RUNS runs are kept", function()
+    local g = grid(function(g)
+        for d = 0, 3 do
+            for _, h in ipairs({ 10, 11 }) do local i = cell(d * 2, h); g.p[i], g.s[i], g.n[i] = 0.05 + 0.01 * d, 1, 3 end
+        end
+    end)
+    g.own = true
+    local s = TR.strip(g)
+    eq(#s.sell, 2); eq(s.sell[1].dow, 6); eq(s.sell[2].dow, 4)
+end)
+
 test("trends.strip: nil below the cell share", function()
     local g = grid(); g.own = false; g.enough = false
     eq(TR.strip(g), nil)
