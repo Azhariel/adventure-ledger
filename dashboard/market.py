@@ -461,10 +461,12 @@ def _house(db, house, keys, now, wanted=()):
     return out
 
 
-def stamp(db, keys, wanted_text):
+def stamp(db, keys, wanted_text, sig=None):
     """market.lua's first line. The house names and the wanted list are part of it: changing ah_houses or the
-    page's wanted items must rewrite the file."""
-    return "-- sig: %s|%s|w=%s" % (signature(db), ",".join("%d=%s" % kv for kv in sorted(keys.items())),
+    page's wanted items must rewrite the file. `sig`: signature(db), when the caller already has it."""
+    if sig is None:
+        sig = signature(db)
+    return "-- sig: %s|%s|w=%s" % (sig, ",".join("%d=%s" % kv for kv in sorted(keys.items())),
                                    hashlib.sha1(wanted_text.encode("utf-8")).hexdigest()[:12])
 
 
@@ -489,7 +491,7 @@ def run(db_path, out_path, cfg, now=None, wanted_path=None):
         if not sig:
             return "no data"
         keys = _house_keys(cfg)
-        head = stamp(db, keys, wanted_text)
+        head = stamp(db, keys, wanted_text, sig)
         try:
             with open(out_path, encoding="utf-8") as fh:
                 if fh.readline().rstrip("\n") == head:

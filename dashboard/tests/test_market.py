@@ -401,7 +401,23 @@ class SeriesTests(unittest.TestCase):
         text = self.text()
         for key in ('["hourly"]', '["daily"]', '["spark"]', '["week"]'):
             self.assertIn(key, text)
+        self.assertGreaterEqual(text.count('["own"]='), 2)   # both items' own week, not only the house's
         self.assertNotRegex(text, r"[{,]nil[,}]")
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_daily_table_fills_folded_days_and_hourly_wins(self):
+        old, today = ms.local_day(self.NOW - 10 * 86400), ms.local_day(self.NOW)
+        self.store.db.executemany("INSERT INTO daily VALUES (113,?,2589,?,?,5,1,24,24)",
+                                  [(old, 70, 77.0), (today, 900, 999.0)])
+        self.store.db.commit()
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        got = self.lua("local a = h.items[2589] for k, d in ipairs(h.sparkDays) do "
+                       "if d == '%s' or d == '%s' then print(a.spark[k]) end end "
+                       "for k, d in ipairs(h.seriesDays) do "
+                       "if d == '%s' or d == '%s' then print(a.daily.market[k], a.daily.min[k]) end end"
+                       % (old, today, old, today))
+        self.assertEqual(got, ["77", "110", "77", "70", "110", "100"])
 
 
 if __name__ == "__main__":
