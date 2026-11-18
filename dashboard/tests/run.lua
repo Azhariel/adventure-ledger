@@ -1115,6 +1115,21 @@ test("compareHouses: spread and both flips after each house's cut, biggest gap f
     eq(out[2].id, 2); near(out[2].spread, -0.1); eq(out[2].toFaction, 50, "1000 less 5% = 950, minus 900")
 end)
 
+test("compareHouses: API fields and listed counts", function()
+    local faction = { prices = { [1] = { now = 100, nowFrom = "api", nowAt = 70, units = 40, soldPerDay = 12, days = { { available = 3 } } },
+        [2] = { now = 100, nowFrom = "api", units = 9 } } }
+    local neutral = { prices = { [1] = { now = 200, nowFrom = "scan", seenAt = 50, days = { { available = 7 } } },
+        [2] = { nowFrom = "api", nowAt = 60, units = 0, soldPerDay = 1 } } }
+    local out = I.compareHouses(faction, neutral, function(id) return "Item " .. id end, {})
+    eq(#out, 1, "a Neutral item sold out at the API is no row")
+    local r = out[1]
+    eq(r.fListed, 40); eq(r.nListed, 7); eq(r.fSold, 12); eq(r.nSold, nil)
+    eq(r.toNeutral, 70); eq(r.neutralAt, 50, "no nowAt: the scan's seenAt")
+    eq(r.fAt, 70); eq(r.nAt, nil); eq(r.fFrom, "api"); eq(r.nFrom, "scan")
+    neutral.prices[1].nowAt = 90
+    eq(I.compareHouses(faction, neutral, tostring, {})[1].neutralAt, 90, "nowAt wins")
+end)
+
 test("splitNeutralDays: Neutral days leave the faction book; a Neutral 'now' falls back and is marked stale", function()
     local market = { prices = {
         [1] = { now = 90, days = { { day = 10, low = 20, high = 25 }, { day = 11, low = 80, high = 90 } } },  -- last day neutral
@@ -1839,6 +1854,22 @@ end)
 -- Signals: deals and sell windows on the API's market values
 
 local Sg = require("signals")
+test("signals.flipIds: top positive flips listed at both houses", function()
+    local rows = {
+        { id = 1, toNeutral = 70, toFaction = -105, fListed = 9, nListed = 5 },
+        { id = 2, toNeutral = -5, toFaction = 300, fListed = 6, nListed = 20 },
+        { id = 3, toNeutral = 900, toFaction = -9, fListed = 4, nListed = 50 },
+        { id = 4, toNeutral = -1, toFaction = -2, fListed = 50, nListed = 50 },
+        { id = 5, toNeutral = 10, toFaction = 0, fListed = 50 },
+        { id = 6, toNeutral = 20, toFaction = 0, fListed = 5, nListed = 5 } }
+    local ids = Sg.flipIds(rows)
+    eq(#ids, 3); eq(ids[1], 2); eq(ids[2], 1); eq(ids[3], 6)
+    local many = {}
+    for i = 1, Sg.C.WANTED_LIST + 10 do many[i] = { id = i, toNeutral = i, toFaction = 0, fListed = 9, nListed = 9 } end
+    eq(#Sg.flipIds(many), Sg.C.WANTED_LIST); eq(Sg.flipIds(many)[1], #many)
+    eq(#Sg.flipIds(nil), 0)
+end)
+
 local itemName = function(id) return "Item " .. id end
 
 test("signals.deals: under market, selling, ranked by profit per day", function()

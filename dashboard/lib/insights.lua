@@ -661,8 +661,14 @@ I.CUT = { faction = 0.05, neutral = 0.15 }
 
 -- Items priced at both houses. Returns { { id, name, faction, neutral, spread (neutral / faction - 1),
 -- toNeutral (buy at faction, sell at neutral: copper per item after the 15% cut), toFaction (the reverse, after
--- 5%), have, neutralAt (when Ledger Link last saw it) } }, biggest gap first.
+-- 5%), have, neutralAt (when it was last priced), fListed / nListed, fSold / nSold (per day, API only), fAt / nAt,
+-- fFrom / nFrom ("api" or "scan") } }, biggest gap first.
 function I.compareHouses(faction, neutral, nameOf, owned)
+    -- items listed: the API's count when the price came from it, else the last scanned day's
+    local function listed(e)
+        if e.nowFrom == "api" then return e.units end
+        return e.days and #e.days > 0 and e.days[#e.days].available or nil
+    end
     local out = {}
     local fp = faction and faction.prices or {}
     for id, n in pairs(neutral and neutral.prices or {}) do
@@ -673,9 +679,9 @@ function I.compareHouses(faction, neutral, nameOf, owned)
                 spread = n.now / f.now - 1,
                 toNeutral = math.floor(n.now * (1 - I.CUT.neutral)) - f.now,
                 toFaction = math.floor(f.now * (1 - I.CUT.faction)) - n.now,
-                have = o and o.count or 0, neutralAt = n.seenAt,
-                fListed = f.days and #f.days > 0 and f.days[#f.days].available or nil,
-                nListed = n.days and #n.days > 0 and n.days[#n.days].available or nil }
+                have = o and o.count or 0, neutralAt = n.nowAt or n.seenAt,
+                fListed = listed(f), nListed = listed(n), fSold = f.soldPerDay, nSold = n.soldPerDay,
+                fAt = f.nowAt, nAt = n.nowAt, fFrom = f.nowFrom, nFrom = n.nowFrom }
         end
     end
     table.sort(out, function(a, b)

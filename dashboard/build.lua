@@ -711,6 +711,7 @@ function Build.data(wow, opts)
         result.sellWindows = Sg.sellWindows(holders, function(id) return houseById[id] end, merged, acctNameOf,
             result.market.sell, factionKey)
         for _, r in ipairs(result.sellWindows) do also[r.id] = true end
+        for _, id in ipairs(Sg.flipIds(result.houses)) do also[id] = true end
         traded = also
     end
     if next(apiByKey) then

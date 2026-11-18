@@ -6,11 +6,12 @@ local Sg = {}
 
 -- DEAL_BELOW / SELL_ABOVE / MIN_GAIN start from I.MARKET (buyBelow, sellAbove, minGain). *_MIN_SOLD: sales a
 -- day the market must show. LIMIT: rows per list (and as many legacy rows). WANTED_LIST: deals per house whose
--- series the engine keeps. RISE / FALL / MOVER_*: the movers list.
+-- series the engine keeps. FLIP_MIN_LISTED: listings at both houses for a flip to be wanted (the page's GAP_MIN).
+-- RISE / FALL / MOVER_*: the movers list.
 -- Deals are stricter than I.MARKET's buy rule: on the API's data (Nov 2026) 0.70 and 2 sales a day made 784
 -- deals at PvP Horde and 224 at PvP Neutral; 0.50 and 5 a day make about 200 and 75.
 Sg.C = { DEAL_BELOW = 0.50, DEAL_MIN_SOLD = 5, MIN_GAIN = 50, SELL_ABOVE = 1.25, SELL_MIN_SOLD = 1, LIMIT = 25,
-    RISE = 0.25, FALL = -0.20, MOVER_MIN_SOLD = 2, MOVER_LIMIT = 30, WANTED_LIST = 25 }
+    RISE = 0.25, FALL = -0.20, MOVER_MIN_SOLD = 2, MOVER_LIMIT = 30, WANTED_LIST = 25, FLIP_MIN_LISTED = 5 }
 
 local function num(v) return type(v) == "number" and v or nil end
 
@@ -130,6 +131,25 @@ function Sg.sellWindows(holders, houseOf, books, nameOf, legacySell, defaultKey)
         end
     end
     return api
+end
+
+-- Ids of the best Faction <-> Neutral flips (I.compareHouses rows): a positive flip either way, FLIP_MIN_LISTED or
+-- more listed at both houses, by the better of the two flips, at most WANTED_LIST. Their series are wanted too.
+function Sg.flipIds(rows)
+    local picked = {}
+    for _, r in ipairs(rows or {}) do
+        local best = math.max(r.toNeutral or 0, r.toFaction or 0)
+        if best > 0 and (r.fListed or 0) >= Sg.C.FLIP_MIN_LISTED and (r.nListed or 0) >= Sg.C.FLIP_MIN_LISTED then
+            picked[#picked + 1] = { id = r.id, best = best }
+        end
+    end
+    table.sort(picked, function(a, b)
+        if a.best ~= b.best then return a.best > b.best end
+        return a.id < b.id
+    end)
+    local ids = {}
+    for i = 1, math.min(#picked, Sg.C.WANTED_LIST) do ids[i] = picked[i].id end
+    return ids
 end
 
 return Sg
