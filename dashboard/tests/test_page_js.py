@@ -16,29 +16,88 @@ if not os.path.isfile(LUA):
     LUA = shutil.which("lua")
 
 
+def _regex_end(line, i):
+    """Index of the closing `/` of the regex literal that opens at line[i] (or the last index when it never closes)."""
+    in_class = False
+    i += 1
+    while i < len(line):
+        ch = line[i]
+        if ch == "\\":
+            i += 1
+        elif ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        elif ch == "/" and not in_class:
+            return i
+        i += 1
+    return len(line) - 1
+
+
+def _depth_delta(line, state):
+    """Net bracket depth of one line, skipping '...', "..." and `...` strings, // comments and /* */ comments.
+
+    `state` is [quote or None, in_block_comment]; a backtick string may span lines, the others end with the line.
+    Template-literal `${...}` is not tracked: its braces are balanced inside the string, so skipping the string is enough."""
+    depth, i, n = 0, 0, len(line)
+    quote, block = state
+    while i < n:
+        ch = line[i]
+        if block:
+            if line.startswith("*/", i):
+                block, i = False, i + 1
+        elif quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif line.startswith("//", i):
+            break
+        elif line.startswith("/*", i):
+            block, i = True, i + 1
+        elif ch in "'\"`":
+            quote = ch
+        elif ch == "/" and re.search(r"(^|[(,=:\[!&|?{};]|return)\s*$", line[:i]):
+            i = _regex_end(line, i)
+        elif ch in "{([":
+            depth += 1
+        elif ch in "})]":
+            depth -= 1
+        i += 1
+    state[0] = quote if quote == "`" else None
+    state[1] = block
+    return depth
+
+
+def _cut(lines, start, name):
+    """Lines of the declaration starting at `start`, ended where bracket depth is back to 0 (a const also needs `;`)."""
+    state, depth = [None, False], 0
+    is_fn = bool(re.match(r"(async )?function ", lines[start]))
+    for j in range(start, len(lines)):
+        depth += _depth_delta(lines[j], state)
+        if depth > 0 or state[0] or state[1]:
+            continue
+        code = lines[j].split("//")[0].rstrip()
+        if is_fn:
+            if depth == 0 and "{" in "\n".join(lines[start:j + 1]) and code.endswith("}"):
+                return "\n".join(lines[start:j + 1])
+        elif code.endswith(";"):
+            return "\n".join(lines[start:j + 1])
+    raise AssertionError("declaration of %s in template.html never closes (bracket depth never returns to 0)" % name)
+
+
 def page_js(names, prelude=""):
     """Source of the named top-level `function NAME(` / `const NAME =` declarations of template.html.
 
-    A function runs to the next line that starts at column 0 with `}`; a const to the end of its statement
-    (the first line ending in `;`)."""
+    Each is cut by bracket depth from its first line to where depth is back to 0 (a const also at the `;`)."""
     with open(TEMPLATE, encoding="utf-8") as fh:
         lines = fh.read().split("\n")
     out = [prelude]
     for name in names:
-        fn = re.compile(r"^(async )?function %s\(" % re.escape(name))
-        cn = re.compile(r"^const %s\s*=" % re.escape(name))
+        decl = re.compile(r"^((async )?function %s\(|const %s\s*=)" % (re.escape(name), re.escape(name)))
         for i, line in enumerate(lines):
-            if fn.match(line):
-                j = i
-                while lines[j] != "}":
-                    j += 1
-                out.append("\n".join(lines[i:j + 1]))
-                break
-            if cn.match(line):
-                j = i
-                while not lines[j].rstrip().endswith(";"):
-                    j += 1
-                out.append("\n".join(lines[i:j + 1]))
+            if decl.match(line):
+                out.append(_cut(lines, i, name))
                 break
         else:
             raise AssertionError("no top-level declaration of %s in template.html" % name)
@@ -157,3 +216,11 @@ const empty = [], allNull = [{ x: 1, lo: null, mk: null }], real = [{ x: 2, lo: 
 process.stdout.write(JSON.stringify([pickSeries(empty, null, allNull, real) === real, pickSeries(empty, null), pickSeries(real, allNull) === real]));
 """
         self.assertEqual(json.loads(run_node(js)), [True, None, True])
+
+    def test_page_js_cuts_by_depth(self):
+        js = page_js(["when", "pctVsUsual", "FC"], "const clock = t => 'C', date = t => 'D';") + """
+process.stdout.write(JSON.stringify([when(86400), typeof FC.holt, pctVsUsual(0.1)]));
+"""
+        self.assertEqual(json.loads(run_node(js)), ["D", "function", "+10%"])
+        with self.assertRaises(AssertionError):
+            page_js(["noSuchThing"])
