@@ -365,6 +365,14 @@ process.stdout.write(JSON.stringify([extraCell({ extra: 3000, sells: 6, count: 4
         self.assertEqual(all_, '<span data-sort="1500" title="Selling all 3 you have today (about 10 sell a day)">1500c</span>')
         self.assertEqual(legacy, "200c")
 
+    def test_now_at_falls_back_to_the_tab_snapshot(self):
+        js = page_js(["nowAtOf"]) + """
+const tab = { apiAt: 70 };
+process.stdout.write(JSON.stringify([nowAtOf({ nowFrom: "api" }, tab), nowAtOf({ nowFrom: "api", nowAt: 60 }, tab),
+  nowAtOf({ nowFrom: "scan", nowAt: 90 }, tab), nowAtOf({ nowFrom: "scan" }, tab), nowAtOf({ nowFrom: "api" }, null) ?? "none"]));
+"""
+        self.assertEqual(json.loads(run_node(js)), [70, 60, 90, None, "none"])
+
     def test_neutral_header_says_where_faction_prices_come_from(self):
         js = page_js(["factionPricesNote"]) + """
 process.stdout.write(JSON.stringify([factionPricesNote({ DEAL_BELOW: 0.5 }), factionPricesNote(undefined)]));

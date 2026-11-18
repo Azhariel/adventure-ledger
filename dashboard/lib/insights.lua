@@ -518,11 +518,12 @@ I.itemStats = itemStats
 -- market: S.auctionator(); owned: { [id] = { count, holders = { "Name 12", ... } } }; nameOf(id);
 -- seen: { [id] = { { t, price }, ... } } (the dashboard's own price log); dayToTime(day) -> epoch.
 -- Returns { days = { epoch... }, families = { { key, label, ids } }, items = { [tostring(id)] = { ... } },
---           owned = { ids by value }, rising = { ids }, falling = { ids } }.
+--           owned = { ids by value }, rising = { ids }, falling = { ids }, apiAt = the API snapshot's time or nil }.
 function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
     cfg = cfg or I.MOVERS
     local prices = market and market.prices or {}
-    local out = { days = {}, families = {}, items = {}, owned = {}, rising = {}, falling = {} }
+    local out = { days = {}, families = {}, items = {}, owned = {}, rising = {}, falling = {},
+        apiAt = market and market.apiLatest or nil }
     local allDays, include = {}, {}
     for _, p in pairs(prices) do
         for _, d in ipairs(p.days or {}) do allDays[d.day] = true end
@@ -585,7 +586,10 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
             seen = seen and seen[id] or nil,
             have = o and o.count or 0, holders = o and o.holders or nil,
             -- the API's figures and where "now" came from (R.merge); nil without market data
-            market = p.market, nowFrom = p.nowFrom, nowAt = p.nowAt, soldPerDay = p.soldPerDay, trend = p.trend,
+            -- the API's snapshot time is the tab's apiAt (the same on every API-priced item)
+            market = p.market, nowFrom = p.nowFrom,
+            nowAt = not (p.nowFrom == "api" and p.nowAt == out.apiAt) and p.nowAt or nil,
+            soldPerDay = p.soldPerDay, trend = p.trend,
             -- listed at the API's latest snapshot: Movers' Listed when now is the API's (movers only, to keep the page small)
             units = moveBasis[id] and p.nowFrom == "api" and p.units or nil,
             shifted = p.shifted, moveBasis = moveBasis[id],

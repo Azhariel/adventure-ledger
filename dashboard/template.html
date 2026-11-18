@@ -2249,7 +2249,7 @@ function modMovers() {
     : dir === "down" ? (it.peak && cellNum(it.now) != null ? it.now / it.peak - 1 : null) : cellNum(it.change);
   const rows = (list, dir) => list.map(it => rowId(it.id, [
     whItem(it.id, it.name) + (it.moveBasis === "shifted" && it.shifted ? " " + shiftPill(it.shifted) : ""),
-    nowMoney(it), signedPct(change(it, dir)), `<span class="muted" style="white-space:nowrap">${esc(moveBasisText(it, dir))}</span>`,
+    nowMoney({ ...it, nowAt: nowAtOf(it, M) }), signedPct(change(it, dir)), `<span class="muted" style="white-space:nowrap">${esc(moveBasisText(it, dir))}</span>`,
     soldCell(it.soldPerDay), listedCell(it), haveCell(it)]));
   const cols = [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Change", n: 1 }, { t: "Basis" }, { t: "Sold/day", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }];
   const pct = v => rulePct(v) != null ? `${rulePct(v)}%` : "";
@@ -2488,12 +2488,17 @@ const hourVerdict = u => !u ? "" : u.p >= stripRule().STRIP_PCT ? "good hour" : 
 const hourFamPill = u => u && u.fam ? ` <span class="pill" title="Not enough data for this item's own pattern yet; showing ${esc(u.fam)}">family</span>` : "";
 const isNeutralKey = key => key != null ? / Neutral$/.test(key) : house === "neutral" && hasNeutral();
 // the market tab holding this house's scan prices: the default pair only (any key when the page has no house keys)
-function tabItem(id, key) {
-  const p = defaultPair(), s = String(id);
-  const F = DATA.marketTab && DATA.marketTab.items[s], N = DATA.neutralTab && DATA.neutralTab.items[s];
+function tabFor(key) {
+  const p = defaultPair(), F = DATA.marketTab, N = DATA.neutralTab;
   if (key == null || p.faction == null) return isNeutralKey(key) ? N : F;
   return key === p.faction ? F : key === p.neutral ? N : null;
 }
+function tabItem(id, key) {
+  const t = tabFor(key);
+  return t && t.items ? t.items[String(id)] : undefined;
+}
+// When a tab item's "now" was seen: its own time, or for an API price the tab's snapshot time (the build sends it once)
+const nowAtOf = (it, tab) => it.nowAt ?? (it.nowFrom === "api" && tab ? tab.apiAt : undefined);
 // API data: embedded in Trends, or the market tab has the API's figures or its "now" came from a snapshot
 const hasApi = (id, key) => { const t = tabItem(id, key) || {}; return !!(apiItem(id, key) || cellNum(t.market) != null || t.nowFrom === "api"); };
 // "YYYY-MM-DD" (a local day) -> its noon in ms; a number is seconds
@@ -2609,7 +2614,7 @@ function drawHeader() {
   // now, and where it came from; then the API's figures
   const num = k => { const a = T ? cellNum(T[k]) : null; return a != null ? a : tab ? cellNum(tab[k]) : null; };
   let now = null, from = null, at = null;
-  if (tab && tab.nowFrom) { now = cellNum(tab.now); from = tab.nowFrom; at = tab.nowAt; }
+  if (tab && tab.nowFrom) { now = cellNum(tab.now); from = tab.nowFrom; at = nowAtOf(tab, tabFor(key)); }
   else if (T) { now = cellNum(T.now); from = "api"; at = H && H.latest; }
   else if (tab) { now = cellNum(tab.now); from = "scan"; }
   const src = from === "api" ? `API ${when(at)}`.trim() : from === "scan" ? `your scan ${when(at)}`.trim() : "";

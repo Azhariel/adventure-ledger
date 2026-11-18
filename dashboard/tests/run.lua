@@ -1924,6 +1924,18 @@ test("marketTab: a mover priced by the API carries the API's listed count", func
     eq(out.items["3"].units, nil, "now from a newer scan: Listed is the scan's")
 end)
 
+test("marketTab: the API's snapshot time once per tab, not on every item", function()
+    local market = { apiLatest = 70, prices = {
+        [1] = { now = 100, nowFrom = "api", nowAt = 70 },
+        [2] = { now = 100, nowFrom = "scan", nowAt = 90, days = { { day = 1, low = 100, high = 100 } } } } }
+    local out = I.marketTab(market, {}, function(id) return "Item " .. id end, {}, function(d) return d * 100 end)
+    eq(out.apiAt, 70); eq(out.items["1"].nowFrom, "api"); eq(out.items["1"].nowAt, nil, "the tab's apiAt")
+    eq(out.items["2"].nowAt, 90, "a scan keeps its own time")
+    local bare = I.marketTab({ prices = { [2] = market.prices[2] } }, {}, function(id) return "Item " .. id end, {},
+        function(d) return d * 100 end)
+    eq(bare.apiAt, nil)
+end)
+
 test("signals.flipIds: top positive flips listed at both houses", function()
     local rows = {
         { id = 1, toNeutral = 70, toFaction = -105, fListed = 9, nListed = 5 },
