@@ -147,6 +147,14 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.profile(113), before)
         self.assertEqual(self.store.profile(116), (None, {}))
 
+    def test_read_profile_items_filter(self):
+        w1 = mp.week_start(int(time.time())) - 6 * mp.WEEK
+        self._week_rows(w1)
+        self.store.rollup(w1 + 6 * mp.WEEK)
+        upto, prof = self.store.profile(113)
+        self.assertEqual(ms.read_profile(self.store.db, 113, [2589]), (upto, {2589: prof[2589]}))
+        self.assertEqual(ms.read_profile(self.store.db, 113, [777]), (upto, {}))
+
     def test_migration_is_committed(self):
         path = os.path.join(self.dir.name, "old.db")
         db = sqlite3.connect(path)

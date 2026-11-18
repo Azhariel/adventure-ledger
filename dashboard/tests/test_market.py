@@ -165,8 +165,8 @@ class MarketTests(unittest.TestCase):
             st.db.executemany("INSERT INTO hourly VALUES (113,?,7,?,?,?,?,?)", rows)
             st.db.commit()
             now = rows[-1][0]
-            got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum)
-                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum
+            got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum, low)
+                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum, low
                           in st.db.execute(m._buckets_sql(m.edges(now)), (113, now))),
                          key=lambda b: b.lo)
             st.close()
@@ -303,6 +303,105 @@ class RunTests(unittest.TestCase):
         self.run_()
         self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM snapshot").fetchone()[0], 8)
         self.assertEqual(m.signature(m.open_ro(self.db)), "113:%d:" % (self.NOW))
+
+
+class SeriesTests(unittest.TestCase):
+    """market.lua's grids, series and sparklines (wanted items only for the heavy ones)."""
+    NOW = START + 20 * 86400
+    CFG = {"ah_houses": "PvP 113"}
+    GAP = NOW - 30 * 3600   # 2589 sold out in this hour
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.db = os.path.join(self.dir, "market.db")
+        self.out = os.path.join(self.dir, "market.lua")
+        self.wanted = os.path.join(self.dir, "market_wanted.tsv")
+        self.store = ms.Store(self.db)
+        for i in range(72):
+            t = self.NOW - (71 - i) * 3600
+            rows = {777: {"min": 50, "market": 55, "units": 2, "listings": 1}}
+            if t != self.GAP:
+                rows[2589] = {"min": 100, "market": 110, "units": 5, "listings": 3}
+            self.store.record(113, t, rows, {2589: 2, 777: 1}, {1: (2589, 5, "L")})
+
+    def tearDown(self):
+        self.store.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def want(self, *items):
+        with open(self.wanted, "w", encoding="utf-8") as fh:
+            fh.write("".join("PvP Horde\t%d\n" % i for i in items))
+
+    def run_(self):
+        return m.run(self.db, self.out, self.CFG, now=self.NOW + 60)
+
+    def text(self):
+        with open(self.out, encoding="utf-8") as fh:
+            return fh.read()
+
+    def lua(self, code):
+        got = subprocess.run([LUA, "-e", "dofile([[%s]]) local h = LedgerMarket.houses[113] %s"
+                              % (self.out.replace("\\", "/"), code)], capture_output=True, text=True)
+        self.assertEqual(got.stderr, "")
+        return got.stdout.split()
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_run_writes_series_for_wanted_items_only(self):
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        got = self.lua("local a, b = h.items[2589], h.items[777] "
+                       "print(a.hourly ~= nil, a.daily ~= nil, a.week ~= nil, b.hourly, b.daily, b.week, "
+                       "#a.spark, #b.spark, #h.sparkDays, #a.hourly.min, #a.hourly.market, #h.ts, "
+                       "#a.daily.market, #a.daily.min, #h.seriesDays, a.spark[14], a.daily.min[60])")
+        self.assertEqual(got, ["true", "true", "true", "nil", "nil", "nil", "14", "14", "14",
+                               "72", "72", "72", "60", "60", "60", "110", "100"])
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_series_cap_keeps_best_sellers(self):
+        self.want(777, 2589)
+        with mock.patch.dict(m.C, {"SERIES_MAX_ITEMS": 1}):
+            self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.lua("print(h.items[2589].hourly ~= nil, h.items[777].hourly)"), ["true", "nil"])
+
+    def test_wanted_change_rewrites(self):
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.run_(), "unchanged")
+        self.want(777)
+        self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.run_(), "unchanged")
+        with open(self.out, encoding="utf-8") as fh:
+            head = fh.readline().rstrip("\n")
+        db = m.open_ro(self.db)
+        try:
+            self.assertEqual(head, m.stamp(db, {113: "PvP Horde"}, "PvP Horde\t777\n"))
+        finally:
+            db.close()
+        self.assertRegex(head, r"^-- sig: 113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
+
+    def test_missing_wanted_file_still_writes(self):
+        self.assertEqual(self.run_(), "written")
+        text = self.text()
+        self.assertNotIn('["hourly"]', text)
+        self.assertIn('["spark"]', text)
+        self.assertIn('["seriesDays"]', text)
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_sold_out_hours_are_false_in_hourly(self):
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        got = self.lua("for k, t in ipairs(h.ts) do if t == %d then "
+                       "print(h.items[2589].hourly.min[k], h.items[2589].hourly.market[k]) end end "
+                       "print(h.items[2589].hourly.min[1])" % self.GAP)
+        self.assertEqual(got, ["false", "false", "100"])
+
+    def test_no_nil_holes(self):
+        self.want(2589, 777)
+        self.assertEqual(self.run_(), "written")
+        text = self.text()
+        for key in ('["hourly"]', '["daily"]', '["spark"]', '["week"]'):
+            self.assertIn(key, text)
+        self.assertNotRegex(text, r"[{,]nil[,}]")
 
 
 if __name__ == "__main__":
