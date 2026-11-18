@@ -10,4 +10,15 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+rem The build may have changed the wanted list (market_wanted.tsv): run the engine again and rebuild only if it
+rem wrote a new market.lua.
+set "MK="
+for /f "delims=" %%r in ('python "%~dp0market.py"') do set "MK=%%r"
+if not "%MK%"=="written" goto open
+"%LUA%" "%~dp0build.lua"
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+:open
 start "" "%~dp0..\data\dashboard.html"

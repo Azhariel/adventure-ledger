@@ -32,6 +32,11 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 #   still work when ah_houses is not set (defaults 1, 113 and 116).
 # ah_houses = PvP 113, PvP 116
 #
+# ah_reset: the weekly reset, as a day and an hour on your own clock: Tue 12, tuesday 12:00 (English day names or
+#   3-letter abbreviations, any case; whole hours only). Default: Tuesday at the local hour of 15:00 UTC, the US
+#   reset. Set it if Forever resets at another time. The dashboard outlines this hour in every grid.
+# ah_reset = Tue 12
+#
 # ah_every: minutes between checks (default 10). Blizzard makes a new snapshot about hourly, at no fixed minute
 #   (not documented). Each check asks only for data newer than the last snapshot: when there is none, Blizzard
 #   answers "not modified" and nothing is downloaded. A new snapshot downloads both houses (about 15-20 MB) and is

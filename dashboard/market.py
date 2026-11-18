@@ -4,6 +4,9 @@ min/market are None for an hour the item was sold out; sold is an int. Days are 
 `buckets` are one item's rows summed per (local day, window segment): see day_buckets. The long windows
 (market value, trend, sales, history) read buckets, so a month of hours never passes through Python."""
 import collections
+import datetime
+import hashlib
+import json
 import math
 import os
 import pathlib
@@ -32,6 +35,9 @@ C = {
     "WEEK_MIN_WEEKS": 2,
     "WEEK_MIN_N": 2,
     "WEEK_MIN_CELLS": 0.6,
+    "SERIES_DAYS": 14,        # hourly series window per item
+    "SPARK_DAYS": 14,
+    "SERIES_MAX_ITEMS": 400,  # per house: items with hourly/daily series (by soldPerDay, descending)
 }
 
 DAY = 86400
@@ -42,8 +48,8 @@ CELLS = 168
 
 # One (local day, segment) of an item's rows. lo/hi: first and last hour; wm = sum((sold+1)*market),
 # w = sum(sold+1) and wt = sum((sold+1)*t) over priced hours; n = priced hours; sold = units sold;
-# msum = sum(market) (for the day's mean).
-Bucket = collections.namedtuple("Bucket", "day lo hi wm w wt n sold msum")
+# msum = sum(market) (for the day's mean); low = lowest min (None when every hour was sold out).
+Bucket = collections.namedtuple("Bucket", "day lo hi wm w wt n sold msum low")
 
 
 def edges(now):
@@ -62,11 +68,13 @@ def segment(t, cuts):
 def day_buckets(rows, cuts=()):
     """Rows -> buckets, the same sums the engine's SQL makes (for tests and small inputs)."""
     acc = {}
-    for t, _mn, market, _u, _l, sold in rows:
+    for t, mn, market, _u, _l, sold in rows:
         key = (market_store.local_day(t), segment(t, cuts))
-        b = acc.get(key) or [t, t, 0, 0, 0, 0, 0, 0]
+        b = acc.get(key) or [t, t, 0, 0, 0, 0, 0, 0, None]
         b[0], b[1] = min(b[0], t), max(b[1], t)
         b[6] += sold
+        if mn is not None:
+            b[8] = mn if b[8] is None else min(b[8], mn)
         if market is not None:
             b[2] += (sold + 1) * market
             b[3] += sold + 1
@@ -88,7 +96,7 @@ def market_value(buckets, end):
     num = den = 0.0
     count = 0
     hl = DAY * C["MARKET_HALF_LIFE_DAYS"]
-    for _d, b_lo, b_hi, wm, w, wt, n, _s, _m in buckets:
+    for _d, b_lo, b_hi, wm, w, wt, n, _s, _m, _low in buckets:
         if not n or not (lo < (b_lo + b_hi) / 2 <= end):
             continue
         f = 0.5 ** ((end - wt / w) / hl)
@@ -135,6 +143,24 @@ def hourly_day_means(buckets, now):
     return {day: ms / n for day, (ms, n) in sums.items()}
 
 
+def day_values(buckets):
+    """({local day: mean market}, {local day: lowest min}) over every bucket (the whole hourly retention)."""
+    sums, low = {}, {}
+    for b in buckets:
+        if b.n:
+            s = sums.setdefault(b.day, [0, 0])
+            s[0] += b.msum
+            s[1] += b.n
+        if b.low is not None:
+            low[b.day] = b.low if b.day not in low else min(low[b.day], b.low)
+    return {day: ms / n for day, (ms, n) in sums.items()}, low
+
+
+def on_days(days, values):
+    """`values` ({day: number}) at each day of `days`, rounded to whole copper; missing is False."""
+    return [int(round(values[d])) if d in values else False for d in days]
+
+
 def shifted(buckets, rows, now):
     """A new price level that is holding: most of the last 48h (`rows`) sits beyond +-SHIFT_PCT of the
     market value from before that window, with real sales. A one-night dump fails the share test."""
@@ -170,7 +196,7 @@ def item_week(stored, upto, rows, now):
         if upto is None or wk > upto:
             by_week.setdefault(wk, []).append((t, market, sold))
     spans = bool(rows) and rows[-1][0] - rows[0][0] >= C["WEEK_MIN_WEEKS"] * 7 * DAY
-    if not (spans or stored):
+    if not (stored or any(r[2] is not None for r in rows)):
         return None
     F = mp.decay((cur - upto) / mp.WEEK) if stored else 0
     W, WP, WS, N = {}, {}, {}, {}
@@ -183,21 +209,21 @@ def item_week(stored, upto, rows, now):
             WP[key] = WP.get(key, 0) + f * lr
             WS[key] = WS.get(key, 0) + f * sold
             N[key] = N.get(key, 0) + n
-    p, s, n_out = [None] * CELLS, [None] * CELLS, [0] * CELLS
+    p, s, n_out = [False] * CELLS, [False] * CELLS, [0] * CELLS
     for key, w in W.items():
         i = key[0] * 24 + key[1]
         n_out[i] = N[key]
         if w > 0:
-            p[i] = round(math.exp(WP[key] / w) - 1, 3)
+            p[i] = round(math.exp(WP[key] / w) - 1, 2)
             s[i] = round(WS[key] / w, 1)
-    if sum(1 for n in n_out if n >= C["WEEK_MIN_N"]) < C["WEEK_MIN_CELLS"] * CELLS:
-        return None
-    return {"p": p, "s": s, "n": n_out}
+    own = bool(spans or stored) and sum(1 for n in n_out if n >= C["WEEK_MIN_N"]) >= C["WEEK_MIN_CELLS"] * CELLS
+    return {"p": p, "s": s, "n": n_out, "own": own}
 
 
 def house_week(snapshots, sold_by_t):
     """Whole-house hour-of-week shape. snapshots = [(t, auctions)], sold_by_t = {t: units sold in that hour}.
-    listings = mean auctions per cell; sold = sold per cell per week seen. Cells without data are None."""
+    listings = mean auctions per cell; sold = sold per cell per week seen; n = snapshots per cell.
+    Cells without data are False."""
     auc, sold, weeks = {}, {}, set()
     for t, a in snapshots:
         auc.setdefault(mp.cell(t), []).append(a)
@@ -205,19 +231,51 @@ def house_week(snapshots, sold_by_t):
     for t, s in sold_by_t.items():
         sold[mp.cell(t)] = sold.get(mp.cell(t), 0) + s
         weeks.add(mp.week_start(t))
-    listings, sold_out = [None] * CELLS, [None] * CELLS
+    listings, sold_out, n = [False] * CELLS, [False] * CELLS, [False] * CELLS
     for (d, h), v in auc.items():
         listings[d * 24 + h] = round(sum(v) / len(v), 1)
+        n[d * 24 + h] = len(v)
     for (d, h), v in sold.items():
         sold_out[d * 24 + h] = round(v / len(weeks), 1)
-    return {"listings": listings, "sold": sold_out}
+    return {"listings": listings, "sold": sold_out, "n": n}
+
+
+def read_wanted(text):
+    """market_wanted.tsv ("<house key>\t<item id>" per line) -> {house key: {item ids}}. Bad lines are skipped."""
+    out = {}
+    for line in text.splitlines():
+        key, tab, item = line.partition("\t")
+        if not tab:
+            continue
+        try:
+            out.setdefault(key, set()).add(int(item))
+        except ValueError:
+            pass
+    return out
+
+
+def align(ts, rows, field):
+    """Values of `rows` ((t, ...) tuples) at each time in `ts` (field 1 = min, 2 = market); missing is False."""
+    by_t = {r[0]: r[field] for r in rows}
+    return [False if by_t.get(t) is None else by_t[t] for t in ts]
+
+
+def _last_days(now, n):
+    today = datetime.date.fromtimestamp(now)
+    return [(today - datetime.timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+
+
+def spark_days(now):
+    return _last_days(now, C["SPARK_DAYS"])
+
+
+def daily_days(now):
+    return _last_days(now, C["HIST_DAYS"])
 
 
 def item_summary(buckets, recent, last, day_means, now):
     """One item: `buckets` over the whole retention, `recent` its rows of the last SHIFT_HOURS (oldest first),
-    `last` its row in the latest snapshot (None when it was not listed).
-    The per-item `week` (item_week) is left out until the build reads it: step 2 of the AH market plan wires it
-    in, from the stored profile plus the weeks still in hourly."""
+    `last` its row in the latest snapshot (None when it was not listed). Grids and series are added by _house."""
     out = {"units": 0, "listings": 0}
     if last and last[1] is not None:
         out["units"], out["listings"], out["now"] = last[3], last[4], last[1]
@@ -231,6 +289,34 @@ def item_summary(buckets, recent, last, day_means, now):
 
 
 # ---------------------------------------------------------------- I/O (sqlite in, market.lua out)
+
+
+def history(db, house, item, now):
+    """One item's rows for the drawer's longer ranges: hourly (up to the latest snapshot), daily (the daily table
+    plus the days hourly still holds, hourly winning) and its week grid. Reads only; empty for an unknown item."""
+    if not db.in_transaction:
+        db.execute("BEGIN")   # one read transaction: the queries below see one state of the db
+    snap = db.execute("SELECT MAX(t) FROM snapshot WHERE house=?", (house,)).fetchone()[0]
+    rows = []
+    if snap is not None:
+        rows = [tuple(r) for r in db.execute(
+            "SELECT t, min, market, units, listings, sold FROM hourly WHERE house=? AND item=? AND t<=? ORDER BY t",
+            (house, item, snap))]
+    days = {}
+    if _has(db, "daily"):
+        for day, mn, market in db.execute(
+                "SELECT day, min, market FROM daily WHERE house=? AND item=?", (house, item)):
+            days[day] = [day, mn, None if market is None else round(market)]
+    if rows:
+        means, lows = day_values(day_buckets(rows))   # every day hourly still holds; it wins over the daily table
+        for day in sorted(set(means) | set(lows)):
+            days[day] = [day, lows.get(day), None if day not in means else round(means[day])]
+    upto, stored = (market_store.read_profile(db, house, [item])
+                    if _has(db, "profile") and _has(db, "profile_state") else (None, {}))
+    return {"house": house, "item": item,
+            "hourly": [[t, mn, market, units] for t, mn, market, units, _l, _s in rows],
+            "daily": [days[d] for d in sorted(days)],
+            "week": item_week(stored.get(item), upto, rows, now)}
 
 
 def to_lua(value):
@@ -318,20 +404,22 @@ def _buckets_sql(cuts):
             "TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*market END), "
             "TOTAL(CASE WHEN market IS NOT NULL THEN sold+1 END), "
             "TOTAL(CASE WHEN market IS NOT NULL THEN (sold+1)*t END), "
-            "COUNT(market), TOTAL(sold), TOTAL(market) "
+            "COUNT(market), TOTAL(sold), TOTAL(market), MIN(min) "
             "FROM hourly NOT INDEXED WHERE house=? AND t<=? GROUP BY item, day, seg" % seg)
 
 
-def _house(db, house, keys, now):
-    """Every hourly read stops at the latest snapshot: rows past it belong to one still being recorded."""
+def _house(db, house, keys, now, wanted=()):
+    """Every hourly read stops at the latest snapshot: rows past it belong to one still being recorded.
+    `wanted`: the item ids the page asked series for (capped at SERIES_MAX_ITEMS by soldPerDay)."""
     snaps = db.execute("SELECT t, auctions FROM snapshot WHERE house=? ORDER BY t", (house,)).fetchall()
     latest, first, count = snaps[-1][0], snaps[0][0], len(snaps)
     newest = [t for t, _ in reversed(snaps[-6:])]
     cut = now - C["SHIFT_HOURS"] * 3600
 
     buckets = {}
-    for item, day, _seg, lo, hi, wm, w, wt, n, sold, msum in db.execute(_buckets_sql(edges(now)), (house, latest)):
-        buckets.setdefault(item, []).append(Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum))
+    for item, day, _seg, lo, hi, wm, w, wt, n, sold, msum, low in db.execute(
+            _buckets_sql(edges(now)), (house, latest)):
+        buckets.setdefault(item, []).append(Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum, low))
 
     # Per hour only the recent rows: the shift window, and the newest snapshots' prices (older than the window
     # when the fetcher was off for a while).
@@ -351,30 +439,78 @@ def _house(db, house, keys, now):
         "SELECT t, SUM(sold) FROM hourly NOT INDEXED WHERE house=? AND t<=? GROUP BY t", (house, latest)))
 
     lo_day = market_store.local_day(now - C["HIST_DAYS"] * DAY)
-    by_day = {}
-    for item, day, market in (db.execute(
-            "SELECT item, day, market FROM daily WHERE house=? AND day>=? AND market IS NOT NULL", (house, lo_day))
+    by_day, min_by_day = {}, {}
+    for item, day, mn, market in (db.execute(
+            "SELECT item, day, min, market FROM daily WHERE house=? AND day>=?", (house, lo_day))
             if _has(db, "daily") else ()):
-        by_day.setdefault(item, {})[day] = market
+        if market is not None:
+            by_day.setdefault(item, {})[day] = market
+        if mn is not None:
+            min_by_day.setdefault(item, {})[day] = mn
 
-    items = {}
+    series_days, sparks = daily_days(now), spark_days(now)
+    items, day_market, day_min = {}, {}, {}
     for item, bs in buckets.items():
         bs.sort(key=lambda b: b.lo)
         days = dict(by_day.get(item, {}))
         days.update(hourly_day_means(bs, now))   # hourly wins: daily only holds folded days, the two rarely overlap
         items[item] = item_summary(bs, recent.get(item, []), last.get(item), list(days.values()), now)
+        means, lows = day_values(bs)   # hourly wins here too
+        day_market[item] = {**by_day.get(item, {}), **means}
+        day_min[item] = {**min_by_day.get(item, {}), **lows}
+        items[item]["spark"] = on_days(sparks, day_market[item])
+
+    ts = [t for t, _ in snaps if t > now - C["SERIES_DAYS"] * DAY]
+    chosen = sorted((i for i in wanted if i in items), key=lambda i: (-items[i]["soldPerDay"], i))
+    chosen = chosen[:C["SERIES_MAX_ITEMS"]]
+    if chosen:
+        rows = {}
+        # The (house, item, t) index: only the chosen items' rows (the whole hourly retention of each).
+        for item, t, mn, market, units, listings, sold in db.execute(
+                "SELECT item, t, min, market, units, listings, sold FROM hourly "
+                "WHERE house=? AND item IN (SELECT value FROM json_each(?)) AND t<=? ORDER BY item, t",
+                (house, json.dumps(chosen), latest)):
+            rows.setdefault(item, []).append((t, mn, market, units, listings, sold))
+        upto, stored = (market_store.read_profile(db, house, chosen)
+                        if _has(db, "profile") and _has(db, "profile_state") else (None, {}))
+        for item in chosen:
+            mine, it = rows.get(item, []), items[item]
+            week = item_week(stored.get(item), upto, mine, now)
+            if week is not None:
+                it["week"] = week
+            it["hourly"] = {"min": align(ts, mine, 1), "market": align(ts, mine, 2)}
+            it["daily"] = {"market": on_days(series_days, day_market[item]),
+                           "min": on_days(series_days, day_min[item])}
 
     recent = [{"t": t, "min": recent_min[t]} for t in newest]
     out = {"id": house, "latest": latest, "first": first, "snapshots": count,
-           "week": house_week(snaps, sold_by_t), "recent": recent, "items": items}
+           "week": house_week(snaps, sold_by_t), "recent": recent, "ts": ts, "seriesDays": series_days,
+           "sparkDays": sparks, "items": items}
     if house in keys:
         out["key"] = keys[house]
     return out
 
 
-def run(db_path, out_path, cfg, now=None):
+def stamp(db, keys, wanted_text, sig=None):
+    """market.lua's first line. The house names and the wanted list are part of it: changing ah_houses or the
+    page's wanted items must rewrite the file. `sig`: signature(db), when the caller already has it."""
+    if sig is None:
+        sig = signature(db)
+    return "-- sig: %s|%s|w=%s" % (sig, ",".join("%d=%s" % kv for kv in sorted(keys.items())),
+                                   hashlib.sha1(wanted_text.encode("utf-8")).hexdigest()[:12])
+
+
+def run(db_path, out_path, cfg, now=None, wanted_path=None):
     """Write out_path (market.lua) from the db: "written", "unchanged" (nothing new since the last write)
-    or "no data". Never writes the db, and copies nothing from the config but the house names."""
+    or "no data". Never writes the db, and copies nothing from the config but the house names.
+    wanted_path (default market_wanted.tsv beside out_path) lists the items that get series; missing is none."""
+    if wanted_path is None:
+        wanted_path = os.path.join(os.path.dirname(out_path), "market_wanted.tsv")
+    try:
+        with open(wanted_path, encoding="utf-8") as fh:
+            wanted_text = fh.read()
+    except OSError:
+        wanted_text = ""
     db = open_ro(db_path)
     if db is None:
         return "no data"
@@ -385,8 +521,7 @@ def run(db_path, out_path, cfg, now=None):
         if not sig:
             return "no data"
         keys = _house_keys(cfg)
-        # The house names are part of the stamp: changing ah_houses must rewrite the file.
-        head = "-- sig: %s|%s" % (sig, ",".join("%d=%s" % kv for kv in sorted(keys.items())))
+        head = stamp(db, keys, wanted_text, sig)
         try:
             with open(out_path, encoding="utf-8") as fh:
                 if fh.readline().rstrip("\n") == head:
@@ -394,7 +529,9 @@ def run(db_path, out_path, cfg, now=None):
         except OSError:
             pass
         now = int(time.time() if now is None else now)
-        houses = {h: _house(db, h, keys, now) for h, in db.execute("SELECT DISTINCT house FROM snapshot ORDER BY house").fetchall()}
+        wanted = read_wanted(wanted_text)
+        houses = {h: _house(db, h, keys, now, wanted.get(keys.get(h), ()))
+                  for h, in db.execute("SELECT DISTINCT house FROM snapshot ORDER BY house").fetchall()}
         text = "%s\nLedgerMarket = %s\n" % (head, to_lua({"generated": now, "houses": houses}))
     finally:
         db.close()

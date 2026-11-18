@@ -16,6 +16,7 @@ local I = require("insights")
 local Mg = require("merge")
 local H = require("houses")
 local R = require("reconcile")
+local T = require("trends")
 
 local Build = {}
 
@@ -241,6 +242,16 @@ function Build.zones(path)
     return out
 end
 
+-- UTC hour h on this week's Tuesday (weeks start Monday) -> the local hour and the day shift (-1, 0, 1), for
+-- ah_reset's default; this week's, so a summer-time zone gets today's offset. now: epoch (default os.time()).
+function Build.utcHourToLocal(h, now)
+    now = now or os.time()
+    local u = os.date("!*t", now)
+    local tuesday = now - ((u.wday - 2) % 7 - 1) * 86400 - u.hour * 3600 - u.min * 60 - u.sec
+    local t = os.date("*t", tuesday + h * 3600)
+    return t.hour, t.wday - 3
+end
+
 -- Returns the dashboard data: { generated, characters = { ... } }
 function Build.data(wow, opts)
     opts = opts or {}
@@ -258,6 +269,9 @@ function Build.data(wow, opts)
     result.pcs = { "this PC" }
     for _, pc in ipairs(opts.otherPCs or {}) do result.pcs[#result.pcs + 1] = pc.name end
     result.warnings = {}
+    local resetWarning
+    result.reset, resetWarning = T.parseReset(opts.reset, Build.utcHourToLocal)
+    if resetWarning then result.warnings[#result.warnings + 1] = resetWarning end
     local charDirs = Build.characterSets(wow, opts.otherPCs, opts.listDirs)
     -- every PC's account folder for each account
     local accountDirs = {}
@@ -442,8 +456,9 @@ function Build.data(wow, opts)
                 end
             end
             local accountChar = char.guid and acct.chars and acct.chars[char.guid]
-            local charMkt = charMarket(char.realm or (stockChar and stockChar.realm) or (accountChar and accountChar.realm),
-                char.faction or (accountChar and accountChar.faction))
+            local charRealm = char.realm or (stockChar and stockChar.realm) or (accountChar and accountChar.realm)
+            local charFaction = char.faction or (accountChar and accountChar.faction)
+            local charMkt = charMarket(charRealm, charFaction)
             local model = M.character({
                 muddy = muddy, haul = haul, mob = mob, stock = stockChar, account = accountChar,
                 market = charMkt, names = names, planner = planner, mobLib = mobLib, now = result.generated,
@@ -456,6 +471,8 @@ function Build.data(wow, opts)
             model.profile.fullName = fsurname and (model.profile.name .. " " .. fsurname) or model.profile.name
             model.profile.ruleset = M.ruleset(model.profile.realm)
             model.key = c.account .. "/" .. c.name
+            local houseFaction, houseNeutral = H.forChar(charRealm, charFaction)
+            model.houses = { faction = houseFaction, neutral = houseNeutral }
             model.profile.pcs = c.pcs
             model.trails = M.trails(muddy and muddy.trail)
             model.recentTrail = M.recentTrail(muddy and muddy.trail, result.generated - M.RECENT_TRAIL_SECONDS)
@@ -643,6 +660,33 @@ function Build.data(wow, opts)
     for _, t in ipairs(I.transfers(holders, acctNameOf, market)) do
         if t.reason == "restock" and #result.transfers < 40 then result.transfers[#result.transfers + 1] = t end
     end
+    -- Trends: the API's houses with their family grids. opts.wanted(text): the items the engine should keep
+    -- series for (market_wanted.tsv; Build.run passes it): families, what anyone holds or traded on the AH, per house
+    local traded = {}
+    for _, c in ipairs(result.characters) do
+        for _, it in ipairs(c.money and c.money.ahTrades and c.money.ahTrades.items or {}) do
+            if it.id then traded[it.id] = true end
+        end
+    end
+    if next(apiByKey) then
+        result.trends = T.page(apiByKey, I.FAMILIES, function(id) return names[id] or known[id] end, result.reset,
+            factionKey, T.wantedIds(I.FAMILIES, owned, traded), owned)
+    end
+    if opts.wanted then
+        local houseKeys, seenKey = {}, {}
+        local function addKey(key)
+            if key and not seenKey[key] then seenKey[key] = true; houseKeys[#houseKeys + 1] = key end
+        end
+        for key in pairs(apiByKey) do addKey(key) end
+        for _, c in ipairs(result.characters) do addKey(c.houses.faction); addKey(c.houses.neutral) end
+        table.sort(houseKeys)
+        -- a locked or read-only market_wanted.tsv must not fail the page: the engine keeps the old list
+        local ok, err = pcall(opts.wanted, T.wanted(I.FAMILIES, owned, traded, houseKeys))
+        if not ok then
+            result.warnings[#result.warnings + 1] = "couldn't write market_wanted.tsv (" .. tostring(err)
+                .. "); the AH engine keeps the old list"
+        end
+    end
     -- Drop rates from your own kills (DropLab), drops valued at the AH price after the 5% cut
     local dropDB = groups[1] and groups[1].droplab
     if dropDB then
@@ -677,8 +721,13 @@ function Build.run(wow, outFile, data)
     local worthSeen, worthLast = I.parseWorthLog(U.readFile(worthPath) or "")
     -- the market engine's output (market.py); missing or broken: in-game scans only
     local marketEnv = U.loadSV(data .. "market.lua")
+    local wantedPath = data .. "market_wanted.tsv"
     local result = Build.data(wow, { priceLog = log(logPath), neutralLog = log(data .. "price_log_neutral.tsv"),
         neutralDays = neutralDays, otherPCs = Build.otherPCs(data), market = marketEnv and marketEnv.LedgerMarket,
+        reset = Build.config().ah_reset,
+        wanted = function(text)
+            if (U.readFile(wantedPath) or "") ~= text then U.writeFile(wantedPath, text) end
+        end,
         worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
             local f = io.open(worthPath, "ab")
             if f then f:write(lines); f:close() end

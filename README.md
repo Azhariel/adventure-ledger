@@ -108,7 +108,7 @@ the number listed per item per scan day) plus the dashboard's own price log, `pr
 for each item whose price changed, so each /reload after an AH scan is another point on the chart.
 
 - **Faction / Neutral switch** (top right on Signals, Stockpile, Browse and Movers) picks which house's prices
-  those modules use. The **item inspector** (click any row) draws both houses on one chart, with the forecast for
+  those modules use. The **item drawer** (click any row) draws both houses on one chart, with the forecast for
   the house in view and a separate chart of how many were listed.
 - **Signals**: your stockpile's value per scan day with its forecast, your best sellers, buy low / sell high (with
   who holds each item worth selling, and how many in their bags, bank and mail). Click any row for its price history.
@@ -153,6 +153,7 @@ the game is automated: it only reads the API.
    | `bnet_region` | `us` (default) |
    | `ah_houses` | The houses to fetch, e.g. `PvP 113, PvP 116`: ruleset name, then house id, comma-separated. The side follows from the id. `113` (Horde) and `116` (Neutral) matched on PvP; `--match` finds yours. The old `ah_ruleset`, `ah_faction` and `ah_neutral` still work when this is unset |
    | `ah_every` | Minutes between checks for a new snapshot, `10` by default |
+   | `ah_reset` | The weekly reset, day and hour on your clock: `Tue 12`, `tuesday 12:00` (whole hours only; other minutes get a warning and the default). Default: Tuesday at the local hour of 15:00 UTC, the US reset. Set it if Forever resets at another time |
 
 3. Run `wowstats live`. The tray starts the fetcher with the server.
 
@@ -180,6 +181,26 @@ The logs are `server.log`, `fetcher.log` and `tray.log` in the data folder.
 stopped (tray > AH fetcher > Stop, then Start again after): the database keeps recent writes in a side file
 (`market.db-wal`) while it runs, so a copy taken then can be incomplete. Hours when the fetching PC is off are simply
 missing. Two databases are not merged: the copy replaces the old one.
+
+**Trends tab.** With API data, the Market area gets a Trends tab: pick a house, then Whole house or a family of
+trade goods, or search for an item. The family's price grid sits beside the house's sold grid (Whole house shows
+listings beside sold), with a "Right now" table and how old the data is. Grids run Monday first in your local time:
+pink is cheaper than usual, green pricier, blue is volume, blank means not enough data, and the reset hour is
+outlined. A family grid pools its members' prices and fills in after about a week; an item's own grid needs about
+two weeks.
+
+**Item drawer.** Click an item row in Signals, Stockpile, Browse, Movers, Faction vs Neutral, Your trades or Trends
+to open it in a panel at the side. It has a 14 days / 60 days / everything switch (everything needs the live
+server), and its "Your scans" section holds the scan chart, listed bars and forecast the old item inspector had.
+The live server serves `GET /history?house=<id>&item=<id>` (localhost only, read-only): hourly rows for about 30
+days and daily rows for all time, straight from `market.db`.
+
+Each build writes `data/market_wanted.tsv`: the page lists the items it needs (family members, items you hold,
+items you've traded). `wowstats` then runs the engine again and rebuilds when the list changed what it wrote (the
+live server reruns it within a poll). Detailed price lines are capped at 400 items per house; other items show
+their numbers, and their history comes from the live server. To keep the page small, hourly prices are embedded
+only for the 60 best-selling items you hold; for the rest the 14-day view draws daily prices in the file and
+hourly ones from the live server.
 
 ### Live (second-monitor mode)
 
@@ -343,6 +364,7 @@ Notes:
 | `dashboard/lib/sources.lua` | Readers for QuestieDB names, Auctionator and Ledger Link prices, log lines; joins Logbook's log with the history it copied from MuddyBoots |
 | `dashboard/lib/model.lua` | Pure functions computing every figure on the page |
 | `dashboard/lib/merge.lua` | Pure: merges each character's and account's saved files from several PCs (`data/pcs`) |
+| `dashboard/lib/trends.lua` | Pure: hour-of-week grids, families, the weekly reset (`ah_reset`) and best buy and sell hours |
 | `dashboard/lib/insights.lua` | Pure: market deals, session recaps, items to mail between characters, Faction vs Neutral |
 | `dashboard/template.html` | The page; `build.lua` puts the data where `/*DATA*/null` is |
 | `dashboard/server.py` | Live server: rebuilds on SavedVariables changes, follows the newest combat log, serves the page and screenshots |
@@ -360,7 +382,7 @@ Notes:
 | `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
-| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `market.db`, `fetcher_status.json`, `server.log`, `fetcher.log`, `tray.log` |
+| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `market.db`, `market.lua`, `market_wanted.tsv`, `fetcher_status.json`, `server.log`, `fetcher.log`, `tray.log` |
 
 ## Tests
 

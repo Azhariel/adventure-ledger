@@ -93,12 +93,59 @@ class MarketTests(unittest.TestCase):
 
     def test_item_week_needs_two_weeks_and_most_cells(self):
         short = self._week_rows(9)
-        self.assertIsNone(m.item_week(None, None, short, short[-1][0]))
+        self.assertIs(m.item_week(None, None, short, short[-1][0])["own"], False)
         rows = self._week_rows(15)
         got = m.item_week(None, None, rows, rows[-1][0])
-        self.assertIsNotNone(got)
+        self.assertIs(got["own"], True)
         self.assertEqual(len(got["p"]), 168)
         self.assertAlmostEqual(got["p"][1 * 24 + 20], 0.2, delta=0.02)
+
+    def test_item_week_partial_returns_cells_not_none(self):
+        rows = self._week_rows(3)
+        got = m.item_week(None, None, rows, rows[-1][0])
+        self.assertIs(got["own"], False)
+        self.assertTrue(any(v is not False for v in got["p"]))
+        self.assertEqual(len(got["n"]), 168)
+
+    def test_item_week_own_after_two_weeks(self):
+        rows = self._week_rows(15)
+        self.assertIs(m.item_week(None, None, rows, rows[-1][0])["own"], True)
+
+    def test_item_week_p_has_two_decimals(self):
+        rows = [(START + i * 3600, 100 + (i * 7) % 13, 100 + (i * 7) % 13, 5, 3, 0) for i in range(15 * 24)]
+        got = m.item_week(None, None, rows, rows[-1][0])
+        ps = [v for v in got["p"] if v is not False]
+        self.assertTrue(any(v != 0 for v in ps))
+        for v in ps:
+            self.assertEqual(v, round(v, 2))
+
+    def test_item_week_nothing_is_none(self):
+        self.assertIsNone(m.item_week({}, None, [], START))
+
+    def test_week_arrays_use_false_not_none(self):
+        got = m.item_week(None, None, self._week_rows(3), START + 3 * 86400)
+        self.assertNotIn(None, got["p"])
+        self.assertNotIn(None, got["s"])
+        hw = m.house_week([(START, 40)], {START: 4})
+        self.assertNotIn(None, hw["listings"])
+        self.assertNotIn(None, hw["sold"])
+        self.assertNotIn(None, hw["n"])
+
+    def test_read_wanted_bad_lines(self):
+        text = "PvP Horde" + chr(9) + "2447" + chr(10) + chr(10) + "broken" + chr(10) + "PvP Horde" + chr(9) + "x" + chr(10) + "PvP Neutral" + chr(9) + "765" + chr(10)
+        self.assertEqual(m.read_wanted(text), {"PvP Horde": {2447}, "PvP Neutral": {765}})
+
+    def test_align_fills_false(self):
+        self.assertEqual(m.align([10, 20, 30], [(10, 5, 6), (30, None, 7)], 1), [5, False, False])
+        self.assertEqual(m.align([10, 30], [(10, 5, 6), (30, None, 7)], 2), [6, 7])
+
+    def test_spark_and_daily_days(self):
+        now = START + 40 * 86400
+        d = m.spark_days(now)
+        self.assertEqual(len(d), 14)
+        self.assertEqual(d[-1], ms.local_day(now))
+        self.assertEqual(len(m.daily_days(now)), 60)
+        self.assertEqual(m.daily_days(now)[-1], ms.local_day(now))
 
     def test_item_week_combines_stored_and_recent(self):
         recent_start = START + 14 * 86400
@@ -127,8 +174,8 @@ class MarketTests(unittest.TestCase):
             st.db.executemany("INSERT INTO hourly VALUES (113,?,7,?,?,?,?,?)", rows)
             st.db.commit()
             now = rows[-1][0]
-            got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum)
-                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum
+            got = sorted((m.Bucket(day, lo, hi, wm, w, wt, n, int(sold), msum, low)
+                          for _i, day, _s, lo, hi, wm, w, wt, n, sold, msum, low
                           in st.db.execute(m._buckets_sql(m.edges(now)), (113, now))),
                          key=lambda b: b.lo)
             st.close()
@@ -144,6 +191,16 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(len(got["sold"]), 168)
         self.assertEqual(got["listings"][0], 40)
         self.assertEqual(got["sold"][0], 4)
+
+    def test_house_week_counts_snapshots_per_cell(self):
+        week = 7 * 86400
+        snaps = [(START, 40), (START + week, 60), (START + 3600, 50)]
+        got = m.house_week(snaps, {START: 4})
+        self.assertEqual(len(got["n"]), 168)
+        self.assertEqual(got["n"][0], 2)
+        self.assertEqual(got["n"][1], 1)
+        self.assertIs(got["n"][2], False)
+        self.assertEqual(got["listings"][0], 50)
 
 
 LUA = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Lua", "bin", "lua.exe")
@@ -265,6 +322,162 @@ class RunTests(unittest.TestCase):
         self.run_()
         self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM snapshot").fetchone()[0], 8)
         self.assertEqual(m.signature(m.open_ro(self.db)), "113:%d:" % (self.NOW))
+
+
+class HistoryTests(unittest.TestCase):
+    NOW = START + 20 * 86400
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.store = ms.Store(os.path.join(self.dir, "market.db"))
+        for i in range(48):
+            self.store.record(113, self.NOW - (47 - i) * 3600,
+                              {2589: {"min": 100, "market": 110, "units": 5, "listings": 3}}, {2589: 1}, {})
+        self.store.db.execute("INSERT INTO daily VALUES (113, '2026-09-01', 2589, 90, 95.4, 4, 2, 24, 24)")
+        self.store.db.commit()
+        self.db = m.open_ro(os.path.join(self.dir, "market.db"))
+
+    def tearDown(self):
+        self.db.close()
+        self.store.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_history_shapes(self):
+        h = m.history(self.db, 113, 2589, self.NOW)
+        self.assertEqual((h["house"], h["item"]), (113, 2589))
+        self.assertEqual(len(h["hourly"]), 48)
+        self.assertEqual(h["hourly"][-1], [self.NOW, 100, 110, 5])
+        self.assertEqual(h["daily"][0], ["2026-09-01", 90, 95])           # the daily table, oldest first
+        self.assertTrue(all(d[2] == 110 and d[1] == 100 for d in h["daily"][1:]))   # hourly days
+        self.assertEqual([d[0] for d in h["daily"]], sorted(d[0] for d in h["daily"]))
+        self.assertIs(h["week"]["own"], False)
+
+    def test_history_hourly_wins_over_daily(self):
+        day = h_day = m.market_store.local_day(self.NOW)
+        self.store.db.execute("INSERT INTO daily VALUES (113, ?, 2589, 1, 1, 1, 0, 24, 24)", (day,))
+        self.store.db.commit()
+        got = {d[0]: d for d in m.history(self.db, 113, 2589, self.NOW)["daily"]}
+        self.assertEqual(got[h_day][2], 110)
+
+    def test_history_unknown_is_empty(self):
+        h = m.history(self.db, 113, 999, self.NOW)
+        self.assertEqual((h["hourly"], h["daily"], h["week"]), ([], [], None))
+        self.assertEqual(m.history(self.db, 5, 2589, self.NOW)["hourly"], [])
+
+
+class SeriesTests(unittest.TestCase):
+    """market.lua's grids, series and sparklines (wanted items only for the heavy ones)."""
+    NOW = START + 20 * 86400
+    CFG = {"ah_houses": "PvP 113"}
+    GAP = NOW - 30 * 3600   # 2589 sold out in this hour
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.db = os.path.join(self.dir, "market.db")
+        self.out = os.path.join(self.dir, "market.lua")
+        self.wanted = os.path.join(self.dir, "market_wanted.tsv")
+        self.store = ms.Store(self.db)
+        for i in range(72):
+            t = self.NOW - (71 - i) * 3600
+            rows = {777: {"min": 50, "market": 55, "units": 2, "listings": 1}}
+            if t != self.GAP:
+                rows[2589] = {"min": 100, "market": 110, "units": 5, "listings": 3}
+            self.store.record(113, t, rows, {2589: 2, 777: 1}, {1: (2589, 5, "L")})
+
+    def tearDown(self):
+        self.store.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def want(self, *items):
+        with open(self.wanted, "w", encoding="utf-8") as fh:
+            fh.write("".join("PvP Horde\t%d\n" % i for i in items))
+
+    def run_(self):
+        return m.run(self.db, self.out, self.CFG, now=self.NOW + 60)
+
+    def text(self):
+        with open(self.out, encoding="utf-8") as fh:
+            return fh.read()
+
+    def lua(self, code):
+        got = subprocess.run([LUA, "-e", "dofile([[%s]]) local h = LedgerMarket.houses[113] %s"
+                              % (self.out.replace("\\", "/"), code)], capture_output=True, text=True)
+        self.assertEqual(got.stderr, "")
+        return got.stdout.split()
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_run_writes_series_for_wanted_items_only(self):
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        got = self.lua("local a, b = h.items[2589], h.items[777] "
+                       "print(a.hourly ~= nil, a.daily ~= nil, a.week ~= nil, b.hourly, b.daily, b.week, "
+                       "#a.spark, #b.spark, #h.sparkDays, #a.hourly.min, #a.hourly.market, #h.ts, "
+                       "#a.daily.market, #a.daily.min, #h.seriesDays, a.spark[14], a.daily.min[60])")
+        self.assertEqual(got, ["true", "true", "true", "nil", "nil", "nil", "14", "14", "14",
+                               "72", "72", "72", "60", "60", "60", "110", "100"])
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_series_cap_keeps_best_sellers(self):
+        self.want(777, 2589)
+        with mock.patch.dict(m.C, {"SERIES_MAX_ITEMS": 1}):
+            self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.lua("print(h.items[2589].hourly ~= nil, h.items[777].hourly)"), ["true", "nil"])
+
+    def test_wanted_change_rewrites(self):
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.run_(), "unchanged")
+        self.want(777)
+        self.assertEqual(self.run_(), "written")
+        self.assertEqual(self.run_(), "unchanged")
+        with open(self.out, encoding="utf-8") as fh:
+            head = fh.readline().rstrip("\n")
+        db = m.open_ro(self.db)
+        try:
+            self.assertEqual(head, m.stamp(db, {113: "PvP Horde"}, "PvP Horde\t777\n"))
+        finally:
+            db.close()
+        self.assertRegex(head, r"^-- sig: 113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
+
+    def test_missing_wanted_file_still_writes(self):
+        self.assertEqual(self.run_(), "written")
+        text = self.text()
+        self.assertNotIn('["hourly"]', text)
+        self.assertIn('["spark"]', text)
+        self.assertIn('["seriesDays"]', text)
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_sold_out_hours_are_false_in_hourly(self):
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        got = self.lua("for k, t in ipairs(h.ts) do if t == %d then "
+                       "print(h.items[2589].hourly.min[k], h.items[2589].hourly.market[k]) end end "
+                       "print(h.items[2589].hourly.min[1])" % self.GAP)
+        self.assertEqual(got, ["false", "false", "100"])
+
+    def test_no_nil_holes(self):
+        self.want(2589, 777)
+        self.assertEqual(self.run_(), "written")
+        text = self.text()
+        for key in ('["hourly"]', '["daily"]', '["spark"]', '["week"]'):
+            self.assertIn(key, text)
+        self.assertGreaterEqual(text.count('["own"]='), 2)   # both items' own week, not only the house's
+        self.assertNotRegex(text, r"[{,]nil[,}]")
+
+    @unittest.skipIf(LUA is None, "no Lua interpreter")
+    def test_daily_table_fills_folded_days_and_hourly_wins(self):
+        old, today = ms.local_day(self.NOW - 10 * 86400), ms.local_day(self.NOW)
+        self.store.db.executemany("INSERT INTO daily VALUES (113,?,2589,?,?,5,1,24,24)",
+                                  [(old, 70, 77.0), (today, 900, 999.0)])
+        self.store.db.commit()
+        self.want(2589)
+        self.assertEqual(self.run_(), "written")
+        got = self.lua("local a = h.items[2589] for k, d in ipairs(h.sparkDays) do "
+                       "if d == '%s' or d == '%s' then print(a.spark[k]) end end "
+                       "for k, d in ipairs(h.seriesDays) do "
+                       "if d == '%s' or d == '%s' then print(a.daily.market[k], a.daily.min[k]) end end"
+                       % (old, today, old, today))
+        self.assertEqual(got, ["77", "110", "77", "70", "110", "100"])
 
 
 if __name__ == "__main__":

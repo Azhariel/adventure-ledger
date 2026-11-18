@@ -848,17 +848,43 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     truthy(page:find('"name":"Hero"', 1, true), "data embedded")
     truthy(not page:find("/*DATA*/", 1, true), "placeholder replaced")
     eq(data.marketTab.items["2592"].now, 100, "no market data: the scan's price, as before")
+    eq(data.trends, nil, "no market data: no Trends")
+    truthy(data.reset and data.reset.dow and data.reset.hour, "the reset is there without API data too")
     -- The API's newer snapshot of R Horde. Ledger Link saw a faction visit at 10:00 on the last scan day (when
     -- Auctionator's price was taken) and a Neutral one at 20:00, which must not stamp the faction book's scan.
     local day = S.dayToTime(2501)
     U.writeFile(acct .. "/SavedVariables/LedgerLink.lua", ([[LedgerLinkDB = { visits = {
         { t = %d, kind = "faction", realm = "R", faction = "Horde" }, { t = %d, kind = "neutral", realm = "R" } } }]])
         :format(day + 10 * 3600, day + 20 * 3600))
-    local logged = {}
-    local api = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+    -- the wanted list also takes what any character holds (Alt's Mining Pick) or sold on the AH (Hero's Woolen Bag)
+    U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [2592] = 4 }, bank = {}, mail = {} }, ["Alt-R"] = { name = "Alt", realm = "R", bags = { [2592] = 1, [2901] = 1 }, bank = {}, mail = {} } } }')
+    U.writeFile(charSV .. "/MuddyBoots.lua", [[MuddyBootsCharDB = { char = { name = "Hero", realm = "R", guid = "G1", level = 12, class = "PRIEST",
+        first = { level = 11 } }, sessions = { { start = 5, played0 = 3500, played1 = 7200, last = 50 } },
+        counts = { xp = { all = 300, kill = 100, quest = 200 } },
+        log = { "10|3600|1|1|1|zo|Elwynn", "20|3610|1|1|1|xp|100|kill|Wolf", "30|3620|1|1|1|mn|50|loot", "40|5400|1|1|1|lv|12",
+            "45|5405|1|1|1|ah|sold|950|Woolen Bag", "45|5405|1|1|1|mn|950|auction|Woolen Bag" } }]])
+    local logged, wanted = {}, {}
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth", [4241] = "Woolen Bag", [12345] = "Nobody's Item" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
-            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
-        priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end } })
+            items = { [2592] = { now = 90, market = 95, spark = { 88, 90, false }, hourly = { min = { 80 }, market = { 85 } } }, [12345] = { now = 1, spark = { 1 } } },
+        recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end },
+        reset = "Wed 9", wanted = function(text) wanted[#wanted + 1] = text end })
+    local th = api.trends and api.trends.houses["R Horde"]
+    truthy(th, "Trends for the API's house")
+    eq(#th.families, #I.FAMILIES); eq(th.families[3].key, "cloth"); eq(th.families[3].ids[1], 2592)
+    eq(th.items["2592"].name, "Wool Cloth"); eq(th.items["2592"].spark[2], 90); eq(th.items["2592"].spark[3], false)
+    eq(th.items["12345"], nil, "an engine item nobody wants isn't embedded")
+    eq(th.items["2592"].hourly.min[1], 80, "a held item keeps its hourly series")
+    eq(api.trends.default, "R Horde")
+    eq(api.reset.dow, 2, "Wed"); eq(api.reset.hour, 9); eq(api.trends.reset, api.reset)
+    eq(#wanted, 1, "one wanted list per build")
+    truthy(wanted[1]:find("R Horde\t2592\n", 1, true), "the held item is wanted: " .. wanted[1]:sub(1, 80))
+    truthy(wanted[1]:find("R Horde\t2901\n", 1, true), "an alt's held item is wanted")
+    truthy(wanted[1]:find("R Horde\t4241\n", 1, true), "an item sold on the AH is wanted")
+    truthy(wanted[1]:find("R Horde\t2447\n", 1, true), "a family member is wanted")
+    truthy(wanted[1]:find("R Neutral\t2592\n", 1, true), "the character's Neutral house too")
+    eq(api.characters[1].houses.faction, "R Horde"); eq(api.characters[1].houses.neutral, "R Neutral")
     eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")
     eq(api.marketTab.items["2592"].nowFrom, "api"); eq(api.marketTab.items["2592"].market, 95)
     eq(#logged, 1); truthy(logged[1]:find("\t2592\t100\n"), "the log keeps the scan: " .. logged[1])
@@ -867,6 +893,16 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
     eq(api.account.characters[1].items, 380, "the account rows use the merged market value: 4 Wool Cloth at 95")
     eq(api.characters[1].inventory.items[1].unit, 95, "held items are valued at market value, not the lowest price")
+    -- a market_wanted.tsv that can't be written (locked, read-only) is a warning, never a failed build
+    local locked = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+        market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
+            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function() end },
+        wanted = function() error("market_wanted.tsv: Permission denied") end })
+    truthy(locked.trends, "the page still builds")
+    local warned = false
+    for _, w in ipairs(locked.warnings) do warned = warned or w:find("market_wanted.tsv", 1, true) ~= nil end
+    truthy(warned, "a warning names the wanted file")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 
@@ -1551,6 +1587,191 @@ test("reconcile: agreement against the nearest recent snapshot", function()
     eq(at89 and at89.apiAt, scan + 89 * 60, "89 minutes: close enough")
     eq(R.agreement(book, { latest = scan, recent = { { t = scan - 91 * 60, min = { [1] = 100 } } } }, at), nil, "91 minutes: too far")
     eq(R.agreement(book, { latest = scan, recent = { { t = scan, min = { [9] = 1 } } } }, at), nil, "no shared items")
+end)
+
+local TR = require("trends")
+local function grid(fill) local g = { p = {}, s = {}, n = {} } for i = 1, 168 do g.p[i], g.s[i], g.n[i] = false, false, false end if fill then fill(g) end return g end
+local function cell(dow, hour) return dow * 24 + hour + 1 end
+
+test("trends.parseReset: default, names, hours and bad text", function()
+    local d = TR.parseReset(nil, function(h) return h - 3, 0 end)
+    eq(d.dow, 1); eq(d.hour, 12)
+    local d2, w2 = TR.parseReset("", function(h) return h - 3, 0 end)
+    eq(d2.hour, 12); eq(w2, nil)
+    local w = TR.parseReset("wed 9"); eq(w.dow, 2); eq(w.hour, 9)
+    local s = TR.parseReset("Sunday 23:00"); eq(s.dow, 6); eq(s.hour, 23)
+    local t = TR.parseReset("Tue 12:00"); eq(t.dow, 1); eq(t.hour, 12)
+    local x, warn = TR.parseReset("x", function(h) return h - 3, 0 end)
+    eq(x.dow, 1); eq(x.hour, 12)
+    eq(warn, 'ah_reset: couldn\'t read "x"; using Tue 12:00. Write it like: ah_reset = Tue 12:00')
+    local y, warn2 = TR.parseReset("x", function(h) return 7, -1 end)
+    eq(y.dow, 0); eq(y.hour, 7)
+    eq(warn2, 'ah_reset: couldn\'t read "x"; using Mon 07:00. Write it like: ah_reset = Tue 12:00',
+        "the warning names the computed default")
+end)
+
+test("trends.parseReset: minutes must be :00", function()
+    local warm = function(h) return h - 3, 0 end
+    local a, wa = TR.parseReset("Tue 12", warm); eq(a.hour, 12); eq(wa, nil)
+    local b, wb = TR.parseReset("Tue 12:00", warm); eq(b.hour, 12); eq(wb, nil)
+    for _, bad in ipairs({ "Tue 12:30", "Tue 12:99", "Tue 12:0", "Tue 24" }) do
+        local r, w = TR.parseReset(bad, warm)
+        eq(r.dow, 1); eq(r.hour, 12)
+        eq(w, 'ah_reset: couldn\'t read "' .. bad .. '"; using Tue 12:00. Write it like: ah_reset = Tue 12:00', bad)
+    end
+end)
+
+test("trends.parseReset: default wraps the day", function()
+    local d = TR.parseReset(nil, function(h) return 23, -1 end)
+    eq(d.dow, 0); eq(d.hour, 23)
+    local e = TR.parseReset(nil, function(h) return 1, 1 end)
+    eq(e.dow, 2); eq(e.hour, 1)
+    local f = TR.parseReset(nil, function(h) return 23, 6 - 7 end)
+    eq(f.dow, 0)
+end)
+
+test("trends.familyWeek: weighted by units sold", function()
+    local a = grid(function(g) local i = cell(0, 0); g.p[i], g.s[i], g.n[i] = 0.10, 9, 3 end)
+    local b = grid(function(g) local i = cell(0, 0); g.p[i], g.s[i], g.n[i] = -0.10, 0, 3 end)
+    local f = TR.familyWeek({ a, b })
+    near(f.p[1], (0.10 * 10 - 0.10 * 1) / 11); eq(f.s[1], 9); eq(f.n[1], 6)
+    eq(f.p[2], false); eq(f.members, 2)
+end)
+
+test("trends.familyWeek: members pool their observations; a cell fills at MIN_N in total", function()
+    local a = grid(function(g) g.p[1], g.s[1], g.n[1] = 0.1, 1, 3 end)
+    local low = grid(function(g) g.p[2], g.s[2], g.n[2] = 0.1, 1, 1 end)
+    local f = TR.familyWeek({ a, low })
+    eq(f.p[2], false, "a lone member with n=1 in a cell does not fill it")
+    eq(f.enough, false); eq(f.members, 2, "a member with one numeric cell counts")
+    local low2 = grid(function(g) g.p[2], g.s[2], g.n[2] = 0.3, 3, 1 end)
+    local two = TR.familyWeek({ low, low2 })
+    near(two.p[2], (0.1 * 2 + 0.3 * 4) / 6, "two members with n=1 each fill it")
+    eq(two.s[2], 4); eq(two.n[2], 2); eq(two.members, 2)
+    eq(two.p[1], false)
+    local empty = grid(); empty.own = true
+    local g = TR.familyWeek({ a, empty })
+    eq(g.members, 1); eq(g.ownCount, 0)
+    eq(TR.familyWeek({ empty, grid() }), nil)
+    local lone = TR.familyWeek({ empty, low })
+    eq(lone.members, 1); eq(lone.p[2], false)
+    eq(TR.familyWeek({}), nil)
+    local own = grid(function(g) g.p[1], g.s[1], g.n[1] = 0.1, 1, 3 end); own.own = true
+    eq(TR.familyWeek({ own, empty }).ownCount, 1)
+end)
+
+test("trends.strip: best sell and buy runs", function()
+    local g = grid(function(g)
+        for h = 19, 22 do local i = cell(1, h); g.p[i], g.s[i], g.n[i] = 0.08, 1, 3 end
+        for h = 4, 8 do local i = cell(6, h); g.p[i], g.s[i], g.n[i] = -0.07, 1, 3 end
+    end)
+    g.own = true
+    local s = TR.strip(g)
+    eq(#s.sell, 1); eq(s.sell[1].dow, 1); eq(s.sell[1].from, 19); eq(s.sell[1].to, 23)
+    eq(#s.buy, 1); eq(s.buy[1].dow, 6); eq(s.buy[1].from, 4); eq(s.buy[1].to, 9)
+end)
+
+test("trends.strip: runs carry across midnight and the week's end", function()
+    local g = grid(function(g)
+        for _, c in ipairs({ cell(0, 23), cell(1, 0) }) do g.p[c], g.s[c], g.n[c] = 0.10, 1, 3 end
+        for _, c in ipairs({ cell(6, 22), cell(6, 23), cell(0, 0) }) do g.p[c], g.s[c], g.n[c] = -0.10, 1, 3 end
+    end)
+    g.own = true
+    local s = TR.strip(g)
+    eq(#s.sell, 1); eq(s.sell[1].dow, 0); eq(s.sell[1].from, 23); eq(s.sell[1].to, 25)
+    eq(#s.buy, 1); eq(s.buy[1].dow, 6); eq(s.buy[1].from, 22); eq(s.buy[1].to, 25)
+    local all = grid(function(g) for i = 1, 168 do g.p[i], g.s[i], g.n[i] = 0.10, 1, 3 end end)
+    all.own = true
+    local w = TR.strip(all)
+    eq(#w.sell, 1); eq(w.sell[1].dow, 0); eq(w.sell[1].from, 0); eq(w.sell[1].to, 168); eq(#w.buy, 0)
+end)
+
+test("trends.strip: nil below the cell share", function()
+    local g = grid(); g.own = false; g.enough = false
+    eq(TR.strip(g), nil)
+end)
+
+test("utcHourToLocal: from this week's Tuesday (Monday first), so the offset is the current one", function()
+    local Build = require("build")
+    local tueJan, tueJul = 1704153600, 1720483200  -- Tue 2 Jan 2024 and Tue 9 Jul 2024, 00:00 UTC
+    local function expect(tue, h)
+        local t = os.date("*t", tue + h * 3600)
+        return t.hour, t.wday - 3
+    end
+    for _, c in ipairs({ { tueJan + 5 * 3600, tueJan }, { tueJan - 86400 + 60, tueJan }, { tueJan + 5 * 86400, tueJan },
+        { tueJul + 86400 + 7, tueJul } }) do
+        local h, s = Build.utcHourToLocal(15, c[1])
+        local eh, es = expect(c[2], 15)
+        eq(h, eh); eq(s, es)
+    end
+    local h, s = Build.utcHourToLocal(15)
+    truthy(h >= 0 and h <= 23 and s >= -1 and s <= 1, "now by default")
+end)
+
+test("trends.wanted: byte-identical regardless of insertion order", function()
+    local f1 = { { key = "a", label = "A", ids = { 3, 1, 2 } } }
+    local f2 = { { key = "a", label = "A", ids = { 2, 3, 1 } } }
+    local x = TR.wanted(f1, { [9] = true, [5] = true }, { [5] = true, [7] = true }, { "PvP Horde", "PvP Neutral" })
+    local y = TR.wanted(f2, { [5] = true, [9] = true }, { [7] = true, [5] = true }, { "PvP Neutral", "PvP Horde" })
+    eq(x, y)
+    local n = 0 for _ in x:gmatch("\n") do n = n + 1 end
+    eq(n, 12)
+end)
+
+test("trends.wantedIds: families, owned and traded; wanted() lists the same ids", function()
+    local w = TR.wantedIds({ { key = "a", ids = { 1, 2 } } }, { [3] = true }, { [4] = true })
+    eq(w[1], true); eq(w[2], true); eq(w[3], true); eq(w[4], true); eq(w[5], nil)
+end)
+
+test("trends.page: only wanted items are embedded, with their spark", function()
+    local api = { ["PvP Horde"] = { id = 113, key = "PvP Horde", latest = 5,
+        items = { [1] = { now = 10, spark = { 1, 2 } }, [3] = { now = 7, spark = { 3 } } } } }
+    local r = TR.page(api, { { key = "f", label = "F", ids = { 3 } } }, tostring, { dow = 1, hour = 12 }, "PvP Horde",
+        { [1] = true })
+    local h = r.houses["PvP Horde"]
+    eq(h.items["1"].spark[2], 2); eq(h.items["3"], nil, "not wanted: no summary, no spark")
+    eq(h.families[1].ids[1], 3, "family ids still list the house's members")
+end)
+
+test("trends.page: hourly only for held items, the best HOURLY_MAX sellers", function()
+    local items = {}
+    for id = 1, 5 do
+        items[id] = { now = id, soldPerDay = id, spark = { id }, week = { own = true }, daily = { market = { id } },
+            hourly = { min = { id }, market = { id } } }
+    end
+    local api = { ["PvP Horde"] = { id = 113, key = "PvP Horde", latest = 5, items = items } }
+    eq(TR.C.HOURLY_MAX, 60)
+    local saved = TR.C.HOURLY_MAX
+    TR.C.HOURLY_MAX = 2
+    local ok, r = pcall(TR.page, api, { { key = "f", label = "F", ids = { 1 } } }, tostring, { dow = 1, hour = 12 },
+        "PvP Horde", { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true }, { [2] = true, [3] = true, [4] = true })
+    TR.C.HOURLY_MAX = saved
+    assert(ok, r)
+    local h = r.houses["PvP Horde"]
+    eq(h.items["4"].hourly.min[1], 4, "held, best seller"); eq(h.items["3"].hourly.market[1], 3)
+    eq(h.items["2"].hourly, nil, "held but past the cap")
+    eq(h.items["1"].hourly, nil, "family member: no hourly"); eq(h.items["5"].hourly, nil, "traded only: no hourly")
+    for id = 1, 5 do
+        local e = h.items[tostring(id)]
+        eq(e.daily.market[1], id); eq(e.spark[1], id); eq(e.week.own, true)
+    end
+    local none = TR.page(api, {}, tostring, { dow = 1, hour = 12 }, "PvP Horde", nil)
+    eq(none.houses["PvP Horde"].items["5"].hourly, nil, "no held set: no hourly")
+end)
+
+test("trends.page: unknown items skipped, false holes survive", function()
+    local week = { listings = {}, sold = {} }
+    for i = 1, 168 do week.listings[i], week.sold[i] = false, false end
+    local api = { ["PvP Horde"] = { id = 113, key = "PvP Horde", latest = 5, first = 1, snapshots = 2, ts = { 1, 2 },
+        seriesDays = { "2026-01-01" }, sparkDays = { "2026-01-01" }, week = week,
+        items = { [1] = { units = 1, listings = 1, now = 10, soldPerDay = 0, days = 3, spark = { false, 5 }, junk = 1 } } } }
+    local fams = { { key = "f", label = "F", ids = { 1, 2 } } }
+    local r = TR.page(api, fams, function(id) return id == 1 and "One" or nil end, { dow = 1, hour = 12 }, "PvP Horde")
+    local h = r.houses["PvP Horde"]
+    eq(h.id, 113); eq(h.items["1"].name, "One"); eq(h.items["2"], nil); eq(h.items["1"].junk, nil)
+    eq(#h.families[1].ids, 1); eq(r.default, "PvP Horde"); eq(r.stripRule.MIN_N, 2)
+    local js = U.json(h.items["1"].spark)
+    eq(js, "[false,5]")
 end)
 
 for _, t in ipairs(tests) do

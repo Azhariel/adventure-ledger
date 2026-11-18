@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -185,6 +186,13 @@ class App:
                 _LOG.info("market engine wrote market.lua in %.1fs", time.time() - t0)
             return got
 
+    def wanted_text(self):
+        try:
+            with open(os.path.join(DATA, "market_wanted.tsv"), encoding="utf-8") as fh:
+                return fh.read()
+        except OSError:
+            return ""
+
     def market_signature(self):
         """What the engine would stamp market.lua with now: '' without a db."""
         try:
@@ -192,7 +200,10 @@ class App:
             if db is None:
                 return ""
             try:
-                return market.signature(db)
+                sig = market.signature(db)
+                if not sig:
+                    return ""
+                return market.stamp(db, market._house_keys(read_config()), self.wanted_text(), sig)
             finally:
                 db.close()
         except Exception:   # noqa: BLE001
@@ -423,6 +434,8 @@ def make_handler(app):
             elif path == "/live.json":
                 snap, _ = app.snapshot()
                 self._send(200, json.dumps(snap).encode(), "application/json")
+            elif path == "/history":
+                self.history()
             elif path == "/events":
                 self.events()
             elif path.startswith("/map/") and path.endswith(".jpg"):
@@ -453,6 +466,30 @@ def make_handler(app):
                 self._send(200, body, SHOT_TYPES[name.rsplit(".", 1)[1].lower()])
             else:
                 self.send_error(404)
+
+        def history(self):
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            ids = []
+            for name in ("house", "item"):
+                v = (q.get(name) or [""])[0]
+                if not (v.isascii() and v.isdigit() and len(v) <= 18 and int(v) > 0):
+                    self._send(400, b'{"error":"house and item must be positive integers"}', "application/json")
+                    return
+                ids.append(int(v))
+            try:
+                db = market.open_ro(os.path.join(DATA, "market.db"))
+                if db is None:
+                    self._send(404, b'{"error":"no market.db"}', "application/json")
+                    return
+                try:
+                    body = json.dumps(market.history(db, ids[0], ids[1], int(time.time()))).encode()
+                finally:
+                    db.close()
+            except Exception:   # noqa: BLE001
+                _LOG.exception("history failed")
+                self._send(503, b'{"error":"unavailable"}', "application/json")
+                return
+            self._send(200, body, "application/json")
 
         def do_POST(self):
             if not self._host_ok():

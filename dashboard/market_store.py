@@ -1,4 +1,5 @@
 """SQLite store for hourly AH rows, with old hours folded into days. Standard library only."""
+import json
 import sqlite3
 import time
 
@@ -31,12 +32,14 @@ def local_day(t):
     return time.strftime("%Y-%m-%d", time.localtime(t))
 
 
-def read_profile(db, house):
-    """Store.profile on any connection, so the engine can read it from a read-only one."""
+def read_profile(db, house, items=None):
+    """Store.profile on any connection, so the engine can read it from a read-only one. `items`: only these."""
     got = db.execute("SELECT upto FROM profile_state WHERE house=?", (house,)).fetchone()
     out = {}
-    for item, dow, hour, wp, w, ws, n in db.execute(
-            "SELECT item, dow, hour, wp, w, ws, n FROM profile WHERE house=?", (house,)):
+    sql, args = "SELECT item, dow, hour, wp, w, ws, n FROM profile WHERE house=?", (house,)
+    if items is not None:
+        sql, args = sql + " AND item IN (SELECT value FROM json_each(?))", args + (json.dumps(list(items)),)
+    for item, dow, hour, wp, w, ws, n in db.execute(sql, args):
         out.setdefault(item, {})[(dow, hour)] = (wp, w, ws, n)
     return (got[0] if got else None), out
 
