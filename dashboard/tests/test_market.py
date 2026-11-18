@@ -31,8 +31,9 @@ class MarketTests(unittest.TestCase):
     def test_trend_needs_both_ends(self):
         short = hours(START, 6 * 24, 100)
         self.assertIsNone(m.trend(short, short[-1][0]))
+        # a +10% step; the trend lags it by design (recency-weighted value now vs a week ago) -> +0.08
         rows = hours(START, 7 * 24, 100) + hours(START + 7 * 86400, 7 * 24, 110)
-        self.assertAlmostEqual(m.trend(rows, rows[-1][0]), 0.10, delta=0.02)
+        self.assertAlmostEqual(m.trend(rows, rows[-1][0]), 0.08, delta=0.01)
 
     def test_shifted_up_after_a_real_jump(self):
         jump = START + 12 * 86400
@@ -43,8 +44,25 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(got["since"], jump)
 
     def test_one_night_dump_is_not_a_shift(self):
-        rows = hours(START, 14 * 24 - 8, 100) + hours(START + (14 * 24 - 8) * 3600, 8, 40)
+        rows = hours(START, 14 * 24 - 8, 100) + hours(START + (14 * 24 - 8) * 3600, 8, 40, sold=1)
         self.assertIsNone(m.shifted(rows, rows[-1][0]))
+
+    def test_shifted_down_after_a_real_drop(self):
+        rows = hours(START, 12 * 24, 100) + hours(START + 12 * 86400, 36, 50, sold=1)
+        self.assertEqual(m.shifted(rows, rows[-1][0])["dir"], "down")
+
+    def test_sales_in_sold_out_hours_count_toward_a_shift(self):
+        start = START + 12 * 86400 - 8 * 3600
+        jump = [(start + i * 3600, None, None, 0, 0, 1) if i % 8 == 0 else (start + i * 3600, 190, 190, 5, 3, 0)
+                for i in range(44)]   # the only sales (6) happen in sold-out hours
+        rows = hours(START, 12 * 24 - 8, 100) + jump
+        self.assertEqual(m.shifted(rows, rows[-1][0])["dir"], "up")
+
+    def test_sold_per_day(self):
+        rows = hours(START, 14 * 24, 100, sold=2)
+        self.assertAlmostEqual(m.sold_per_day(rows, rows[-1][0] + 3600), 48, delta=1)
+        young = hours(START, 3 * 24, 100, sold=1)
+        self.assertAlmostEqual(m.sold_per_day(young, START + 3 * 86400), 24, delta=0.5)
 
     def test_shift_needs_sales(self):
         rows = hours(START, 12 * 24, 100) + hours(START + 12 * 86400, 36, 190)

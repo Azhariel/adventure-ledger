@@ -77,8 +77,10 @@ def shifted(rows, now):
     ref = market_value(rows, cut)
     if not ref:
         return None
-    win = [(t, m / ref, sold) for t, _mn, m, _u, _l, sold in rows if cut < t <= now and m is not None]
-    if len(win) < C["SHIFT_MIN_SNAPS"] or sum(s for _, _, s in win) < C["SHIFT_MIN_SOLD"]:
+    inwin = [r for r in rows if cut < r[0] <= now]
+    # Sales in sold-out hours (market None) are real sales too; only share and ratio use priced rows.
+    win = [(t, m / ref, sold) for t, _mn, m, _u, _l, sold in inwin if m is not None]
+    if len(win) < C["SHIFT_MIN_SNAPS"] or sum(r[5] for r in inwin) < C["SHIFT_MIN_SOLD"]:
         return None
     pct = C["SHIFT_PCT"]
     for name, beyond in (("up", lambda r: r - 1 >= pct), ("down", lambda r: r - 1 <= -pct)):
@@ -95,7 +97,7 @@ def shifted(rows, now):
 def item_week(stored, upto, rows, now):
     """Hour-of-week profile: stored decayed sums (weeks up to `upto`) plus the newer weeks still in `rows`.
     Weeks at or before `upto` are skipped in rows so nothing counts twice."""
-    stored = stored or {}
+    stored = (stored or {}) if upto is not None else {}   # sums without a week anchor cannot be decayed
     cur = mp.week_start(now)
     by_week = {}
     for t, _mn, market, _u, _l, sold in rows:
@@ -105,7 +107,7 @@ def item_week(stored, upto, rows, now):
     spans = bool(rows) and rows[-1][0] - rows[0][0] >= C["WEEK_MIN_WEEKS"] * 7 * DAY
     if not (spans or stored):
         return None
-    F = mp.decay((cur - upto) / mp.WEEK) if (stored and upto is not None) else 0
+    F = mp.decay((cur - upto) / mp.WEEK) if stored else 0
     W, WP, WS, N = {}, {}, {}, {}
     for key, (wp, w, ws, n) in stored.items():
         W[key], WP[key], WS[key], N[key] = w * F, wp * F, ws * F, n
