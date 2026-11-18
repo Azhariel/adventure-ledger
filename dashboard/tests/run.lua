@@ -1594,6 +1594,10 @@ test("trends.parseReset: default, names, hours and bad text", function()
     local x, warn = TR.parseReset("x", function(h) return h - 3, 0 end)
     eq(x.dow, 1); eq(x.hour, 12)
     eq(warn, 'ah_reset: couldn\'t read "x"; using Tue 12:00. Write it like: ah_reset = Tue 12:00')
+    local y, warn2 = TR.parseReset("x", function(h) return 7, -1 end)
+    eq(y.dow, 0); eq(y.hour, 7)
+    eq(warn2, 'ah_reset: couldn\'t read "x"; using Mon 07:00. Write it like: ah_reset = Tue 12:00',
+        "the warning names the computed default")
 end)
 
 test("trends.parseReset: default wraps the day", function()

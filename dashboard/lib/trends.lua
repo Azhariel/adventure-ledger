@@ -32,8 +32,11 @@ function T.parseReset(text, utcHourToLocal)
     if dow and hour and hour <= 23 and (rest:match("^%s*$") or minutes) then
         return { dow = dow, hour = hour }, nil
     end
-    return defaultReset(utcHourToLocal),
-        'ah_reset: couldn\'t read "' .. tostring(text) .. '"; using Tue 12:00. Write it like: ah_reset = Tue 12:00'
+    local d = defaultReset(utcHourToLocal)
+    local day = DAYS[d.dow + 1]
+    local using = day:sub(1, 1):upper() .. day:sub(2, 3) .. string.format(" %02d:00", d.hour)
+    return d, 'ah_reset: couldn\'t read "' .. tostring(text) .. '"; using ' .. using
+        .. '. Write it like: ah_reset = Tue 12:00'
 end
 
 -- Merges member week grids into one family grid, weighted by units sold (+1 so unsold cells still count).
