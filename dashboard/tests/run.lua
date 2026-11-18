@@ -1872,6 +1872,12 @@ test("signals.deals: neutral cut, zero and sold-out items", function()
     eq(#Sg.deals({ prices = {} }, I.CUT.faction, itemName, nil, nil), 0)
 end)
 
+test("signals.deals: profit per day in whole copper", function()
+    local book = { prices = { [1] = { now = 449, market = 1000, soldPerDay = 5.5, units = 10 } } }
+    local list = Sg.deals(book, I.CUT.neutral, itemName, nil, nil)
+    eq(list[1].profit, 401); eq(list[1].perDay, 2205, "401 times 5.5 a day is 2205.5, floored")
+end)
+
 test("signals.deals: legacy buy rows only for items without API market", function()
     local book = { prices = {
         [1] = { now = 450, market = 1000, soldPerDay = 10, units = 4 },

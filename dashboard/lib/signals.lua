@@ -40,7 +40,7 @@ function Sg.deals(book, cut, nameOf, owned, legacyBuy)
             if profit >= C.MIN_GAIN then
                 local units = num(e.units) or 0
                 api[#api + 1] = { id = id, name = nameOf(id), now = now, market = market, pct = 1 - now / market,
-                    soldPerDay = sold, units = num(e.units), profit = profit, perDay = profit * math.min(sold, units),
+                    soldPerDay = sold, units = num(e.units), profit = profit, perDay = math.floor(profit * math.min(sold, units)),
                     nowFrom = e.nowFrom, nowAt = e.nowAt, have = owned and owned[id] and owned[id].count or 0,
                     basis = "api" }
             end
