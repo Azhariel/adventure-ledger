@@ -155,6 +155,17 @@ test("migration: merging into an existing book keeps the newer price and unions 
     eq(e.m, 7); eq(e.t, 100); eq(e.l["10"], 5); eq(e.h["10"], 20); eq(e.a["10"], 6); eq(e.h["11"], 7)
 end)
 
+test("a faction scan leaves the Neutral last-scan time alone", function()
+    local L = load(); stubAuctionator()
+    at(1446); L.OnAuctionShow(1794200000)
+    Auctionator.Database:SetPrice("2447", 400, 3)
+    local last = LedgerLinkDB.neutralLast
+    eq(last ~= nil, true)
+    at(1411, "", "Orgrimmar"); L.OnAuctionShow(1794200100)
+    Auctionator.Database:SetPrice("2447", 300, 40)
+    eq(LedgerLinkDB.neutralLast, last)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

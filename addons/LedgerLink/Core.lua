@@ -124,7 +124,7 @@ function L.Record(side, dbKey, price, available, now)
             if tonumber(k) <= cutoff then list[k] = nil end
         end
     end
-    d.neutralLast = now
+    if side == "Neutral" then d.neutralLast = now end -- the dashboard reads it as the Neutral book's last scan
 end
 
 -- Moves the old unkeyed Neutral book (LedgerLinkDB.neutral) under this realm's Neutral book. Per item the newer
@@ -240,7 +240,7 @@ frame:SetScript("OnEvent", function(_, event)
     if event == "AUCTION_HOUSE_SHOW" then
         L.OnAuctionShow()
     else
-        L.Migrate()
+        pcall(L.Migrate) -- a malformed legacy entry must not stop the combat-log timer below
         C_Timer.After(1, L.Ensure)
     end
 end)
