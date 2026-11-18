@@ -557,11 +557,13 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
     local function scanRule(_, p)
         local s = itemStats(p)
         if #(p.days or {}) >= 2 and s.now and s.now >= cfg.minNow and (s.available or 0) >= cfg.minAvailable then
-            if s.change and s.change >= cfg.minRise and (s.low or 0) >= cfg.minLow then return "up", s.change end
+            local upV, downV
+            if s.change and s.change >= cfg.minRise and (s.low or 0) >= cfg.minLow then upV = s.change end
             if s.peak and s.peak > 0 and s.now < s.peak then
                 local drop = 1 - s.now / s.peak
-                if drop >= 0.3 then return "down", drop end
+                if drop >= 0.3 then downV = drop end
             end
+            return upV, downV
         end
     end
     local moveBasis

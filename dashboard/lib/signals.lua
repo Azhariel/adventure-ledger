@@ -152,7 +152,7 @@ function Sg.flipIds(rows)
     return ids
 end
 
--- Rising and fallen items. prices: { [id] = { shifted, trend, soldPerDay, ... } }; scanRule(id, p) -> "up"|"down", v
+-- Rising and fallen items. prices: { [id] = { shifted, trend, soldPerDay, ... } }; scanRule(id, p) -> upV, downV (numbers or nil, either or both)
 -- is today's launch-low / peak rule for items without API figures. An item with an API trend or shifted level
 -- needs MOVER_MIN_SOLD sales a day and is judged only by the API (shifted decides when present). Order: shifted
 -- by size, API trend by size, then scans; ties by id. Returns rising, falling (id lists) and basis[id].
@@ -174,10 +174,11 @@ function Sg.movers(prices, scanRule, limit)
                 end
             end
         elseif scanRule then
-            dir, v = scanRule(id, p)
-            rank, how = 3, "scan"
+            local upV, downV = scanRule(id, p)
+            if upV then lists.up[#lists.up + 1] = { id = id, rank = 3, v = upV, how = "scan" } end
+            if downV then lists.down[#lists.down + 1] = { id = id, rank = 3, v = downV, how = "scan" } end
         end
-        if lists[dir or ""] then
+        if dir and lists[dir] then
             local l = lists[dir]
             l[#l + 1] = { id = id, rank = rank, v = v, how = how }
         end

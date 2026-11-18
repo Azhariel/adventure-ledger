@@ -1865,12 +1865,21 @@ test("signals.movers: shifted first, then trend, then scans", function()
         [7] = { shifted = { dir = "down", pct = -0.5 }, soldPerDay = 3 },
         [8] = { trend = 0.6, soldPerDay = 5 },
     }
-    local rule = function(id) if id == 4 then return "up", 0.9 end if id == 8 then return "up", 5 end end
+    local rule = function(id) if id == 4 then return 0.9 end if id == 8 then return 5 end end
     local rising, falling, basis = Sg.movers(prices, rule)
     eq(table.concat(rising, ","), "1,2,8,3,4", "shifted, trend by size then id, scan; 5 has too few sales")
     eq(table.concat(falling, ","), "7,6")
     eq(basis[1], "shifted"); eq(basis[2], "trend"); eq(basis[4], "scan"); eq(basis[8], "trend", "listed once, by the API rule")
     eq(basis[5], nil)
+end)
+
+test("marketTab: a scanned item meeting both thresholds is rising and falling", function()
+    local market = { prices = { [5] = { now = 200, days = {
+        { day = 1, low = 100, high = 100, available = 50 }, { day = 2, low = 1000, high = 1000, available = 50 },
+        { day = 3, low = 200, high = 200, available = 50 } } } } }
+    local out = I.marketTab(market, {}, function(id) return "Item " .. id end, {}, function(d) return d * 100 end)
+    eq(out.rising[1], 5); eq(out.falling[1], 5)
+    eq(out.items["5"].moveBasis, "scan")
 end)
 
 test("signals.flipIds: top positive flips listed at both houses", function()
