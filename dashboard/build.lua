@@ -17,6 +17,18 @@ local Mg = require("merge")
 
 local Build = {}
 
+-- Temporary: S.ledger's result in the old single-neutral-book shape ({ prices, vendor, last, visits, mode }):
+-- the legacy book merged with every realm's Neutral book. The per-ruleset build replaces this.
+local function neutralShape(l)
+    if not l then return nil end
+    local list = { l.legacy and { prices = l.legacy, vendor = {} } or nil }
+    for _, sides in pairs(l.books) do
+        if sides.Neutral then list[#list + 1] = { prices = sides.Neutral, vendor = {} } end
+    end
+    local m = Mg.markets(list) or { prices = {}, vendor = {} }
+    return { prices = m.prices, vendor = {}, last = l.last, visits = l.visits, mode = l.mode }
+end
+
 -- ledger.cfg: "key = value" lines, # comments
 function Build.config(path)
     local cfg = {}
@@ -278,7 +290,7 @@ function Build.data(wow, opts)
             for _, d in ipairs(dirs) do
                 local env = U.loadSV(d .. "/Auctionator.lua")
                 if env then books[#books + 1] = S.auctionator(env) end
-                neutrals[#neutrals + 1] = S.neutral(U.loadSV(d .. "/LedgerLink.lua"))
+                neutrals[#neutrals + 1] = neutralShape(S.ledger(U.loadSV(d .. "/LedgerLink.lua")))
                 local lbAcct = sv(d, "Logbook.lua", "LogbookDB")
                 logbooks[#logbooks + 1] = lbAcct
                 stocks[#stocks + 1] = { stock = sv(d, "Stockpile.lua", "StockpileDB"), rows = lbAcct and lbAcct.chars }

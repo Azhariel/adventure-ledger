@@ -973,14 +973,26 @@ test("xpState: XP at the save from Haul, save time = last event, each creature's
     eq(none.cur, nil); eq(none.max, nil); eq(none.savedAt, nil)
 end)
 
-test("Neutral book: Ledger Link's saved prices read like Auctionator's; visits kept; nothing saved = nil", function()
+test("S.auctionator keeps every realm's book; S.ledger reads books, legacy and tagged visits", function()
+    local a = S.auctionator({ AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8,
+        PvP = { ["2592"] = { m = 100, h = { ["2500"] = 100 } } }, Normal = { ["765"] = { m = 5, h = { ["2500"] = 5 } } } } })
+    eq(a.books.PvP[2592].now, 100); eq(a.books.Normal[765].now, 5)
+    local l = S.ledger({ LedgerLinkDB = { books = { PvP = { Neutral = { ["2447"] = { m = 7, t = 9, h = { ["2500"] = 7 } } } } },
+        neutral = { ["765"] = { m = 3, h = { ["2500"] = 3 } } },
+        visits = { { t = 1, kind = "neutral", realm = "PvP", faction = "Horde" }, { t = 2, kind = "faction" } } } })
+    eq(l.books.PvP.Neutral[2447].seenAt, 9); eq(l.legacy[765].now, 3)
+    eq(l.visits[1].realm, "PvP"); eq(l.visits[2].realm, nil)
+    eq(S.ledger({ LedgerLinkDB = {} }), nil)
+end)
+
+test("S.ledger: the legacy Neutral book reads like Auctionator's; mode, last and visits kept; nothing saved = nil", function()
     local env = { LedgerLinkDB = { neutralMode = "split", neutralLast = 500, visits = { { t = 400, kind = "neutral", zone = "Gadgetzan" } },
         neutral = { ["2447"] = { m = 40, t = 450, h = { ["2502"] = 60, ["2501"] = 45 }, l = { ["2502"] = 40 }, a = { ["2502"] = 9 } } } } }
-    local n = S.neutral(env)
-    eq(n.prices[2447].now, 40); eq(n.prices[2447].seenAt, 450)
-    eq(n.prices[2447].days[1].day, 2501); eq(n.prices[2447].days[2].low, 40); eq(n.prices[2447].days[2].available, 9)
+    local n = S.ledger(env)
+    eq(n.legacy[2447].now, 40); eq(n.legacy[2447].seenAt, 450)
+    eq(n.legacy[2447].days[1].day, 2501); eq(n.legacy[2447].days[2].low, 40); eq(n.legacy[2447].days[2].available, 9)
     eq(n.last, 500); eq(n.visits[1].zone, "Gadgetzan"); eq(n.mode, "split")
-    eq(S.neutral(nil), nil); eq(S.neutral({ LedgerLinkDB = { enable = true } }), nil)
+    eq(S.ledger(nil), nil); eq(S.ledger({ LedgerLinkDB = { enable = true } }), nil)
 end)
 
 test("compareHouses: spread and both flips after each house's cut, biggest gap first", function()
