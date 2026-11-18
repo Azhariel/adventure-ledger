@@ -1131,8 +1131,10 @@ end
 -- All characters of all accounts, side by side, with totals and a combined inventory.
 -- groups: { { muddyChars = MuddyBootsDB.chars, stockChars = StockpileDB.chars, market = auctionator() } }
 -- Characters come from MuddyBoots' account file (level, gold, played) and Stockpile (items); either is enough.
+-- marketOf(row) -> market (optional): each character's own auction house (rulesets have their own); without it,
+-- every character of a group is valued with g.market.
 -- Returns { characters = rows sorted by net worth, totals, inventory = { items, kinds, unpriced } }.
-function M.account(groups, nameOf, limit)
+function M.account(groups, nameOf, limit, marketOf)
     local rows, byId, items = {}, {}, {}
     local function row(name, realm)
         local id = M.charId(name, realm)
@@ -1157,7 +1159,7 @@ function M.account(groups, nameOf, limit)
                 local r = row(c.name, c.realm)
                 r.class = r.class or c.class
                 r.bankTime = c.bankTime
-                local inv = M.inventory(c, g.market, nameOf)
+                local inv = M.inventory(c, marketOf and marketOf(r) or g.market, nameOf)
                 r.items, r.unpriced = inv.total, inv.unpriced
                 r.byLocation = inv.byLocation
                 for _, it in ipairs(inv.items) do

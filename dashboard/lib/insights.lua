@@ -583,6 +583,9 @@ function I.marketTab(market, owned, nameOf, seen, dayToTime, cfg)
             supply = s.supply, available = s.available, days = days,
             seen = seen and seen[id] or nil,
             have = o and o.count or 0, holders = o and o.holders or nil,
+            -- the API's figures and where "now" came from (R.merge); nil without market data
+            market = p.market, nowFrom = p.nowFrom, nowAt = p.nowAt, soldPerDay = p.soldPerDay, trend = p.trend,
+            shifted = p.shifted,
         }
     end
     return out

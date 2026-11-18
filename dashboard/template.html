@@ -1080,8 +1080,14 @@ function drawSys() {
     ["neutral", N && Object.keys(N.items || {}).length ? `${Object.keys(N.items).length} items${N.last ? " · " + date(N.last).split(",")[0] : ""}` : "no book yet"],
     ["source", SERVED ? "live server" : "file"],
     ...((DATA.pcs || []).length > 1 ? [["pcs", DATA.pcs.join(", ")]] : []),
+    // each auction house's prices: the API's latest snapshot, the latest in-game scan, how well they agree
+    ...(DATA.priceSources || []).map(s => [s.key, [
+      s.apiAt && `API ${clock(s.apiAt)}`,
+      s.scanAt && `scan ${clock(s.scanAt)}`,
+      s.agreement && s.agreement.shared && `${Math.round(100 * s.agreement.exact / s.agreement.shared)}% match`,
+    ].filter(Boolean).join(" · ")]),
   ];
-  el("sys").innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join("");
+  el("sys").innerHTML = rows.map(([k, v]) => `<div><span>${esc(k)}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join("");
 }
 
 function go(key, opts = {}) {

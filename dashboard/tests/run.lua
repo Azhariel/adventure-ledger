@@ -754,7 +754,7 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     local charSV = acct .. "/91/Hero-Realm/SavedVariables"
     mkdir(charSV); mkdir(acct .. "/SavedVariables")
     U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-R"] = { name = "Hero", realm = "R", bags = { [2592] = 4 }, bank = {}, mail = {} }, ["Alt-R"] = { name = "Alt", realm = "R", bags = { [2592] = 1 }, bank = {}, mail = {} } } }')
-    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", level = 12, money = 5000, lastSeen = 50 }, G2 = { name = "Alt", realm = "R", level = 3, money = 7, lastSeen = 40 } } }')
+    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "R", faction = "Horde", level = 12, money = 5000, lastSeen = 50 }, G2 = { name = "Alt", realm = "R", faction = "Horde", level = 3, money = 7, lastSeen = 40 } } }')
     U.writeFile(acct .. "/SavedVariables/Auctionator.lua", 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, R = { ["2592"] = { m = 100, h = { ["2500"] = 120, ["2501"] = 100 } } } }')
     U.writeFile(charSV .. "/MuddyBoots.lua", [[MuddyBootsCharDB = { char = { name = "Hero", realm = "R", guid = "G1", level = 12, class = "PRIEST",
         first = { level = 11 } }, sessions = { { start = 5, played0 = 3500, played1 = 7200, last = 50 } },
@@ -815,6 +815,25 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     local page = Build.html("<script>const DATA = /*DATA*/null;</script>", data)
     truthy(page:find('"name":"Hero"', 1, true), "data embedded")
     truthy(not page:find("/*DATA*/", 1, true), "placeholder replaced")
+    eq(data.marketTab.items["2592"].now, 100, "no market data: the scan's price, as before")
+    -- The API's newer snapshot of R Horde. Ledger Link saw a faction visit at 10:00 on the last scan day (when
+    -- Auctionator's price was taken) and a Neutral one at 20:00, which must not stamp the faction book's scan.
+    local day = S.dayToTime(2501)
+    U.writeFile(acct .. "/SavedVariables/LedgerLink.lua", ([[LedgerLinkDB = { visits = {
+        { t = %d, kind = "faction", realm = "R", faction = "Horde" }, { t = %d, kind = "neutral", realm = "R" } } }]])
+        :format(day + 10 * 3600, day + 20 * 3600))
+    local logged = {}
+    local api = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
+        market = { houses = { [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600,
+            items = { [2592] = { now = 90, market = 95 } }, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function(lines) logged[#logged + 1] = lines end } })
+    eq(api.marketTab.items["2592"].now, 90, "the snapshot is newer than the 10:00 scan")
+    eq(api.marketTab.items["2592"].nowFrom, "api"); eq(api.marketTab.items["2592"].market, 95)
+    eq(#logged, 1); truthy(logged[1]:find("\t2592\t100\n"), "the log keeps the scan: " .. logged[1])
+    truthy(not logged[1]:find("\t90\n"), "API prices never reach the price log")
+    eq(#api.priceSources, 1, "R Neutral has no book and no API data"); eq(api.priceSources[1].key, "R Horde")
+    eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
+    eq(api.account.characters[1].items, 360, "the account rows use the merged price: 4 Wool Cloth at 90")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 
@@ -1240,6 +1259,46 @@ test("end to end: another PC's WTF in data/pcs adds its sessions, money and play
     for _, r in ipairs(c.money.spent) do spent = spent + r.copper end
     eq(earned, 550); eq(spent, 200, "the trainer visit on the laptop")
     eq(c.xp.totals.kill, 130)
+    if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+test("two rulesets: each character uses its own house", function()
+    local Build = require("build")
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_rulesets_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    local function mkdir(p)
+        if windows then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. p .. '"') end
+    end
+    local acct = dir .. "/WTF/Account/ACC"
+    mkdir(acct .. "/SavedVariables"); mkdir(acct .. "/91/Hero-Realm/SavedVariables")
+    U.writeFile(acct .. "/SavedVariables/Stockpile.lua", 'StockpileDB = { version = 1, chars = { ["Hero-PvP"] = { name = "Hero", realm = "PvP", bags = { [2592] = 1 }, bank = {}, mail = {} }, ["Alt-Normal"] = { name = "Alt", realm = "Normal", bags = { [2592] = 1 }, bank = {}, mail = {} } } }')
+    U.writeFile(acct .. "/SavedVariables/MuddyBoots.lua", 'MuddyBootsDB = { chars = { G1 = { name = "Hero", realm = "PvP", faction = "Horde", level = 12, lastSeen = 50 }, G2 = { name = "Alt", realm = "Normal", faction = "Alliance", level = 3, lastSeen = 40 } } }')
+    U.writeFile(acct .. "/SavedVariables/Auctionator.lua", 'AUCTIONATOR_PRICE_DATABASE = { __dbversion = 8, PvP = { ["2592"] = { m = 100, h = { ["2500"] = 100 } } }, Normal = { ["2592"] = { m = 300, h = { ["2500"] = 300 } } } }')
+    local listDirs = function(p)
+        if p:match("/WTF/Account$") then return { "ACC" } end
+        if p:match("/ACC$") then return { "91", "SavedVariables" } end
+        if p:match("/91$") then return { "Hero-Realm" } end
+        return {}
+    end
+    local data = Build.data(dir, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = dir .. "/none" })
+    local byName = {}
+    for _, r in ipairs(data.account.characters) do byName[r.name] = r end
+    eq(byName.Hero.items, 100, "PvP Horde's book"); eq(byName.Alt.items, 300, "Normal Alliance's book")
+    eq(data.marketTab.items["2592"].now, 100, "the default pair is the last character played: PvP Horde")
+    eq(#data.priceSources, 2); eq(data.priceSources[1].key, "Normal Alliance"); eq(data.priceSources[2].key, "PvP Horde")
+    if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+test("market.lua broken file: the page is still written", function()
+    local Build = require("build")
+    local dir = os.tmpname():gsub("[^/\\]+$", "") .. "dash_badmarket_" .. os.time()
+    local windows = package.config:sub(1, 1) == "\\"
+    if windows then os.execute('mkdir "' .. (dir .. "/data"):gsub("/", "\\") .. '" 2>nul') else os.execute('mkdir -p "' .. dir .. '/data"') end
+    U.writeFile(dir .. "/data/market.lua", "garbage(")
+    local out = dir .. "/data/dashboard.html"
+    local data = Build.run(dir .. "/wow", out, dir .. "/data/")
+    truthy(U.readFile(out), "page written")
+    eq(#data.priceSources, 0)
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
 end)
 

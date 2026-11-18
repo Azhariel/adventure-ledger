@@ -14,20 +14,10 @@ local S = require("sources")
 local M = require("model")
 local I = require("insights")
 local Mg = require("merge")
+local H = require("houses")
+local R = require("reconcile")
 
 local Build = {}
-
--- Temporary: S.ledger's result in the old single-neutral-book shape ({ prices, vendor, last, visits, mode }):
--- the legacy book merged with every realm's Neutral book. The per-ruleset build replaces this.
-local function neutralShape(l)
-    if not l then return nil end
-    local list = { l.legacy and { prices = l.legacy, vendor = {} } or nil }
-    for _, sides in pairs(l.books) do
-        if sides.Neutral then list[#list + 1] = { prices = sides.Neutral, vendor = {} } end
-    end
-    local m = Mg.markets(list) or { prices = {}, vendor = {} }
-    return { prices = m.prices, vendor = {}, last = l.last, visits = l.visits, mode = l.mode }
-end
 
 -- ledger.cfg: "key = value" lines, # comments
 function Build.config(path)
@@ -257,7 +247,7 @@ function Build.data(wow, opts)
     local mobLib = Build.makeOrBuy(wow)
     local planner = mobLib.Planner
     local usesById = {}
-    local markets, accounts, groups = {}, {}, {}
+    local accounts, groups = {}, {}
     local result = { generated = os.time(), characters = {} }
 
     local folders = {}
@@ -279,38 +269,125 @@ function Build.data(wow, opts)
             if not seen then list[#list + 1] = d end
         end
     end
+    -- Every account first (every PC's copy of its folder): each character's market depends on all of them
+    local houseAccts, ledgers, vendor, allChars = {}, {}, {}, {}
     for _, c in ipairs(charDirs) do
-        local fname, fsurname = c.name:match("^([^-]+)-(.+)$")
-        if fname then folders[#folders + 1] = { name = fname, surname = fsurname } end
-        local acct = accounts[c.account]
-        if not acct then
+        if not accounts[c.account] then
             local dirs = accountDirs[c.account]
-            local books, neutrals, stocks = {}, {}, {}
-            local logbooks = {}
+            local stocks, logbooks, mine = {}, {}, {}
             for _, d in ipairs(dirs) do
                 local env = U.loadSV(d .. "/Auctionator.lua")
-                if env then books[#books + 1] = S.auctionator(env) end
-                neutrals[#neutrals + 1] = neutralShape(S.ledger(U.loadSV(d .. "/LedgerLink.lua")))
+                local atr = env and S.auctionator(env) or nil
+                local ledger = S.ledger(U.loadSV(d .. "/LedgerLink.lua"))
+                -- Auctionator's vendor prices aren't per house: one cache for every market
+                for id, v in pairs(atr and atr.vendor or {}) do vendor[id] = vendor[id] or v end
+                ledgers[#ledgers + 1] = ledger
+                mine[#mine + 1] = { auctionator = atr, ledger = ledger }
                 local lbAcct = sv(d, "Logbook.lua", "LogbookDB")
                 logbooks[#logbooks + 1] = lbAcct
                 stocks[#stocks + 1] = { stock = sv(d, "Stockpile.lua", "StockpileDB"), rows = lbAcct and lbAcct.chars }
             end
-            acct = {
-                market = Mg.markets(books) or S.auctionator(nil),
+            local acct = {
                 stock = Mg.stockpiles(stocks),
                 muddy = svs(dirs, "MuddyBoots.lua", "MuddyBootsDB")[1],
                 logbook = Mg.logbookAccounts(logbooks),
                 droplab = svs(dirs, "DropLab.lua", "DropLabDB")[1],
-                neutral = Mg.markets(neutrals),
             }
-            -- Neutral scans that reached Auctionator's book before Ledger Link kept them apart (neutral_days.txt)
-            acct.market, acct.neutral = I.splitNeutralDays(acct.market, acct.neutral, opts.neutralDays)
             acct.chars = S.mergeAccountChars(acct.logbook, acct.muddy)
+            -- rows in guid order, so ties between characters break the same way every build
+            local guids, rows = {}, {}
+            for guid in pairs(acct.chars or {}) do guids[#guids + 1] = guid end
+            table.sort(guids)
+            for i, guid in ipairs(guids) do rows[i] = acct.chars[guid]; allChars[#allChars + 1] = acct.chars[guid] end
+            for _, h in ipairs(mine) do h.chars = rows; houseAccts[#houseAccts + 1] = h end
             accounts[c.account] = acct
-            markets[#markets + 1] = acct.market
             groups[#groups + 1] = { muddyChars = acct.chars, stockChars = acct.stock and acct.stock.chars,
-                market = acct.market, droplab = acct.droplab, neutral = acct.neutral }
+                droplab = acct.droplab }
         end
+    end
+
+    -- Price books per auction house ("PvP Horde", "PvP Neutral"), never mixed across houses
+    local warned = {}
+    local raw = {}
+    for key, list in pairs(H.collect(houseAccts, function(w)
+        if not warned[w] then warned[w] = true; result.warnings[#result.warnings + 1] = w end
+    end)) do
+        local wrapped = {}
+        for i, prices in ipairs(list) do wrapped[i] = { prices = prices, vendor = {} } end
+        raw[key] = Mg.markets(wrapped)
+    end
+    -- The default pair (the last character played's houses) feeds the market pages
+    local factionKey, neutralKey = H.default(allChars)
+    -- Neutral scans that reached Auctionator's book before Ledger Link kept them apart (neutral_days.txt)
+    if factionKey and raw[factionKey] then
+        raw[factionKey], raw[neutralKey] = I.splitNeutralDays(raw[factionKey], raw[neutralKey], opts.neutralDays)
+    end
+    -- Ledger Link's visits (every account, every PC) date Auctionator's day-only scans
+    local visits, seenVisit, nlast, nmode = {}, {}, nil, nil
+    for _, l in ipairs(ledgers) do
+        for _, v in ipairs(l.visits) do
+            local id = v.t .. "|" .. tostring(v.kind) .. "|" .. tostring(v.realm)
+            if not seenVisit[id] then seenVisit[id] = true; visits[#visits + 1] = v end
+        end
+        if l.last and (not nlast or l.last > nlast) then nlast, nmode = l.last, l.mode end
+        nmode = nmode or l.mode
+    end
+    table.sort(visits, function(a, b) return a.t < b.t end)
+    -- scanAt for one house: its own ruleset and side's visits only
+    local function scanAtFor(key)
+        local ruleset, side = key:match("^(.*) (%S+)$")
+        local kind = side == "Neutral" and "neutral" or "faction"
+        return function(p) return R.scanAt(p, visits, ruleset, kind, S.dayToTime, S.timeToDay) end
+    end
+    -- The API's houses (market.lua), by key; a house without a snapshot time has no data
+    local apiByKey = {}
+    for _, h in pairs(type(opts.market) == "table" and type(opts.market.houses) == "table" and opts.market.houses or {}) do
+        if type(h) == "table" and h.key and h.latest then apiByKey[h.key] = h end
+    end
+    -- Each house's book with the API's newer prices laid over it
+    local keys, hasKey = {}, {}
+    for key, book in pairs(raw) do
+        if next(book.prices or {}) and not hasKey[key] then hasKey[key] = true; keys[#keys + 1] = key end
+    end
+    for key in pairs(apiByKey) do
+        if not hasKey[key] then hasKey[key] = true; keys[#keys + 1] = key end
+    end
+    table.sort(keys)
+    local merged = {}
+    result.priceSources = {}
+    for _, key in ipairs(keys) do
+        local book, api, scanAt = raw[key], apiByKey[key], scanAtFor(key)
+        local m = R.merge(book or { prices = {} }, api, scanAt)
+        m.vendor = vendor
+        merged[key] = m
+        local latest
+        for _, p in pairs(book and book.prices or {}) do
+            local t = scanAt(p)
+            if t and (not latest or t > latest) then latest = t end
+        end
+        result.priceSources[#result.priceSources + 1] = { key = key, apiAt = api and api.latest or nil, scanAt = latest,
+            agreement = book and api and R.agreement(book, api, scanAt) or nil }
+    end
+    local market = factionKey and merged[factionKey] or { prices = {}, vendor = vendor }
+    -- The Neutral tab shows whenever Ledger Link is saving, also before its first Neutral scan (an empty raw book
+    -- still carries the days the split looked at)
+    local neutral = neutralKey and (merged[neutralKey] or raw[neutralKey]) or nil
+    if not neutral and #ledgers > 0 then neutral = { prices = {}, vendor = vendor } end
+    if neutral then
+        neutral.vendor = vendor
+        neutral.last, neutral.visits, neutral.mode = nlast, visits, nmode
+    end
+    for _, g in ipairs(groups) do g.market = market end
+    -- A character's own faction house; without one (no book, no API data, no faction), the default pair's
+    local function charMarket(realm, faction)
+        local key = H.forChar(realm, faction)
+        return key and merged[key] or market
+    end
+
+    for _, c in ipairs(charDirs) do
+        local fname, fsurname = c.name:match("^([^-]+)-(.+)$")
+        if fname then folders[#folders + 1] = { name = fname, surname = fsurname } end
+        local acct = accounts[c.account]
         -- the journey: Logbook (ours, every PC's copy merged), with MuddyBoots' history from before Logbook started
         local lb, shared = Mg.logbooks(svs(c.dirs, "Logbook.lua", "LogbookCharDB"))
         if shared > 0 then
@@ -329,9 +406,11 @@ function Build.data(wow, opts)
                 end
             end
             local accountChar = char.guid and acct.chars and acct.chars[char.guid]
+            local charMkt = charMarket(char.realm or (stockChar and stockChar.realm) or (accountChar and accountChar.realm),
+                char.faction or (accountChar and accountChar.faction))
             local model = M.character({
                 muddy = muddy, haul = haul, mob = mob, stock = stockChar, account = accountChar,
-                market = acct.market, names = names, planner = planner, mobLib = mobLib, now = result.generated,
+                market = charMkt, names = names, planner = planner, mobLib = mobLib, now = result.generated,
             })
             model.profile.name = model.profile.name or c.name:match("^[^-]+")
             model.profile.realm = model.profile.realm or (stockChar and stockChar.realm)
@@ -347,7 +426,7 @@ function Build.data(wow, opts)
             -- Play-session recaps (MuddyBoots joins a session per reload; I.playSessions merges them)
             local events = muddy and S.parseLog(muddy.log) or {}
             local nameOf, idOf = M.nameBook(names, haul, events, mob)
-            model.recaps = muddy and I.recaps(muddy.sessions, events, acct.market, nameOf, 30, M.PROFESSIONS, idOf) or {}
+            model.recaps = muddy and I.recaps(muddy.sessions, events, charMkt, nameOf, 30, M.PROFESSIONS, idOf) or {}
             model.activityRates = I.activityRates(haul, events)
             model.pace = muddy and I.playPace(muddy.sessions, result.generated) or nil
             model.playSpans = muddy and I.playSpans(muddy.sessions) or {}
@@ -357,7 +436,7 @@ function Build.data(wow, opts)
             local shopping
             if mob and mob.recipes and mob.restock and next(mob.restock) and planner and mobLib.Restock then
                 local ok, r = pcall(mobLib.Restock.Build, mob.restock, mob.recipes, planner.IndexByOutput(mob.recipes),
-                    priceFn(acct.market), nil, heldMap(stockChar))
+                    priceFn(charMkt), nil, heldMap(stockChar))
                 shopping = ok and r and r.shopping or nil
             end
             local uses, needs = I.uses(mob and mob.recipes, shopping)
@@ -397,7 +476,7 @@ function Build.data(wow, opts)
     end
     result.account = M.account(groups, function(id)
         return names[id] or known[id] or ("Item #" .. tostring(id))
-    end)
+    end, nil, function(row) return charMarket(row.realm, row.faction) end)
     local detailed = {}
     for _, c in ipairs(result.characters) do detailed[c.id] = true end
     local surnames = M.surnames(folders)
@@ -457,7 +536,6 @@ function Build.data(wow, opts)
         end
     end
     table.sort(holders, function(a, b) return a.id < b.id end)
-    local market = groups[1] and groups[1].market or { prices = {}, vendor = {} }
     result.market = I.market(market, owned, acctNameOf)
     -- Market tab. opts.priceLog = { seen, last, append(lines) }: the dashboard's own price log (Build.run passes it)
     local seen, movedSeen = {}, {}
@@ -478,7 +556,8 @@ function Build.data(wow, opts)
                 seen[id] = #keep > 0 and keep or nil
             end
         end
-        local lines = I.priceLogLines(market, opts.priceLog.last, result.generated)
+        -- in-game scans only: the default pair's raw book, before the API's prices were laid over it
+        local lines = I.priceLogLines(factionKey and raw[factionKey], opts.priceLog.last, result.generated)
         if lines ~= "" then
             opts.priceLog.append(lines)
             for id, list in pairs((I.parsePriceLog(lines))) do
@@ -489,12 +568,11 @@ function Build.data(wow, opts)
     end
     result.marketTab = I.marketTab(market, owned, acctNameOf, seen, S.dayToTime)
     -- The Neutral (goblin) auction house, from Ledger Link's own book: its own tab data, price log and comparison
-    local neutral = groups[1] and groups[1].neutral
     if neutral then
         local nseen = {}
         if opts.neutralLog then
             nseen = opts.neutralLog.seen
-            local lines = I.priceLogLines(neutral, opts.neutralLog.last, result.generated)
+            local lines = I.priceLogLines(neutralKey and raw[neutralKey], opts.neutralLog.last, result.generated)
             if lines ~= "" then
                 opts.neutralLog.append(lines)
                 for id, list in pairs((I.parsePriceLog(lines))) do
@@ -555,8 +633,10 @@ function Build.run(wow, outFile, data)
     local neutralDays = I.parseNeutralDays(U.readFile(data .. "neutral_days.txt"), S.timeToDay)
     local worthPath = data .. "networth_log.tsv"
     local worthSeen, worthLast = I.parseWorthLog(U.readFile(worthPath) or "")
+    -- the market engine's output (market.py); missing or broken: in-game scans only
+    local marketEnv = U.loadSV(data .. "market.lua")
     local result = Build.data(wow, { priceLog = log(logPath), neutralLog = log(data .. "price_log_neutral.tsv"),
-        neutralDays = neutralDays, otherPCs = Build.otherPCs(data),
+        neutralDays = neutralDays, otherPCs = Build.otherPCs(data), market = marketEnv and marketEnv.LedgerMarket,
         worthLog = { seen = worthSeen, last = worthLast, append = function(lines)
             local f = io.open(worthPath, "ab")
             if f then f:write(lines); f:close() end
