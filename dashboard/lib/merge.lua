@@ -270,4 +270,54 @@ function Mg.stockpiles(list)
     return out
 end
 
+-- Several PCs' DropLabDB (account-wide) -> one. Each PC's file counts only the kills and loot made on it (the build
+-- never writes into a game WTF), so counts add up: kills, looted, money, pace, drops and quantities, gathering and
+-- node loot. name from the first copy that has one, last = the latest, names: first copy wins a clash.
+-- Copies with another version are skipped. Returns the merged table (nil for none) and how many were skipped.
+local function addItems(into, from)
+    for id, it in pairs(from or {}) do
+        local o = into[id] or { drops = 0, qty = 0 }
+        o.drops, o.qty = (o.drops or 0) + (it.drops or 0), (o.qty or 0) + (it.qty or 0)
+        into[id] = o
+    end
+end
+
+function Mg.droplab(list)
+    local out, skipped = nil, 0
+    for _, db in ipairs(list or {}) do
+        if type(db) ~= "table" or db.version ~= 1 then
+            skipped = skipped + 1
+        else
+            out = out or { version = 1, mobs = {}, objects = {}, names = {}, unnamed = {}, tooltip = db.tooltip }
+            for id, m in pairs(db.mobs or {}) do
+                local o = out.mobs[id]
+                if not o then o = { kills = 0, looted = 0, money = 0, items = {} }; out.mobs[id] = o end
+                o.name = o.name or m.name
+                for _, k in ipairs({ "kills", "looted", "money" }) do o[k] = (o[k] or 0) + (m[k] or 0) end
+                if m.paceSum or m.paceN then
+                    o.paceSum, o.paceN = (o.paceSum or 0) + (m.paceSum or 0), (o.paceN or 0) + (m.paceN or 0)
+                end
+                if m.last and (not o.last or m.last > o.last) then o.last = m.last end
+                addItems(o.items, m.items)
+                if m.gather then
+                    o.gather = o.gather or { opened = 0, items = {} }
+                    o.gather.opened = o.gather.opened + (m.gather.opened or 0)
+                    addItems(o.gather.items, m.gather.items)
+                end
+            end
+            for id, ob in pairs(db.objects or {}) do
+                local o = out.objects[id] or { opened = 0, items = {} }
+                o.opened = o.opened + (ob.opened or 0)
+                addItems(o.items, ob.items)
+                out.objects[id] = o
+            end
+            for name, id in pairs(db.names or {}) do
+                if out.names[name] == nil then out.names[name] = id end
+            end
+            for name, n in pairs(db.unnamed or {}) do out.unnamed[name] = (out.unnamed[name] or 0) + n end
+        end
+    end
+    return out, skipped
+end
+
 return Mg

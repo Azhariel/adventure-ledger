@@ -328,8 +328,14 @@ function Build.data(wow, opts)
                 stock = Mg.stockpiles(stocks),
                 muddy = svs(dirs, "MuddyBoots.lua", "MuddyBootsDB")[1],
                 logbook = Mg.logbookAccounts(logbooks),
-                droplab = svs(dirs, "DropLab.lua", "DropLabDB")[1],
             }
+            -- every PC's DropLab: each counts only its own kills, so they add up
+            local drops, skipped = Mg.droplab(svs(dirs, "DropLab.lua", "DropLabDB"))
+            acct.droplab = drops
+            if skipped > 0 then
+                result.warnings[#result.warnings + 1] = "DropLab: skipped " .. skipped
+                    .. " copies from an older version"
+            end
             acct.chars = S.mergeAccountChars(acct.logbook, acct.muddy)
             -- rows in guid order, so ties between characters break the same way every build
             local guids, rows = {}, {}

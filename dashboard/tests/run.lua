@@ -1382,6 +1382,8 @@ test("end to end: another PC's WTF in data/pcs adds its sessions, money and play
     U.writeFile(here .. "/Logbook.lua", [[LogbookCharDB = { since = 10, char = { name = "Hero", realm = "R", guid = "G1", level = 12 },
         sessions = { { start = 10, last = 50, played0 = 0, played1 = 40 }, { start = 300, last = 340, played0 = 3640, played1 = 3680 } },
         counts = { xp = { kill = 100 } }, log = { "20|1|1|1|1|mn|500|loot", "310|1|1|1|1|mn|50|loot" } }]])
+    U.writeFile(wow .. "/WTF/Account/ACC/SavedVariables/DropLab.lua", 'DropLabDB = { version = 1, mobs = { [1] = { name = "Gnoll", kills = 6, looted = 5, money = 60, items = {} } } }')
+    U.writeFile(data .. "pcs/laptop/WTF/Account/ACC/SavedVariables/DropLab.lua", 'DropLabDB = { version = 1, mobs = { [1] = { name = "Gnoll", kills = 3, looted = 3, money = 30, items = {} } } }')
     U.writeFile(there .. "/Logbook.lua", [[LogbookCharDB = { since = 100, char = { name = "Hero", realm = "R", guid = "G1", level = 12 },
         sessions = { { start = 100, last = 3700, played0 = 40, played1 = 3640 } },
         counts = { xp = { kill = 30 } }, log = { "200|1|1|1|1|mn|-200|trainer" } }]])
@@ -1395,7 +1397,8 @@ test("end to end: another PC's WTF in data/pcs adds its sessions, money and play
     end
     local others = Build.otherPCs(data, listDirs)
     eq(#others, 1); eq(others[1].name, "laptop")
-    local d = Build.data(wow, { names = {}, listDirs = listDirs, otherPCs = others, repoAddons = dir .. "/none" })
+    local d = Build.data(wow, { names = {}, listDirs = listDirs, otherPCs = others, repoAddons = dir .. "/none",
+        dropStats = Build.dropStats(wowDir()) })
     eq(#d.characters, 1); eq(d.pcs[2], "laptop")
     local c = d.characters[1]
     eq(c.profile.pcs, 2); eq(c.profile.sessions, 3, "both PCs' pieces")
@@ -1405,7 +1408,47 @@ test("end to end: another PC's WTF in data/pcs adds its sessions, money and play
     for _, r in ipairs(c.money.spent) do spent = spent + r.copper end
     eq(earned, 550); eq(spent, 200, "the trainer visit on the laptop")
     eq(c.xp.totals.kill, 130)
+    eq(d.drops.kills, 9, "DropLab kills from both PCs (6 here, 3 on the laptop)")
     if windows then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul') else os.execute('rm -rf "' .. dir .. '"') end
+end)
+
+test("Mg.droplab sums kills, drops and pace across PCs", function()
+    local Mg = require("merge")
+    local a = { version = 1, mobs = { [1001] = { name = "Gnoll", kills = 3, looted = 3, money = 10, paceSum = 60, paceN = 2,
+        last = 100, items = { [2589] = { drops = 2, qty = 3 } }, gather = { opened = 1, items = { [2318] = { drops = 1, qty = 2 } } } } } }
+    local b = { version = 1, mobs = { [1001] = { kills = 5, looted = 4, money = 20, paceSum = 90, paceN = 3, last = 200,
+        items = { [2589] = { drops = 1, qty = 1 } }, gather = { opened = 2, items = { [2318] = { drops = 2, qty = 2 } } } },
+        [1002] = { name = "Kobold", kills = 1, looted = 1, money = 0, items = {} } } }
+    local m, skipped = Mg.droplab({ a, b })
+    eq(skipped, 0)
+    local g = m.mobs[1001]
+    eq(g.name, "Gnoll"); eq(g.kills, 8); eq(g.looted, 7); eq(g.money, 30)
+    eq(g.items[2589].drops, 3); eq(g.items[2589].qty, 4)
+    eq(g.paceSum, 150); eq(g.paceN, 5); eq(g.last, 200)
+    eq(g.gather.opened, 3); eq(g.gather.items[2318].drops, 3); eq(g.gather.items[2318].qty, 4)
+    eq(m.mobs[1002].kills, 1, "a mob only the second PC killed")
+end)
+
+test("Mg.droplab merges objects, names and unnamed", function()
+    local Mg = require("merge")
+    local m = Mg.droplab({
+        { version = 1, mobs = {}, objects = { [7] = { opened = 2, items = { [2770] = { drops = 2, qty = 5 } } } },
+          names = { Gnoll = 1001 }, unnamed = { Rat = 1 } },
+        { version = 1, mobs = {}, objects = { [7] = { opened = 3, items = { [2770] = { drops = 3, qty = 4 } } }, [8] = { opened = 1, items = {} } },
+          names = { Gnoll = 9999, Kobold = 1002 }, unnamed = { Rat = 2 } } })
+    eq(m.objects[7].opened, 5); eq(m.objects[7].items[2770].drops, 5); eq(m.objects[7].items[2770].qty, 9)
+    eq(m.objects[8].opened, 1)
+    eq(m.names.Gnoll, 1001, "first copy wins a clash"); eq(m.names.Kobold, 1002)
+    eq(m.unnamed.Rat, 3)
+end)
+
+test("Mg.droplab skips other versions and leaves inputs alone", function()
+    local Mg = require("merge")
+    local a = { version = 1, mobs = { [1] = { kills = 2, items = { [5] = { drops = 1, qty = 1 } } } } }
+    local m, skipped = Mg.droplab({ a, { version = 2, mobs = { [1] = { kills = 50 } } }, { version = 1, mobs = { [1] = { kills = 3, items = { [5] = { drops = 1, qty = 2 } } } } } })
+    eq(skipped, 1); eq(m.mobs[1].kills, 5); eq(m.mobs[1].items[5].qty, 3)
+    eq(a.mobs[1].kills, 2, "input untouched"); eq(a.mobs[1].items[5].qty, 1)
+    eq(Mg.droplab({}), nil)
 end)
 
 test("two rulesets: each character uses its own house", function()
