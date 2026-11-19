@@ -1,6 +1,6 @@
 -- Generates MakeOrBuy/Data/RecipeData.lua from WhatsTraining's Camelot recipe data (MIT).
 local src, out = arg[1], arg[2]
-local files = { "Alchemy","Blacksmithing","Cooking","Enchanting","Engineering","FirstAid","Leatherworking","Tailoring" }
+local files = { "Alchemy","Blacksmithing","Cooking","Enchanting","Engineering","FirstAid","Leatherworking","Mining","Tailoring" }
 local ns = { L = setmetatable({}, { __index = function(_, k) return k end }) }
 for _, f in ipairs(files) do
   local chunk = assert(loadfile(src .. "/" .. f .. ".lua"))
