@@ -346,6 +346,7 @@ class SyncerTests(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         self.assertIn("market db", got["message"])
         self.assertEqual(sync.local_latest(egb.data), 200)
+        self.assertEqual(egb.status(None, None)["marketImportAt"], self.now[0] - 60)
 
     def test_non_master_cannot_upload_market(self):
         egb = self.pc("egb")

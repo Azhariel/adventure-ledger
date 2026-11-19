@@ -442,3 +442,95 @@ process.stdout.write(JSON.stringify(bare.concat([flipsHintText(DATA.signalRule),
         self.assertEqual(gap, 8, "the page's flip filter is the build's FLIP_MIN_LISTED")
         self.assertIn("(10% Faction, 20% Neutral)", deal)
         self.assertEqual(cutsPart, {"faction": 0.1, "neutral": 0.15}, "a missing cut falls back to today's")
+
+
+JS_SYNC = ["esc", "SYNC_NOT_SET_UP", "SYNC_LABELS", "syncClock", "syncMB", "syncDue", "syncRunLabel", "syncButton",
+           "syncRows", "syncResult"]
+NOW = 1795100000
+
+
+def sync_status(**over):
+    st = {"configured": True, "name": "egb", "master": False, "bucketName": "ledger-sync", "error": None,
+          "busy": None, "last": None, "newestSave": NOW - 600, "wtfUploadAt": NOW - 300, "marketUpload": None,
+          "marketImportAt": None, "localLatest": NOW - 7200, "pcs": [], "bucket": [], "uploadDue": False,
+          "importDue": False, "unsaved": False}
+    st.update(over)
+    return st
+
+
+@unittest.skipIf(NODE is None, "no node")
+class SyncPageTests(unittest.TestCase):
+    def call(self, expr, st, run=None):
+        js = page_js(JS_SYNC) + "\nconst st = %s, run = %s;\nprocess.stdout.write(JSON.stringify(%s));" % (
+            json.dumps(st), json.dumps(run), expr)
+        return json.loads(run_node(js))
+
+    def rows(self, st, run=None):
+        return self.call("syncRows(st, %d, run)" % NOW, st, run)
+
+    def test_sync_not_configured(self):
+        html = self.rows({"configured": False})
+        self.assertIn("Sync isn't set up: add b2_key_id, b2_key and b2_bucket to ledger.cfg, then restart the tray.",
+                      html)
+        for b in re.findall(r"<button[^>]*>", html):
+            self.assertIn("disabled", b)
+        st = {"configured": False, "last": {"ok": False, "at": NOW, "message": "Sync isn't set up: x"}}
+        self.assertEqual(self.call("syncResult(st, run, %d)" % NOW, st), "", "the page already says so")
+
+    def test_sync_upload_due_is_primary(self):
+        html = self.rows(sync_status(uploadDue=True, newestSave=NOW - 60, wtfUploadAt=None))
+        self.assertRegex(html, r'class="syncbtn primary" data-sync="upload-wtf"')
+        self.assertRegex(html, r"Played since your last upload: last save \d\d:\d\d, uploaded never\.")
+        calm = self.rows(sync_status())
+        self.assertRegex(calm, r'class="syncbtn" data-sync="upload-wtf"')
+        self.assertRegex(calm, r"Up to date, uploaded \d\d:\d\d\.")
+
+    def test_sync_master_only_market_button(self):
+        self.assertNotIn("Upload market db", self.rows(sync_status()))
+        self.assertIn("Upload market db", self.rows(sync_status(master=True, name="azhariel-base")))
+
+    def test_sync_unsaved_warning(self):
+        html = self.rows(sync_status(unsaved=True))
+        self.assertRegex(html, r"WoW hasn&#39;t saved since \d\d:\d\d: /reload or log out first, or this upload misses "
+                               r"the latest play\.|WoW hasn't saved since \d\d:\d\d: /reload or log out first, or this "
+                               r"upload misses the latest play\.")
+
+    def test_sync_import_due_per_pc(self):
+        st = sync_status(importDue=True, bucket=[{"kind": "wtf", "pc": "azhariel-base", "at": NOW - 120, "size": 1}],
+                         pcs=[{"name": "azhariel-base", "importedAt": NOW - 4000}])
+        html = self.rows(st)
+        self.assertRegex(html, r"azhariel-base uploaded \d\d:\d\d, you have \d\d:\d\d\.")
+        self.assertRegex(html, r'class="syncbtn primary" data-sync="import"')
+
+    def test_sync_market_preview(self):
+        st = sync_status(importDue=True, bucket=[{"kind": "market", "pc": "azhariel-base", "at": NOW - 60,
+                                                  "size": 5, "latest": NOW - 1800}])
+        self.assertRegex(self.rows(st), r"Import replaces this PC&#39;s market db|Import replaces this PC's market db "
+                                        r"\(newest hour \d\d:\d\d\) with azhariel-base's \(newest hour \d\d:\d\d\)\.")
+
+    def test_sync_running_labels(self):
+        html = self.rows(sync_status(), {"kind": "upload-wtf", "step": "uploading", "progress": [1258291, 1677722]})
+        self.assertIn("Uploading 1.2 / 1.6 MB", html)
+        for b in re.findall(r"<button[^>]*>", html):
+            self.assertIn("disabled", b)
+        self.assertIn("Zipping…", self.rows(sync_status(), {"kind": "upload-wtf", "step": "zipping"}))
+
+    def test_sync_due_flag(self):
+        self.assertTrue(self.call("syncDue(st)", sync_status(uploadDue=True)))
+        self.assertTrue(self.call("syncDue(st)", sync_status(importDue=True)))
+        self.assertFalse(self.call("syncDue(st)", sync_status()))
+        self.assertFalse(self.call("syncDue(st)", {"configured": False, "uploadDue": True}))
+
+    def test_sync_result_line(self):
+        st = sync_status(last={"ok": False, "at": NOW - 30, "message": "Bucket unreachable: check the connection"})
+        self.assertRegex(self.call("syncResult(st, run, %d)" % NOW, st),
+                         r"^Bucket unreachable: check the connection · \d\d:\d\d$")
+        st = sync_status(last={"ok": True, "at": NOW, "message": "Uploaded WTF (1.6 MB) at 18:46"})
+        self.assertEqual(self.call("syncResult(st, run, %d)" % NOW, st), "Uploaded WTF (1.6 MB) at 18:46",
+                         "a message with its own time gets no second one")
+
+    def test_sync_escapes_names(self):
+        st = sync_status(importDue=True, bucket=[{"kind": "wtf", "pc": "<b>x", "at": NOW - 60, "size": 1}])
+        html = self.rows(st)
+        self.assertNotIn("<b>x", html)
+        self.assertIn("&lt;b&gt;x", html)

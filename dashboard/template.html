@@ -275,6 +275,20 @@ footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: va
 .addon .fix { color: var(--fg); }
 .k-faction { color: var(--faction); } .k-neutral { color: var(--neutral); } .k-forecast { color: var(--forecast); }
 
+/* ------------------------------------------------------------- sync */
+.synchead { margin: 0 0 4px; color: var(--muted); }
+.syncrow { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-top: 1px solid var(--line2); }
+.syncrow p { margin: 2px 0; }
+.syncrow > div:first-child { min-width: 0; }
+.syncbtns { display: flex; gap: 8px; }
+.syncbtn { flex: none; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 14px; font: 13px var(--sans); cursor: pointer; min-width: 9.5em; }
+.syncbtn:hover:not(:disabled) { border-color: var(--purple); }
+.syncbtn.primary { background: var(--raise); border-color: var(--purple); }
+.syncbtn:disabled { color: var(--muted); cursor: default; }
+.syncwarn { color: var(--orange); }
+.syncresult { margin: 8px 0 0; min-height: 1.4em; color: var(--muted); font: 12px var(--mono); }
+@media (max-width: 600px) { .syncrow { flex-direction: column; align-items: stretch; } .syncbtn { width: 100%; } }
+
 /* ------------------------------------------------------------- live */
 .status { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; color: var(--muted); font: 12px var(--mono); margin: 0 0 12px; }
 .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -558,6 +572,13 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w4 rp-moments"><div class="ph"><h2>Moments</h2><span class="hint" id="rpCount"></span></div>
         <div class="chips" id="rpKinds"></div>
         <ol class="rp-list" id="rpList"></ol></article>
+    </section>
+
+    <!-- sync -->
+    <section class="mod" data-mod="sync" hidden>
+      <article class="panel w12"><div class="ph"><h2>Sync between PCs</h2></div>
+        <p class="hint">Upload this PC's saved data before you leave it, and Import at the other PC. The market master uploads its market db every day at 08:00 by itself. The game's own WTF folder is never written: imports go to the data folder only.</p>
+        <div id="syncBox"></div><p class="syncresult" id="syncResult" role="status" aria-live="polite"></p></article>
     </section>
 
     <!-- about -->
@@ -1092,6 +1113,7 @@ const MODULES = [
   { group: "market", key: "trades", label: "Your trades", char: true },
   { group: "market", key: "crafting", label: "Crafting", char: true },
   { group: "live", key: "live", label: "Live", served: true },
+  { group: "live", key: "sync", label: "Sync", served: true },
   { group: "about", key: "about", label: "About" },
   { group: "about", key: "addons", label: "Addons" },
 ];
@@ -1138,7 +1160,8 @@ function drawNav() {
   el("nav").innerHTML = Object.entries(groups).map(([g, list]) => `<div class="grp"><span>${GROUPS[g]}</span>${list.map(m => {
     const b = badge(m);
     const age = LIVE && LIVE.lastLine ? nowSec() - LIVE.lastLine : null;
-    const dot = m.key === "live" ? `<span class="dot ${age == null ? "off" : age < 30 ? "on" : age < 300 ? "slow" : "off"}" id="liveDot"></span>` : "";
+    const dot = m.key === "live" ? `<span class="dot ${age == null ? "off" : age < 30 ? "on" : age < 300 ? "slow" : "off"}" id="liveDot"></span>`
+      : m.key === "sync" ? `<span class="dot ${syncDue(SYNC) ? "on" : "off"}" id="syncDot" title="${syncDue(SYNC) ? "Something to upload or import" : "Up to date"}"></span>` : "";
     return `<button type="button" data-route="${m.key}"${route === m.key ? ' aria-current="page"' : ""}>${dot}${esc(m.label)}${b !== "" && b != null ? `<span class="badge">${b}</span>` : ""}</button>`;
   }).join("")}</div>`).join("");
   const on = el("nav").querySelector("[aria-current]");
@@ -2925,7 +2948,7 @@ function modLive() {
 
 const RENDER = { overview: modOverview, progress: modProgress, gold: modGold, combat: modCombat, roster: modRoster, inventory: modInventory,
   alts: modAlts, drops: modDrops, signals: modSignals, stockpile: modStockpile, browse: modBrowse, movers: modMovers, neutral: modNeutral, trends: modTrends,
-  trades: modTrades, crafting: modCrafting, live: modLive, about: modAbout, addons: modAddons, replay: modReplay };
+  trades: modTrades, crafting: modCrafting, live: modLive, sync: modSync, about: modAbout, addons: modAddons, replay: modReplay };
 
 // Module names link to their module; one this page can't open (Live without the live server, character modules
 // without a character) shows as plain text
@@ -3653,6 +3676,117 @@ if (matchMedia("(hover: hover)").matches) {
 window.addEventListener("resize", placeThumb);
 window.addEventListener("hashchange", () => { const k = location.hash.replace(/^#\/?/, ""); if (k && k !== route) go(k); });
 
+// ------------------------------------------------------------------ Sync between PCs (server.py only)
+// The live server's /sync/status says what's in the bucket and what's due; the buttons start one job at a time and
+// "sync" events report its progress and result.
+let SYNC = null, SYNC_RUN = null, SYNC_MSG = null;   // last status; the running job; a message from a refused start
+const SYNC_NOT_SET_UP = "Sync isn't set up: add b2_key_id, b2_key and b2_bucket to ledger.cfg, then restart the tray.";
+const SYNC_LABELS = { "upload-wtf": "Upload WTF", "upload-market": "Upload market db", import: "Import" };
+// "18:46" today, "yesterday 18:46", else "Mon 17 18:46"; null for no time
+function syncClock(t, now) {
+  if (t == null) return null;
+  const d = new Date(t * 1000), n = new Date(now * 1000), y = new Date((now - 86400) * 1000);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (same(d, n)) return hm;
+  if (same(d, y)) return `yesterday ${hm}`;
+  return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()]} ${d.getDate()} ${hm}`;
+}
+const syncMB = n => (n / 1048576).toFixed(1);
+function syncDue(st) { return !!(st && st.configured && (st.uploadDue || st.importDue)); }
+function syncRunLabel(run) {
+  const step = run.step || "", p = run.progress;
+  if (step === "zipping") return "Zipping…";
+  if (step === "copying") return "Copying the db…";
+  if (step === "uploading" && p && p[1]) return `Uploading ${syncMB(p[0])} / ${syncMB(p[1])} MB`;
+  if (step === "uploading") return "Uploading…";
+  return run.kind === "import" ? "Importing…" : "Working…";
+}
+function syncButton(kind, primary, run) {
+  const label = run && run.kind === kind ? syncRunLabel(run) : SYNC_LABELS[kind];
+  return `<button type="button" class="syncbtn${primary ? " primary" : ""}" data-sync="${kind}"${run ? " disabled" : ""}>${esc(label)}</button>`;
+}
+// The page body: what this PC should upload, what the other PCs uploaded, the market db, the folders here
+function syncRows(st, now, run) {
+  const row = (text, button) => `<div class="syncrow"><div>${text}</div>${button || ""}</div>`;
+  if (!st || !st.configured) {
+    const off = ["upload-wtf", "import"].map(k => `<button type="button" class="syncbtn" disabled>${SYNC_LABELS[k]}</button>`).join("");
+    return row(`<p>${esc(st && st.error || SYNC_NOT_SET_UP)}</p>`, `<div class="syncbtns">${off}</div>`);
+  }
+  const t = x => syncClock(x, now);
+  const out = [`<p class="synchead">This PC: <b>${esc(st.name)}</b>${st.master ? ' <span class="pill">market master</span>' : ""} · bucket <b>${esc(st.bucketName)}</b></p>`];
+  if (st.bucketError) out.push(`<p class="syncwarn">${esc(st.bucketError)}</p>`);
+  // this PC's WTF
+  let mine = st.newestSave == null ? "No saved data on this PC yet."
+    : st.uploadDue ? `Played since your last upload: last save ${t(st.newestSave)}, uploaded ${t(st.wtfUploadAt) || "never"}.`
+    : `Up to date, uploaded ${t(st.wtfUploadAt)}.`;
+  mine = `<p><b>Your WTF</b> · ${esc(mine)}</p>`;
+  if (st.unsaved) mine += `<p class="syncwarn">${esc(`WoW hasn't saved since ${t(st.newestSave)}: /reload or log out first, or this upload misses the latest play.`)}</p>`;
+  out.push(row(mine, syncButton("upload-wtf", st.uploadDue, run)));
+  // what the other PCs put in the bucket
+  const had = {};
+  for (const p of st.pcs || []) had[p.name.toLowerCase()] = p.importedAt;
+  const lines = [];
+  for (const b of st.bucket || []) {
+    if (b.pc === st.name) continue;
+    if (b.kind === "wtf") {
+      lines.push(b.at > (had[b.pc] || 0) ? `${b.pc} uploaded ${t(b.at)}, you have ${t(had[b.pc]) || "nothing yet"}.`
+        : `${b.pc}: up to date (uploaded ${t(b.at)}).`);
+    } else if (b.kind === "market" && !st.master) {
+      lines.push(b.at > (st.marketImportAt || 0)
+        ? `Import replaces this PC's market db (newest hour ${t(st.localLatest) || "none"}) with ${b.pc}'s (newest hour ${t(b.latest) || "unknown"}).`
+        : `Market db from ${b.pc}: up to date (newest hour ${t(b.latest) || "unknown"}).`);
+    }
+  }
+  if (!lines.length) lines.push("Nothing from another PC in the bucket yet.");
+  out.push(row(`<p><b>From other PCs</b></p>${lines.map(l => `<p>${esc(l)}</p>`).join("")}`, syncButton("import", st.importDue, run)));
+  if (st.master) {
+    const m = st.marketUpload;
+    const text = m ? `Uploads every day at 08:00. Last: ${t(m.at)}, newest hour ${t(m.latest)}, ${syncMB(m.size)} MB.` : "Uploads every day at 08:00. Not uploaded yet.";
+    out.push(row(`<p><b>Your market db</b> · ${esc(text)}</p>`, syncButton("upload-market", false, run)));
+  }
+  if ((st.pcs || []).length) {
+    out.push(`<p class="hint">Folders here: ${st.pcs.map(p => esc(`${p.name} (${p.importedAt ? `imported ${t(p.importedAt)}` : "copied by hand"})`)).join(", ")}. Keep one folder per PC, or its kills count twice.</p>`);
+  }
+  return out.join("");
+}
+// The result line under the buttons
+function syncResult(st, run, now) {
+  if (run) return `${SYNC_LABELS[run.kind] || "Sync"}: ${syncRunLabel(run)}`;
+  const last = st && st.configured && st.last;
+  if (!last) return "";
+  return /\d\d:\d\d/.test(last.message) ? last.message : `${last.message} · ${syncClock(last.at, now)}`;
+}
+function renderSync() {
+  const dot = el("syncDot");
+  if (dot) dot.className = "dot " + (syncDue(SYNC) ? "on" : "off");
+  if (tab !== "sync" || !el("syncBox")) return;
+  el("syncBox").innerHTML = syncRows(SYNC, nowSec(), SYNC_RUN);
+  el("syncResult").textContent = SYNC_MSG || syncResult(SYNC, SYNC_RUN, nowSec());
+}
+async function loadSync() {
+  try {
+    const r = await fetch("/sync/status");
+    if (r.ok) { SYNC = await r.json(); if (SYNC.busy && !SYNC_RUN) SYNC_RUN = { kind: SYNC.busy }; }
+  } catch (e) {}
+  renderSync();
+}
+async function startSync(kind) {
+  SYNC_MSG = null; SYNC_RUN = { kind }; renderSync();
+  try {
+    const r = await fetch(`/sync/${kind}`, { method: "POST", headers: { "X-Ledger": "sync" } });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      SYNC_RUN = null; SYNC_MSG = j.message || `The live server refused (${r.status})`; renderSync();
+    }
+  } catch (e) { SYNC_RUN = null; SYNC_MSG = "The live server didn't answer: is the tray running?"; renderSync(); }
+}
+function modSync() {
+  el("who").textContent = "Your saved data and the market db, between your PCs through your Backblaze bucket.";
+  renderSync();
+  loadSync();
+}
+
 // ------------------------------------------------------------------ Live (server.py only)
 const SERVED = location.protocol.startsWith("http");
 const TAB_KEY = "adventureLedger.tab", SCROLL_KEY = "adventureLedger.scroll";
@@ -3968,6 +4102,12 @@ function connectLive() {
     try { sessionStorage.setItem(SCROLL_KEY, String(window.scrollY)); } catch (e) {}
     location.reload();
   });
+  src.addEventListener("sync", e => {
+    const m = JSON.parse(e.data);
+    if (m.phase === "running") SYNC_RUN = { kind: m.kind, step: m.step, progress: m.progress };
+    else { SYNC_RUN = null; SYNC_MSG = null; if (m.status) SYNC = m.status; else loadSync(); }
+    renderSync();
+  });
   src.addEventListener("buildError", e => { if (LIVE) { LIVE.build = JSON.parse(e.data); renderLive(LIVE); } });
   src.onerror = () => { el("liveDot").className = "dot off"; };
 }
@@ -3982,6 +4122,8 @@ function setupLive() {
     if (hit) window.open(hit.url, "_blank", "noopener");
   });
   el("mapZoom").addEventListener("click", () => { mapZoom = !mapZoom; if (LIVE) drawLiveMap(LIVE); });
+  el("syncBox").addEventListener("click", e => { const b = e.target.closest("button[data-sync]"); if (b && !b.disabled) startSync(b.dataset.sync); });
+  loadSync();
   connectLive();
   setInterval(() => { if (tab === "live" && LIVE) renderLive(LIVE); }, 1000); // keep the clocks moving
 }

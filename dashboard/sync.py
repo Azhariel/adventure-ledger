@@ -427,6 +427,7 @@ class Syncer:
         out = {"configured": self.configured, "name": self.name, "master": self.master,
                "bucketName": self.bucket_name, "error": self.error, "busy": self.busy, "last": state.get("last"),
                "newestSave": newest_save, "wtfUploadAt": wtf_at, "marketUpload": state.get("market_upload"),
+               "marketImportAt": state.get("market_import"),
                "localLatest": local, "pcs": pcs, "bucket": [], "uploadDue": False, "importDue": False,
                "unsaved": bool(newest_save and last_play and last_play - newest_save > 60)}
         if not self.configured:
