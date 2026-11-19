@@ -54,6 +54,9 @@ DATA = os.path.abspath(os.environ.get("LEDGER_DATA") or CONFIG.get("data") or os
 os.makedirs(DATA, exist_ok=True)
 import ledgerlog  # noqa: E402
 import market  # noqa: E402
+import b2  # noqa: E402
+import socket  # noqa: E402
+import sync  # noqa: E402
 import livelog  # noqa: E402
 import zones  # noqa: E402
 import urllib.request  # noqa: E402
@@ -108,6 +111,19 @@ class Hub:
                     pass  # a stalled page skips updates; the next snapshot is complete anyway
 
 
+SYNC_JOBS = ("upload-wtf", "upload-market", "import")
+SYNC_EVERY = 60   # seconds between checks for the master's daily market upload
+
+
+def make_syncer(wow):
+    """The Syncer for this PC from ledger.cfg; without B2 keys it only reports "not set up"."""
+    cfg = read_config()
+    client = None
+    if all(cfg.get(k) for k in ("b2_key_id", "b2_key", "b2_bucket")):
+        client = b2.Client(cfg["b2_key_id"], cfg["b2_key"], cfg["b2_bucket"])
+    return sync.Syncer(DATA, wow, cfg, client, socket.gethostname())
+
+
 class App:
     def __init__(self, wow, port):
         self.wow = wow
@@ -128,6 +144,7 @@ class App:
         self.last_build = None             # {"t", "ok", "seconds", "message"}, for /status
         self.stop = threading.Event()
         self.map_lock = threading.Lock()
+        self.syncer = make_syncer(wow)
 
     # ---------------------------------------------------------------- SavedVariables -> build.lua
     def sv_signature(self):
@@ -238,6 +255,47 @@ class App:
                 sig = again
             last = sig
             self.build()
+
+    # ---------------------------------------------------------------- sync between PCs (sync.py)
+    def sync_status(self):
+        with self.lock:
+            last_play = getattr(self.state, "last_line", None)
+        return self.syncer.status(sync.newest_save(self.wow), last_play)
+
+    def start_sync(self, kind):
+        """Start a job on its own thread. False when one is already running."""
+        if self.syncer.busy:
+            return False
+        threading.Thread(target=self.sync_job, args=(kind,), daemon=True).start()
+        return True
+
+    def sync_job(self, kind):
+        self.hub.send("sync", {"phase": "running", "kind": kind})
+        sent = [0.0]
+
+        def progress(step, done, total):
+            now = time.time()
+            if now - sent[0] >= 0.5:
+                sent[0] = now
+                self.hub.send("sync", {"phase": "running", "kind": kind, "step": step, "progress": [done, total]})
+        res = self.syncer.run(kind, progress)
+        _LOG.info("sync %s: %s", kind, res.get("message"))
+        try:
+            status = self.sync_status()
+        except Exception:   # noqa: BLE001
+            _LOG.exception("sync status failed")
+            status = None
+        self.hub.send("sync", {"phase": "done", "kind": kind, "result": res, "status": status})
+        if res.get("rebuild"):
+            self.build()   # data/pcs changed; watch_sv only watches this PC's WTF
+
+    def watch_sync(self):
+        while not self.stop.wait(SYNC_EVERY):
+            try:
+                if self.syncer.daily_due():
+                    self.sync_job("upload-market")
+            except Exception:   # noqa: BLE001
+                _LOG.exception("daily market upload failed")
 
     # ---------------------------------------------------------------- combat log tail
     def newest_log(self):
@@ -434,6 +492,14 @@ def make_handler(app):
             elif path == "/live.json":
                 snap, _ = app.snapshot()
                 self._send(200, json.dumps(snap).encode(), "application/json")
+            elif path == "/sync/status":
+                try:
+                    body = json.dumps(app.sync_status()).encode()
+                except Exception:   # noqa: BLE001
+                    _LOG.exception("sync status failed")
+                    self._send(503, b'{"error":"unavailable"}', "application/json")
+                    return
+                self._send(200, body, "application/json")
             elif path == "/history":
                 self.history()
             elif path == "/events":
@@ -499,6 +565,12 @@ def make_handler(app):
                 self._send(200, b"stopping", "text/plain")
                 app.stop.set()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
+            elif self.path.startswith("/sync/") and self.path[len("/sync/"):] in SYNC_JOBS                     and self.headers.get("X-Ledger") == "sync":
+                if app.start_sync(self.path[len("/sync/"):]):
+                    self._send(202, b'{"started":true}', "application/json")
+                else:
+                    self._send(409, json.dumps({"started": False, "message": "Another sync job is running"}).encode(),
+                               "application/json")
             else:
                 self.send_error(403)
 
@@ -548,7 +620,7 @@ def main():
             webbrowser.open(url)
         return
     httpd.daemon_threads = True
-    for fn in (app.watch_sv, app.watch_log, app.pusher, app.watch_market):
+    for fn in (app.watch_sv, app.watch_log, app.pusher, app.watch_market, app.watch_sync):
         threading.Thread(target=fn, daemon=True).start()
     log("started (port %d, wow %s, pid %d)" % (args.port, app.wow, os.getpid()))
     if not args.no_open:

@@ -42,3 +42,21 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 #   answers "not modified" and nothing is downloaded. A new snapshot downloads both houses (about 15-20 MB) and is
 #   dated by when Blizzard made it. Checking often catches each snapshot soon after it appears. Don't set 0.
 # ah_every = 10
+
+# --- Sync between PCs through a Backblaze B2 bucket (optional; the Sync page) ---
+# Without these lines the Sync page says "not set up" and nothing else changes. See README, "Playing on more
+# than one PC". Never share or commit the key.
+#
+# b2_key_id, b2_key: an application key restricted to the one bucket, with listFiles, readFiles and writeFiles.
+#   One key per PC. b2_bucket: the private bucket's name.
+# b2_key_id = your-key-id
+# b2_key = your-application-key
+# b2_bucket = your-bucket
+#
+# pc_name: this PC's name in the bucket and in the other PC's data\pcs folder (default: the computer name,
+#   lower-cased). Use the name the other PC already has a copy under, if it has one.
+# pc_name = home-pc
+#
+# market_master: yes on the PC whose market.db the others take (the one that's on the most). It uploads its
+#   market db every day at 08:00 and never imports one. Leave it out on every other PC.
+# market_master = yes
