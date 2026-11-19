@@ -836,6 +836,10 @@ end
 -- which: { { id, name, count } }.
 -- opts.Market (Make or Buy's Market module) and opts.today (scan day): each craft gets `check` (M.saleCheck).
 -- opts.sold = { [itemID] = { count, avg, last } }: your own AH sales of the item, as `sold`.
+-- unsure: the API counts the product's sales (soldPerDay) and they're under CRAFT_SURE_SOLD a day, or it has fewer
+-- than CRAFT_SURE_LISTED listings (signals.lua's FLIP_MIN_LISTED): the price may be one odd listing. Unsure crafts
+-- sort after the rest.
+M.CRAFT_SURE_SOLD, M.CRAFT_SURE_LISTED = 1, 5
 function M.crafts(P, recipes, market, nameOf, limit, opts)
     opts = opts or {}
     if not (P and recipes) then
@@ -846,6 +850,12 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
         if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
         if ah then return ah, "ah" end
         return nil
+    end
+    local function unsure(id)
+        local p = market.prices[id]
+        local sold = p and tonumber(p.soldPerDay)
+        if not sold then return nil end
+        return (sold < M.CRAFT_SURE_SOLD or (tonumber(p.listings) or 0) < M.CRAFT_SURE_LISTED) or nil
     end
     local index = P.IndexByOutput(recipes)
     local out = {}
@@ -904,10 +914,14 @@ function M.crafts(P, recipes, market, nameOf, limit, opts)
                 profession = recipe.profession,
                 ownReagents = P.UsesSubCrafts and P.UsesSubCrafts(plan) or false,
                 reagents = reagents,
+                unsure = unsure(recipe.outputItemID),
             }
         end
     end
-    table.sort(out, function(a, b) return a.profit > b.profit or (a.profit == b.profit and a.name < b.name) end)
+    table.sort(out, function(a, b)
+        if (a.unsure or false) ~= (b.unsure or false) then return not a.unsure end
+        return a.profit > b.profit or (a.profit == b.profit and a.name < b.name)
+    end)
     if limit and #out > limit then
         for i = #out, limit + 1, -1 do out[i] = nil end
     end

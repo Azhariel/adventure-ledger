@@ -1567,6 +1567,9 @@ function modCombat() {
   }));
 }
 
+// A craft whose product the API shows rarely selling or barely listed (the build's M.crafts unsure): sorted last
+const UNSURE_TITLE = "Few sales or listings at this house: this price may be one odd listing";
+const unsurePill = r => r && r.unsure ? ` <span class="pill death" title="${UNSURE_TITLE}">price unsure</span>` : "";
 function renderCrafts(c) {
   const list = c.crafts || [];
   if (!list.some(r => r.id === selectedCraft)) selectedCraft = list[0] ? list[0].id : null;
@@ -1589,7 +1592,7 @@ function renderCrafts(c) {
   };
   table("craftsTable", [{ t: "Recipe" }, { t: "Cost", n: 1 }, { t: "You pay", n: 1 }, { t: "After 5% cut", n: 1 }, { t: "Profit", n: 1 }, { t: "Margin", n: 1 }, { t: "Will it sell" }],
     list.map(r => rowId(r.id, [
-      `${whItem(r.id, r.name)}${r.outputQty > 1 ? ` ×${r.outputQty}` : ""} ${r.ownReagents ? '<span class="pill">own reagents</span>' : ""}`,
+      `${whItem(r.id, r.name)}${r.outputQty > 1 ? ` ×${r.outputQty}` : ""} ${r.ownReagents ? '<span class="pill">own reagents</span>' : ""}${unsurePill(r)}`,
       money(r.cost),
       pay(r),
       money(r.sale),

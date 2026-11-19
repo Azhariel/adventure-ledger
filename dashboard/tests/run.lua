@@ -2324,6 +2324,28 @@ test("signals.craftFlips: the best crafter fills the row; who lists everyone, kn
 end)
 
 
+test("crafts: a product with few sales or listings at the house is marked price unsure and sorts last", function()
+    local P = repoPlanner()
+    local recipes = {
+        [1] = rec(1, 197, 20, 1, { { 10, 1 } }), [2] = rec(2, 197, 21, 1, { { 10, 1 } }),
+        [3] = rec(3, 197, 22, 1, { { 10, 1 } }), [4] = rec(4, 197, 23, 1, { { 10, 1 } }),
+    }
+    local market = { vendor = {}, prices = {
+        [10] = { now = 10 },
+        [20] = { now = 5000, market = 5000, soldPerDay = 0.5, listings = 9 },  -- the most profit, but rarely sells
+        [21] = { now = 4000, market = 4000, soldPerDay = 3, listings = 3 },    -- few listings
+        [22] = { now = 200, market = 200, soldPerDay = 2, listings = 5 },      -- sure
+        [23] = { now = 100, market = 100 },                                    -- no API data: as today
+    } }
+    local list = M.crafts(P, recipes, market, itemName, nil, {})
+    eq(#list, 4)
+    eq(list[1].id, 22); eq(list[1].unsure, nil)
+    eq(list[2].id, 23); eq(list[2].unsure, nil, "no sales rate: nothing to judge by")
+    eq(list[3].id, 20); eq(list[3].unsure, true)
+    eq(list[4].id, 21); eq(list[4].unsure, true)
+end)
+
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

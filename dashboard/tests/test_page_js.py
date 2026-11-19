@@ -393,6 +393,14 @@ process.stdout.write(JSON.stringify([sellsIn(0.351), sellsIn(1.5), sellsIn(2), s
         self.assertEqual(out[8], '<span data-sort="348">348 (Tin Ore)</span>')
         self.assertEqual(out[9], '<span data-sort="120">120 (sales)</span>')
 
+    def test_price_unsure_pill(self):
+        js = page_js(["UNSURE_TITLE", "unsurePill"]) + """
+process.stdout.write(JSON.stringify([unsurePill({ unsure: true }), unsurePill({})]));
+"""
+        on, off = json.loads(run_node(js))
+        self.assertEqual(on, ' <span class="pill death" title="Few sales or listings at this house: this price may be one odd listing">price unsure</span>')
+        self.assertEqual(off, "")
+
     def test_neutral_header_says_where_faction_prices_come_from(self):
         js = page_js(["factionPricesNote"]) + """
 process.stdout.write(JSON.stringify([factionPricesNote({ DEAL_BELOW: 0.5 }), factionPricesNote(undefined)]));
