@@ -444,7 +444,7 @@ process.stdout.write(JSON.stringify(bare.concat([flipsHintText(DATA.signalRule),
         self.assertEqual(cutsPart, {"faction": 0.1, "neutral": 0.15}, "a missing cut falls back to today's")
 
 
-JS_SYNC = ["esc", "SYNC_NOT_SET_UP", "SYNC_LABELS", "syncClock", "syncMB", "syncDue", "syncRunLabel", "syncButton",
+JS_SYNC = ["esc", "SYNC_NOT_SET_UP", "SYNC_LABELS", "syncClock", "syncMB", "syncDue", "syncRunLabel", "syncButton", "SYNC_DONE", "syncNote",
            "syncRows", "syncResult"]
 NOW = 1795100000
 
@@ -521,13 +521,45 @@ class SyncPageTests(unittest.TestCase):
         self.assertFalse(self.call("syncDue(st)", sync_status()))
         self.assertFalse(self.call("syncDue(st)", {"configured": False, "uploadDue": True}))
 
+    def result(self, st, run=None):
+        return self.call("syncResult(st, run, %d)" % NOW, st, run)
+
     def test_sync_result_line(self):
-        st = sync_status(last={"ok": False, "at": NOW - 30, "message": "Bucket unreachable: check the connection"})
-        self.assertRegex(self.call("syncResult(st, run, %d)" % NOW, st),
-                         r"^Bucket unreachable: check the connection · \d\d:\d\d$")
-        st = sync_status(last={"ok": True, "at": NOW, "message": "Uploaded WTF (1.6 MB) at 18:46"})
-        self.assertEqual(self.call("syncResult(st, run, %d)" % NOW, st), "Uploaded WTF (1.6 MB) at 18:46",
-                         "a message with its own time gets no second one")
+        st = sync_status(last={"ok": False, "kind": "import", "at": NOW - 30,
+                               "message": "Bucket unreachable: check the connection"})
+        html = self.result(st)
+        self.assertIn('class="syncnote fail"', html)
+        self.assertRegex(html, r"<b>✗ Import failed</b> · \d\d:\d\d")
+        self.assertIn("Bucket unreachable: check the connection", html)
+        self.assertIn("Details are in server.log in the data folder.", html)
+        st = sync_status(last={"ok": True, "kind": "upload-wtf", "at": NOW, "message": "Uploaded WTF (1.6 MB) at 18:46"})
+        html = self.result(st)
+        self.assertIn('class="syncnote ok"', html)
+        self.assertIn("<b>✓ WTF uploaded</b>", html)
+        self.assertNotRegex(html, r"</b> · \d", "a message with its own time gets no second one")
+        self.assertIn("Uploaded WTF (1.6 MB) at 18:46", html)
+        self.assertIn("Press Import on the other PC to get it.", html)
+
+    def test_sync_result_per_job(self):
+        def ok(kind, message):
+            return self.result(sync_status(last={"ok": True, "kind": kind, "at": NOW, "message": message}))
+        self.assertIn("<b>✓ Market db uploaded</b>", ok("upload-market", "Uploaded the market db (1 MB) at 08:00"))
+        self.assertIn("The other PCs get it on their next Import.", ok("upload-market", "Uploaded (1 MB) at 08:00"))
+        got = ok("import", "Imported egb's WTF (18:46)")
+        self.assertIn("<b>✓ Import complete</b>", got)
+        self.assertIn("The page now includes it.", got)
+        got = ok("import", "Already up to date")
+        self.assertIn("<b>✓ Nothing new to import</b>", got)
+        self.assertNotIn("includes it", got)
+        # a result saved before jobs recorded their kind
+        self.assertIn("<b>✓ Done</b>", ok(None, "Uploaded WTF (1.6 MB) at 18:46"))
+
+    def test_sync_result_while_running_and_escaped(self):
+        self.assertEqual(self.result(sync_status(), {"kind": "upload-wtf", "step": "zipping"}),
+                         "Upload WTF: Zipping…")
+        html = self.result(sync_status(last={"ok": False, "kind": "import", "at": NOW, "message": "<i>x"}))
+        self.assertIn("&lt;i&gt;x", html)
+        self.assertEqual(self.result({"configured": False, "last": {"ok": True, "at": NOW, "message": "m"}}), "")
 
     def test_sync_escapes_names(self):
         st = sync_status(importDue=True, bucket=[{"kind": "wtf", "pc": "<b>x", "at": NOW - 60, "size": 1}])

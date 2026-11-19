@@ -287,6 +287,10 @@ footer a:hover, .prose a:hover { color: var(--purple); text-decoration-color: va
 .syncbtn:disabled { color: var(--muted); cursor: default; }
 .syncwarn { color: var(--orange); }
 .syncresult { margin: 8px 0 0; min-height: 1.4em; color: var(--muted); font: 12px var(--mono); }
+.syncnote { margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--good); border-radius: 6px; background: var(--raise); color: var(--fg); font: 13px var(--sans); }
+.syncnote.fail { border-left-color: var(--bad); }
+.syncnote b { color: var(--good); } .syncnote.fail b { color: var(--bad); }
+.syncnote p { margin: 4px 0 0; } .syncnote .syncnext { color: var(--muted); }
 @media (max-width: 600px) { .syncrow { flex-direction: column; align-items: stretch; } .syncbtn { width: 100%; } }
 
 /* ------------------------------------------------------------- live */
@@ -578,7 +582,7 @@ tr.flash td { animation: flash .8s ease-out; }
     <section class="mod" data-mod="sync" hidden>
       <article class="panel w12"><div class="ph"><h2>Sync between PCs</h2></div>
         <p class="hint">Upload this PC's saved data before you leave it, and Import at the other PC. The market master uploads its market db every day at 08:00 by itself. The game's own WTF folder is never written: imports go to the data folder only.</p>
-        <div id="syncBox"></div><p class="syncresult" id="syncResult" role="status" aria-live="polite"></p></article>
+        <div id="syncBox"></div><div class="syncresult" id="syncResult" role="status" aria-live="polite"></div></article>
     </section>
 
     <!-- about -->
@@ -3750,19 +3754,35 @@ function syncRows(st, now, run) {
   }
   return out.join("");
 }
-// The result line under the buttons
+// The last job's result under the buttons: what happened, then what to do next. Saved by the server, so it
+// survives the page reload an import causes.
+const SYNC_DONE = {
+  "upload-wtf": ["WTF uploaded", "Upload failed", "Press Import on the other PC to get it."],
+  "upload-market": ["Market db uploaded", "Market db upload failed", "The other PCs get it on their next Import."],
+  import: ["Import complete", "Import failed", "The page now includes it."],
+};
+function syncNote(ok, head, at, message, next, now) {
+  const when = at != null && !/\d\d:\d\d/.test(message) ? ` · ${syncClock(at, now)}` : "";
+  return `<div class="syncnote ${ok ? "ok" : "fail"}"><b>${ok ? "✓" : "✗"} ${esc(head)}</b>${when}`
+    + `<p>${esc(message)}</p>${next ? `<p class="syncnext">${esc(next)}</p>` : ""}</div>`;
+}
 function syncResult(st, run, now) {
   if (run) return `${SYNC_LABELS[run.kind] || "Sync"}: ${syncRunLabel(run)}`;
   const last = st && st.configured && st.last;
   if (!last) return "";
-  return /\d\d:\d\d/.test(last.message) ? last.message : `${last.message} · ${syncClock(last.at, now)}`;
+  const [good, bad, next] = SYNC_DONE[last.kind] || ["Done", "Failed", ""];
+  if (!last.ok) return syncNote(false, bad, last.at, last.message, "Details are in server.log in the data folder.", now);
+  if (last.kind === "import" && last.message === "Already up to date")
+    return syncNote(true, "Nothing new to import", last.at, "Already up to date: the bucket has nothing newer.", "", now);
+  return syncNote(true, good, last.at, last.message, next, now);
 }
 function renderSync() {
   const dot = el("syncDot");
   if (dot) dot.className = "dot " + (syncDue(SYNC) ? "on" : "off");
   if (tab !== "sync" || !el("syncBox")) return;
   el("syncBox").innerHTML = syncRows(SYNC, nowSec(), SYNC_RUN);
-  el("syncResult").textContent = SYNC_MSG || syncResult(SYNC, SYNC_RUN, nowSec());
+  el("syncResult").innerHTML = SYNC_MSG ? syncNote(false, "Couldn't start", null, SYNC_MSG, "", nowSec())
+    : syncResult(SYNC, SYNC_RUN, nowSec());
 }
 async function loadSync() {
   try {
