@@ -63,6 +63,7 @@ import urllib.request  # noqa: E402
 
 PORT = 8737
 SV_POLL, SV_SETTLE, LOG_POLL, PUSH_EVERY = 2.0, 2.0, 1.0, 1.0
+MARKET_SETTLE = 15.0   # quiet seconds before the engine runs: the fetcher records each house, then rolls up
 MAX_START_READ = 40 * 1024 * 1024   # a huge log is read from its last 40 MB only
 LOG_WRITE_EVERY = 300               # WoW Forever writes the combat log on a fixed 5-minute timer (measured)
 SESSION_CARRY = 600                 # a new log file within 10 min of the last line continues the session
@@ -234,10 +235,22 @@ class App:
             self.build()
         return sig
 
+    def settled(self, read, sig, quiet):
+        """sig once read() has stayed the same for `quiet` seconds (polling every SV_POLL); sig as is when stopping."""
+        still = 0.0
+        while still < quiet and not self.stop.wait(SV_POLL):
+            now = read()
+            sig, still = (sig, still + SV_POLL) if now == sig else (now, 0.0)
+        return sig
+
     def watch_market(self):
         last = self.market_signature()   # watch_sv runs the engine and the first build
         while not self.stop.wait(SV_POLL):
-            last = self.market_tick(last)
+            sig = self.market_signature()
+            if sig != last:
+                # one engine run and one page reload per fetch, not one per house and rollup
+                self.settled(self.market_signature, sig, MARKET_SETTLE)
+                last = self.market_tick(last)
 
     def watch_sv(self):
         last = self.sv_signature()
@@ -286,20 +299,22 @@ class App:
         finally:
             if res.get("refused"):
                 return   # another job is running: its own events tell the page; don't end its "running"
-            _LOG.info("sync %s: %s", kind, res.get("message"))
             try:
                 status = self.sync_status()
             except Exception:   # noqa: BLE001
                 _LOG.exception("sync status failed")
                 status = None
             self.hub.send("sync", {"phase": "done", "kind": kind, "result": res, "status": status})
-        if res.get("rebuild"):
+        if res.get("market"):
+            self.run_engine()   # now, so the market watcher finds market.lua current and doesn't build again
+        if res.get("rebuild") or res.get("market"):
             self.build()   # data/pcs changed; watch_sv only watches this PC's WTF
 
     def watch_sync(self):
         while not self.stop.wait(SYNC_EVERY):
             try:
                 if not self.syncer.busy and self.syncer.daily_due():
+                    _LOG.info("sync: the daily market upload is due")
                     self.sync_job("upload-market")
             except Exception:   # noqa: BLE001
                 _LOG.exception("daily market upload failed")

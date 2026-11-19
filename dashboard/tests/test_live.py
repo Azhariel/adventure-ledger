@@ -292,6 +292,35 @@ class MarketWatch(unittest.TestCase):
         self.assertEqual(app.market_tick(sig), new)      # one tick: engine and build
         self.assertEqual(built, [1, 1])
 
+    def test_settled_waits_until_the_signature_stops_changing(self):
+        # the fetcher records each house, then rolls up: one engine run for the lot, not one per write
+        seq = iter(["a", "b", "b", "c", "c", "c", "c", "c", "c", "c", "c", "c"])
+        reads = []
+        self.app.stop.wait = lambda t: False
+        got = self.app.settled(lambda: reads.append(1) or next(seq), "a", 3 * server.SV_POLL)
+        self.assertEqual(got, "c")
+        self.assertEqual(len(reads), 7)      # b, b, c and then three quiet polls
+        self.app.stop.wait = lambda t: True  # stopping: return at once
+        self.assertEqual(self.app.settled(lambda: "z", "a", 60), "a")
+
+    def sync_order(self, res):
+        order = []
+        self.app.syncer = mock.Mock(busy=None)
+        self.app.syncer.run.return_value = res
+        self.app.sync_status = lambda: {}
+        self.app.run_engine = lambda: order.append("engine")
+        self.app.build = lambda: order.append("build")
+        self.app.sync_job("import")
+        return order
+
+    def test_import_of_the_market_db_runs_the_engine_before_one_build(self):
+        self.assertEqual(self.sync_order({"ok": True, "message": "m", "rebuild": True, "market": True}),
+                         ["engine", "build"])
+        self.assertEqual(self.sync_order({"ok": True, "message": "m", "rebuild": False, "market": True}),
+                         ["engine", "build"])
+        self.assertEqual(self.sync_order({"ok": True, "message": "m", "rebuild": True, "market": False}), ["build"])
+        self.assertEqual(self.sync_order({"ok": True, "message": "m", "rebuild": False, "market": False}), [])
+
     def test_signature_is_empty_without_a_db(self):
         old = server.DATA
         server.DATA = tempfile.mkdtemp()
