@@ -2100,6 +2100,65 @@ test("signals.sellWindows: not selling or not high enough", function()
     eq(#Sg.sellWindows({}, function() return nil end, {}, itemName, nil, "PvP Horde"), 0)
 end)
 
+local function rec(id, prof, out, qty, reagents)
+    local r = { recipeID = id, profession = prof, outputItemID = out, outputQty = qty or 1, reagents = {} }
+    for _, x in ipairs(reagents or {}) do r.reagents[#r.reagents + 1] = { itemID = x[1], qty = x[2] } end
+    return r
+end
+
+test("signals.flipRecipes: known recipes, and trainer recipes learnable at the saved skill", function()
+    local mob = {
+        recipes = { [2657] = rec(2657, 186, 2840) },
+        unlearned = { [2659] = rec(2659, 186, 2841, 2), [3307] = rec(3307, 186, 3575) },
+        skill = { [186] = { level = 81 } },
+    }
+    local data = { [186] = { [2657] = { 25, 0, "", nil, nil }, [2659] = { 65, 200, "t", nil, nil },
+        [3307] = { 125, 500, "t", nil, nil } } }
+    local out = Sg.flipRecipes(mob, data, "Horde", function() return nil end)
+    truthy(out[2657], "known kept"); eq(out[2657].learn, nil)
+    truthy(out[2659], "learnable at 81"); eq(out[2659].learn.how, "trainer"); eq(out[2659].learn.cost, 200)
+    eq(out[2659].learn.skill, 65)
+    eq(out[3307], nil, "needs 125")
+    eq(mob.unlearned[2659].learn, nil, "copies, the save is untouched")
+    mob.skill[186].level = 64
+    eq(Sg.flipRecipes(mob, data, "Horde", function() return nil end)[2659], nil, "64 is under 65")
+end)
+
+test("signals.flipRecipes: vendor recipes priced from the book; drop and quest recipes, factions, no data", function()
+    local mob = {
+        recipes = { [1] = rec(1, 197, 100) },
+        unlearned = { [2] = rec(2, 197, 101), [3] = rec(3, 197, 102), [4] = rec(4, 197, 103), [5] = rec(5, 197, 104),
+            [6] = rec(6, 197, 105), [7] = rec(7, 197, 106), [8] = rec(8, 197, 107), [9] = rec(9, 197, 108),
+            [10] = rec(10, 197, 109), [1] = rec(1, 197, 100) },
+        skill = { [197] = { level = 100 } },
+    }
+    local data = { [197] = { [1] = { 1, 0, "d", nil, nil }, [2] = { 50, 0, "v", 16084, nil },
+        [3] = { 50, 0, "v", 999, nil }, [4] = { 50, 300, "qt", nil, nil }, [5] = { 50, 0, "d", 1, nil },
+        [6] = { 50, 0, "q", nil, nil }, [7] = { 50, 0, "", nil, nil }, [8] = { 50, 100, "t", nil, "A" },
+        [9] = { 50, 100, "t", nil, "H" } } }
+    local now = function(id) return id == 16084 and 1200 or nil end
+    local out = Sg.flipRecipes(mob, data, "Horde", now)
+    eq(out[1].learn, nil, "in both lists: known, whatever its source")
+    eq(out[2].learn.how, "vendor"); eq(out[2].learn.cost, 1200)
+    eq(out[3].learn.how, "vendor"); eq(out[3].learn.cost, nil, "no price for the recipe item")
+    eq(out[4].learn.how, "trainer"); eq(out[4].learn.cost, 300)
+    eq(out[5], nil); eq(out[6], nil); eq(out[7], nil)
+    eq(out[8], nil, "Alliance only"); truthy(out[9], "Horde")
+    eq(out[10], nil, "no recipe data")
+    local ally = Sg.flipRecipes(mob, data, "Alliance", now)
+    truthy(ally[8]); eq(ally[9], nil)
+    local any = Sg.flipRecipes(mob, data, nil, now)
+    truthy(any[8]); truthy(any[9])
+end)
+
+test("signals.flipRecipes: no saved skill keeps known recipes and leaves learnables out", function()
+    local mob = { recipes = { [1] = rec(1, 186, 100) }, unlearned = { [2] = rec(2, 186, 101) }, skill = {} }
+    local out = Sg.flipRecipes(mob, { [186] = { [2] = { 1, 10, "t", nil, nil } } }, "Horde", function() end)
+    truthy(out[1]); eq(out[2], nil)
+    eq(next(Sg.flipRecipes(nil, nil, nil, nil)), nil, "nothing saved")
+end)
+
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

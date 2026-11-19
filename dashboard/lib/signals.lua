@@ -212,4 +212,39 @@ function Sg.movers(prices, scanRule, limit)
     return finish(lists.up), finish(lists.down), basis
 end
 
+local FACTION_CODE = { Horde = "H", Alliance = "A" }
+
+-- The recipes a character can flip: the ones it knows, and the unlearned ones it could learn now, from a trainer
+-- or a vendor, at its saved skill and for its faction. mob: a merged MakeOrBuyCharDB (recipes, unlearned, skill).
+-- recipeData: Make or Buy's RecipeData ({ [profession] = { [recipeID] = { learnSkill, trainerCost, sources,
+-- teachItemID, faction } } }). faction: "Horde" | "Alliance" | nil (any). bookNow(id): the house's price of a
+-- recipe item. Returns { [recipeID] = recipe } (copies): learn = nil when known, else { how = "trainer" |
+-- "vendor", cost = copper or nil, skill }.
+function Sg.flipRecipes(mob, recipeData, faction, bookNow)
+    local out = {}
+    if not mob then return out end
+    for id, r in pairs(mob.recipes or {}) do out[id] = copy(r) end
+    local code = faction and FACTION_CODE[faction]
+    for id, r in pairs(mob.unlearned or {}) do
+        local entry = not out[id] and recipeData and recipeData[r.profession] and recipeData[r.profession][id]
+        local skill = mob.skill and mob.skill[r.profession]
+        local level = type(skill) == "table" and tonumber(skill.level)
+        if entry and level and (entry[1] or 0) <= level and (entry[5] == nil or code == nil or entry[5] == code) then
+            local sources = entry[3] or ""
+            local learn
+            if sources:find("t", 1, true) then
+                learn = { how = "trainer", cost = entry[2], skill = entry[1] }
+            elseif sources:find("v", 1, true) then
+                learn = { how = "vendor", cost = entry[4] and bookNow and bookNow(entry[4]) or nil, skill = entry[1] }
+            end
+            if learn then
+                local c = copy(r)
+                c.learn = learn
+                out[id] = c
+            end
+        end
+    end
+    return out
+end
+
 return Sg
