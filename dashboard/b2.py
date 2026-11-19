@@ -143,8 +143,9 @@ class Client:
             return json.loads(resp.read())
 
     # ---------------------------------------------------------------- API
-    def list(self, prefix):
-        """Every file under prefix: [{"name", "size", "uploaded" (unix seconds), "info"}]."""
+    def list(self, prefix, retry=True):
+        """Every file under prefix: [{"name", "size", "uploaded" (unix seconds), "info"}].
+        retry=False: one try (the page's status must answer fast when the bucket is unreachable)."""
         def run():
             out, start = [], None
             while True:
@@ -158,7 +159,7 @@ class Client:
                 start = got.get("nextFileName")
                 if not start:
                     return out
-        return self._retrying(run)
+        return self._retrying(run) if retry else run()
 
     def upload(self, name, path, info, progress=None):
         sha1, size = _sha1(path), os.path.getsize(path)

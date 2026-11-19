@@ -27,6 +27,7 @@ class Fake:
         self.bad_sha1 = False
         self.auth_fail = None     # (status, code, extra body text)
         self.page = 1000          # max files per list page
+        self.list_503 = 0         # answer this many listings 503
 
 
 def make_handler(fake):
@@ -94,6 +95,9 @@ def make_handler(fake):
                     return self._json(400, {"status": 400, "code": "bad_request", "message": "sha1 mismatch"})
                 fake.files[name] = (body, info, 1700000000000 + len(fake.files))
                 return self._json(200, {"fileName": name, "contentLength": len(body)})
+            if self.path == "/b2api/v3/b2_list_file_names" and fake.list_503:
+                fake.list_503 -= 1
+                return self._json(503, {"status": 503, "code": "service_unavailable", "message": "busy"})
             if self.path == "/b2api/v3/b2_list_file_names":
                 req = json.loads(body)
                 names = sorted(n for n in fake.files if n.startswith(req.get("prefix", ""))
@@ -169,6 +173,14 @@ class B2Tests(unittest.TestCase):
         self.assertEqual(got[1]["info"]["latest"], "99")
         self.assertEqual(got[1]["size"], 2)
         self.assertLess(got[0]["uploaded"], 1e10)   # seconds, not B2's milliseconds
+
+    def test_list_without_retry_tries_once(self):
+        self.fake.list_503 = 1
+        with self.assertRaises(b2.B2Error) as cm:
+            self.client.list("wtf/", retry=False)
+        self.assertEqual(cm.exception.status, 503)
+        self.fake.list_503 = 1
+        self.assertEqual(self.client.list("wtf/"), [], "the default still retries")
 
     def test_errors_never_contain_key(self):
         self.fake.auth_fail = (401, "bad_auth_token", KEY)

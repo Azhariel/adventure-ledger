@@ -253,9 +253,10 @@ class FakeClient:
 
     def __init__(self, clock):
         self.files, self.clock, self.calls, self.fail, self.block = {}, clock, [], None, None
+        self.fail_download = {}   # name -> exception
 
-    def list(self, prefix):
-        self.calls.append(("list", prefix))
+    def list(self, prefix, retry=True):
+        self.calls.append(("list", prefix) if retry else ("list-once", prefix))
         if self.fail:
             raise self.fail
         return [{"name": n, "size": len(b), "uploaded": u, "info": dict(i)}
@@ -272,6 +273,8 @@ class FakeClient:
 
     def download(self, name, dest, progress=None):
         self.calls.append(("download", name))
+        if name in self.fail_download:
+            raise self.fail_download[name]
         write(dest, self.files[name][0])
         return {}
 
@@ -348,6 +351,38 @@ class SyncerTests(unittest.TestCase):
         self.assertEqual(sync.local_latest(egb.data), 200)
         self.assertEqual(egb.status(None, None)["marketImportAt"], self.now[0] - 60)
 
+    def test_partial_import_still_rebuilds(self):
+        egb, home, laptop = self.pc("egb"), self.pc("azhariel-base", master=True), self.pc("laptop")
+        egb.run("upload-wtf")
+        self.market_on(home, [100])
+        home.run("upload-market")
+        self.now[0] += 60
+        self.client.fail_download["market/market.zip"] = b2.B2Error(0, "network", "reset")
+        got = laptop.run("import")
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["rebuild"], "egb's WTF went in before the market failed")
+        self.assertTrue(os.path.isdir(os.path.join(laptop.data, "pcs", "egb", "WTF")))
+
+    def test_unexpected_error_becomes_a_result(self):
+        egb = self.pc("egb")
+        self.client.fail = KeyError("authorizationToken")
+        got = egb.run("upload-wtf")
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["message"], "Sync failed: see server.log")
+        self.assertEqual(egb.load()["last"]["message"], "Sync failed: see server.log")
+        self.client.fail = None
+        self.assertTrue(egb.run("upload-wtf")["ok"], "the lock was released")
+
+    def test_status_lists_once_without_retries_when_unreachable(self):
+        egb = self.pc("egb")
+        self.client.fail = b2.B2Error(0, "network", "refused")
+        st = egb.status(None, None)
+        self.assertIn("unreachable", st["bucketError"])
+        self.now[0] += 30
+        self.assertIn("unreachable", egb.status(None, None)["bucketError"])
+        self.assertEqual([c for c in self.client.calls if c[0].startswith("list")], [("list-once", "")],
+                         "one quick try, and the failure is cached like a listing")
+
     def test_non_master_cannot_upload_market(self):
         egb = self.pc("egb")
         self.market_on(egb, [100])
@@ -368,6 +403,7 @@ class SyncerTests(unittest.TestCase):
         self.client.block.set()
         t.join()
         self.assertEqual(got["message"], "Another sync job is running")
+        self.assertTrue(got["refused"], "the server sends no 'done' for a refused start")
 
     def test_job_error_message_has_no_key(self):
         egb = self.pc("egb")

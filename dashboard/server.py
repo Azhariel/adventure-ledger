@@ -278,21 +278,28 @@ class App:
             if now - sent[0] >= 0.5:
                 sent[0] = now
                 self.hub.send("sync", {"phase": "running", "kind": kind, "step": step, "progress": [done, total]})
-        res = self.syncer.run(kind, progress)
-        _LOG.info("sync %s: %s", kind, res.get("message"))
+        res = {"ok": False, "message": "Sync failed: see server.log"}
         try:
-            status = self.sync_status()
-        except Exception:   # noqa: BLE001
-            _LOG.exception("sync status failed")
-            status = None
-        self.hub.send("sync", {"phase": "done", "kind": kind, "result": res, "status": status})
+            res = self.syncer.run(kind, progress)
+        except Exception:   # noqa: BLE001  (run reports its own errors; this is a last guard)
+            _LOG.exception("sync %s failed", kind)
+        finally:
+            if res.get("refused"):
+                return   # another job is running: its own events tell the page; don't end its "running"
+            _LOG.info("sync %s: %s", kind, res.get("message"))
+            try:
+                status = self.sync_status()
+            except Exception:   # noqa: BLE001
+                _LOG.exception("sync status failed")
+                status = None
+            self.hub.send("sync", {"phase": "done", "kind": kind, "result": res, "status": status})
         if res.get("rebuild"):
             self.build()   # data/pcs changed; watch_sv only watches this PC's WTF
 
     def watch_sync(self):
         while not self.stop.wait(SYNC_EVERY):
             try:
-                if self.syncer.daily_due():
+                if not self.syncer.busy and self.syncer.daily_due():
                     self.sync_job("upload-market")
             except Exception:   # noqa: BLE001
                 _LOG.exception("daily market upload failed")

@@ -5,6 +5,7 @@ File work only touches the data folder (never the game's WTF, which WoW overwrit
 half-extracted copy). Standard library only; never imports server."""
 import glob
 import json
+import logging
 import os
 import pathlib
 import re
@@ -220,6 +221,7 @@ MARKET_NAME = "market/market.zip"
 DAILY_HOUR = 8          # the master uploads its market bundle once a day from 08:00 local time (the user's pick)
 RETRY_EVERY = 3600      # a failed daily upload is retried at most hourly
 LIST_TTL = 60           # seconds a bucket listing is reused for the page's status
+_LOG = logging.getLogger("server")   # the live server's log (server.log); messages never carry a key
 NOT_SET_UP = "Sync isn't set up: add b2_key_id, b2_key and b2_bucket to ledger.cfg, then restart the tray."
 
 
@@ -265,6 +267,7 @@ class Syncer:
         self.configured = bool(self.name and client is not None
                                and all(cfg.get(k) for k in ("b2_key_id", "b2_key", "b2_bucket")))
         self.busy = None
+        self._installed = False
         self._lock = threading.Lock()
         self._listing = None   # (time, files)
 
@@ -286,20 +289,29 @@ class Syncer:
             json.dump(state, fh, indent=1, sort_keys=True)
         os.replace(tmp, self._state_path())
 
-    def _files(self, fresh=False):
-        now = self.now()
-        if fresh or self._listing is None or now - self._listing[0] > LIST_TTL:
-            self._listing = (now, self.client.list(""))
-        return self._listing[1]
+    def _files(self, fresh=False, quick=False):
+        """The bucket's files. quick (the page's status): one try, and a failure is reused for LIST_TTL like a
+        listing, so an unreachable bucket never makes the page wait. Raises the B2Error it got."""
+        now, listing = self.now(), self._listing
+        if fresh or listing is None or now - listing[0] > LIST_TTL:
+            try:
+                listing = (now, self.client.list("", retry=not quick), None)
+            except b2.B2Error as e:
+                listing = (now, None, e)
+            self._listing = listing
+        if listing[2] is not None:
+            raise listing[2]
+        return listing[1]
 
     # ---------------------------------------------------------------- jobs
     def run(self, kind, progress=None):
         """Run one job ('upload-wtf', 'upload-market', 'import'); returns {"ok", "at", "message", ...}.
         progress(phase, done, total) is called while it runs."""
         if not self._lock.acquire(blocking=False):
-            return {"ok": False, "at": self.now(), "message": "Another sync job is running"}
+            return {"ok": False, "at": self.now(), "message": "Another sync job is running", "refused": True}
         try:
             self.busy = kind
+            self._installed = False   # set by _import per WTF swapped in: a later failure still needs a rebuild
             state = self.load()
             extra = {}
             try:
@@ -315,12 +327,19 @@ class Syncer:
                 last = {"ok": False, "message": self._b2_message(e)}
             except (ValueError, OSError, zipfile.BadZipFile, sqlite3.Error) as e:
                 last = {"ok": False, "message": str(e) or type(e).__name__}
+            except Exception:   # noqa: BLE001  (a malformed reply, a bug: report it, never kill the job thread)
+                _LOG.exception("sync %s failed", kind)
+                last = {"ok": False, "message": "Sync failed: see server.log"}
             last["at"] = self.now()
             state["last"] = last
-            self._save(state)
+            try:
+                self._save(state)
+            except OSError:
+                _LOG.exception("couldn't write %s", STATE_FILE)
             self._listing = None
             out = dict(last)
             out.update(extra)
+            out["rebuild"] = self._installed
             return out
         finally:
             self.busy = None
@@ -381,7 +400,7 @@ class Syncer:
                 install_wtf(dest, self.data, pc)
             except (ValueError, zipfile.BadZipFile) as e:
                 raise ValueError("%s's upload is damaged (%s): upload it again from %s" % (pc, e, pc)) from None
-            imports[pc], rebuild = t, True
+            imports[pc], rebuild, self._installed = t, True, True
             done.append("%s's WTF (%s)" % (pc, clock(t, now)))
         market = next((f for f in files if f["name"] == MARKET_NAME), None)
         if market and not self.master:
@@ -434,7 +453,7 @@ class Syncer:
             return out
         out["uploadDue"] = newest_save is not None and newest_save > (wtf_at or 0)
         try:
-            files = self._files()
+            files = self._files(quick=True)
         except b2.B2Error as e:
             out["bucketError"] = self._b2_message(e)
             return out
