@@ -122,6 +122,8 @@ class Client:
         api = obj.get("apiInfo", {}).get("storageApi", {})
         acct = {"api": api.get("apiUrl"), "download": api.get("downloadUrl"), "token": obj.get("authorizationToken"),
                 "account": obj.get("accountId"), "bucket_id": None}
+        if api.get("bucketName") == self.bucket:   # what the live service answers for a bucket-restricted key
+            acct["bucket_id"] = api.get("bucketId")
         for b in (api.get("allowed") or {}).get("buckets") or []:
             if b and b.get("name") == self.bucket:
                 acct["bucket_id"] = b.get("id")

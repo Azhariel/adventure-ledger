@@ -28,6 +28,7 @@ class Fake:
         self.auth_fail = None     # (status, code, extra body text)
         self.page = 1000          # max files per list page
         self.list_503 = 0         # answer this many listings 503
+        self.live_auth = False    # authorize as the live service answered a bucket-restricted key (2026-11-19)
 
 
 def make_handler(fake):
@@ -61,6 +62,10 @@ def make_handler(fake):
                 if self.headers.get("Authorization") != want:
                     return self._json(401, {"status": 401, "code": "unauthorized", "message": "bad key"})
                 base = self._base()
+                if fake.live_auth:
+                    return self._json(200, {"accountId": "acc", "authorizationToken": "TOK", "apiInfo": {"storageApi": {
+                        "apiUrl": base, "downloadUrl": base, "bucketId": "BID", "bucketName": BUCKET,
+                        "namePrefix": None, "capabilities": ["listFiles", "readFiles", "writeFiles"]}}})
                 return self._json(200, {"accountId": "acc", "authorizationToken": "TOK", "apiInfo": {"storageApi": {
                     "apiUrl": base, "downloadUrl": base,
                     "allowed": {"buckets": [{"id": "BID", "name": BUCKET}]}}}})
@@ -138,6 +143,13 @@ class B2Tests(unittest.TestCase):
         self.assertEqual(up["x-bz-content-sha1"], hashlib.sha1(data).hexdigest())
         self.assertEqual(up["x-bz-info-pc"], "egb")
         self.assertEqual(self.fake.files["wtf/egb.zip"][0], data)
+
+    def test_bucket_from_live_authorize_shape(self):
+        # a bucket-restricted key's authorize answer carries bucketId/bucketName in storageApi itself
+        self.fake.live_auth = True
+        self.client.upload("wtf/egb.zip", self.file("a.zip", b"x"), {"pc": "egb"})
+        self.assertIn("wtf/egb.zip", self.fake.files)
+        self.assertFalse([p for m, p, h in self.fake.seen if "b2_list_buckets" in p])
 
     def test_upload_reports_progress(self):
         seen = []
