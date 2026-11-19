@@ -1,11 +1,13 @@
 """Tests for sync.py (WTF zips, the market bundle, sync jobs).   Usage: python dashboard/tests/test_sync.py"""
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
 import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import market_store as ms  # noqa: E402
 import sync  # noqa: E402
 
 
@@ -118,6 +120,129 @@ class WtfTests(Dirs):
         os.utime(os.path.join(self.wow, "WTF", "Account/A/SavedVariables/Logbook.lua"), (1000, 1000))
         os.utime(os.path.join(self.wow, "WTF", "Account/A/Realm/Des/SavedVariables/Haul.lua"), (2000, 2000))
         self.assertEqual(sync.newest_save(self.wow), 2000)
+
+
+def row(price=100):
+    return {"min": price, "market": price, "units": 5, "listings": 1}
+
+
+def fill(data, ts, house=113):
+    """A market.db in data with one snapshot per t (one item each)."""
+    s = ms.Store(os.path.join(data, "market.db"))
+    for t in ts:
+        s.record(house, t, {2589: row()}, {}, {t: (2589, 5, "LONG")})
+    return s
+
+
+def count(data, table="snapshot"):
+    db = sqlite3.connect(os.path.join(data, "market.db"))
+    try:
+        return db.execute("SELECT COUNT(*) FROM %s" % table).fetchone()[0]
+    finally:
+        db.close()
+
+
+class MarketTests(Dirs):
+    def setUp(self):
+        super().setUp()
+        self.src = os.path.join(self.root, "src")
+        os.makedirs(self.src)
+        self.bundle = os.path.join(self.root, "market.zip")
+
+    def export(self, ts):
+        fill(self.src, ts).close()
+        return sync.export_market(self.src, self.bundle)
+
+    def test_export_import_round_trip(self):
+        write(os.path.join(self.src, "networth_log.tsv"), b"t gold 1 2")
+        got = self.export([100, 200])
+        self.assertEqual(got["latest"], 200)
+        self.assertEqual(got["store"], ms.STORE_VERSION)
+        self.assertGreater(got["size"], 0)
+        res = sync.import_market(self.bundle, self.data)
+        self.assertEqual(res, {"latest": 200, "replaced_latest": None})
+        self.assertEqual(count(self.data, "hourly"), 2)
+        self.assertEqual(read(os.path.join(self.data, "networth_log.tsv")), b"t gold 1 2")
+        db = sqlite3.connect(os.path.join(self.data, "market.db"))
+        try:
+            self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        finally:
+            db.close()
+        self.assertFalse(os.listdir(os.path.join(self.data, "sync_tmp")))
+
+    def test_export_without_db_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            sync.export_market(self.src, self.bundle)
+
+    def test_import_while_other_connection_open(self):
+        self.export([100, 200, 300])
+        fetcher = fill(self.data, [50])
+        try:
+            sync.import_market(self.bundle, self.data)
+            self.assertEqual(fetcher.db.execute("SELECT COUNT(*) FROM snapshot").fetchone()[0], 3)
+            fetcher.record(113, 400, {2589: row()}, {}, {400: (2589, 5, "LONG")})
+        finally:
+            fetcher.close()
+        self.assertEqual(count(self.data), 4)
+
+    def bundle_db(self, prep):
+        """A bundle whose market.db is built by prep(path)."""
+        path = os.path.join(self.root, "custom.db")
+        prep(path)
+        with zipfile.ZipFile(self.bundle, "w") as z:
+            z.write(path, "market.db")
+
+    def test_import_refuses_newer_store(self):
+        fill(self.data, [50]).close()
+
+        def prep(path):
+            s = fill(os.path.dirname(path), [])
+            s.close()
+            os.replace(os.path.join(os.path.dirname(path), "market.db"), path)
+            db = sqlite3.connect(path)
+            db.execute("PRAGMA user_version = %d" % (ms.STORE_VERSION + 1))
+            db.close()
+        self.bundle_db(prep)
+        with self.assertRaises(ValueError) as cm:
+            sync.import_market(self.bundle, self.data)
+        self.assertIn("git pull", str(cm.exception))
+        self.assertEqual(count(self.data), 1)
+
+    def test_import_migrates_older_store(self):
+        def prep(path):
+            db = sqlite3.connect(path)
+            db.executescript("CREATE TABLE snapshot (house INTEGER, t INTEGER, items INTEGER, auctions INTEGER);"
+                             "INSERT INTO snapshot VALUES (113, 70, 1, 1);"
+                             "CREATE TABLE hourly (house INTEGER, t INTEGER, item INTEGER, min INTEGER,"
+                             " market INTEGER, units INTEGER, listings INTEGER, sold INTEGER);")
+            db.close()
+        self.bundle_db(prep)
+        res = sync.import_market(self.bundle, self.data)
+        self.assertEqual(res["latest"], 70)
+        db = sqlite3.connect(os.path.join(self.data, "market.db"))
+        try:
+            self.assertIn("cheap", [c[1] for c in db.execute("PRAGMA table_info(hourly)")])
+            self.assertEqual(ms.store_version(db), ms.STORE_VERSION)
+        finally:
+            db.close()
+
+    def test_import_damaged_keeps_local(self):
+        fill(self.data, [50]).close()
+        self.bundle_db(lambda path: write(path, os.urandom(4096)))
+        with self.assertRaises(ValueError) as cm:
+            sync.import_market(self.bundle, self.data)
+        self.assertIn("the market copy is damaged", str(cm.exception))
+        self.assertEqual(count(self.data), 1)
+
+    def test_import_reports_replaced_latest(self):
+        fill(self.data, [100]).close()
+        self.export([200])
+        self.assertEqual(sync.local_latest(self.data), 100)
+        self.assertEqual(sync.import_market(self.bundle, self.data), {"latest": 200, "replaced_latest": 100})
+        self.assertEqual(sync.local_latest(self.data), 200)
+
+    def test_local_latest_without_db(self):
+        self.assertIsNone(sync.local_latest(self.data))
 
 
 if __name__ == "__main__":
