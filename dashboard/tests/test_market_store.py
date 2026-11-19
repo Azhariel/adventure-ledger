@@ -199,6 +199,15 @@ class StoreTests(unittest.TestCase):
         days = self.store.db.execute("SELECT min, market, hours FROM daily").fetchall()
         self.assertEqual(days, [(80, 120, 3)])
 
+    def test_record_same_snapshot_twice_is_kept_once(self):
+        # a sync import can bring in the hour the fetcher is about to record (both PCs see the same snapshot)
+        ids = {7: (2589, 4, "LONG")}
+        self.store.record(113, 1000, {2589: row(90, 100, 10)}, {2589: 3}, ids)
+        self.assertFalse(self.store.record(113, 1000, {2589: row(90, 100, 10)}, {2589: 3}, ids))
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM snapshot").fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*), SUM(sold) FROM hourly").fetchone(), (1, 3))
+        self.assertTrue(self.store.record(114, 1000, {2589: row(90, 100, 10)}, {}, ids), "another house's hour")
+
     def test_store_sets_version(self):
         self.assertEqual(ms.store_version(self.store.db), ms.STORE_VERSION)
 

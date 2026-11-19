@@ -75,8 +75,12 @@ class Store:
 
     def record(self, house, t, rows, sold, ids):
         """One snapshot in one transaction. An item that sold out (in `sold`, not in `rows`) gets an
-        unpriced row, so its sales are not lost."""
+        unpriced row, so its sales are not lost. A snapshot already in the db (a sync import can bring in the
+        same Blizzard snapshot) is skipped: returns False. The check and the writes share one write transaction."""
         with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            if self.db.execute("SELECT 1 FROM snapshot WHERE house=? AND t=?", (house, t)).fetchone():
+                return False
             self.db.execute("INSERT INTO snapshot VALUES (?,?,?,?)", (house, t, len(rows), len(ids)))
             self.db.executemany(
                 "INSERT INTO hourly (house, t, item, min, market, units, listings, sold, cheap) "
@@ -91,6 +95,7 @@ class Store:
             self.db.executemany(
                 "INSERT INTO last_auctions VALUES (?,?,?,?,?)",
                 [(house, aid, item, qty, left) for aid, (item, qty, left) in ids.items()])
+        return True
 
     def last_time(self, house):
         """Time of the latest snapshot, or None."""
@@ -140,14 +145,16 @@ class Store:
         The cutoff is a week start, so the profile only ever sees whole weeks (hourly keeps keep_days..keep_days+7).
         Returns rows folded."""
         cutoff = mp.week_start(now - keep_days * 86400)
-        old = self.db.execute(
-            "SELECT house, t, item, min, market, units, sold FROM hourly WHERE t < ?", (cutoff,)).fetchall()
-        if not old:
-            return 0
-        groups = {}
-        for house, t, item, mn, market, units, sold in old:
-            groups.setdefault((house, local_day(t), item), []).append((mn, market, units, sold))
         with self.db:
+            # read and fold in one write transaction, so a sync import can't swap the db in between
+            self.db.execute("BEGIN IMMEDIATE")
+            old = self.db.execute(
+                "SELECT house, t, item, min, market, units, sold FROM hourly WHERE t < ?", (cutoff,)).fetchall()
+            if not old:
+                return 0
+            groups = {}
+            for house, t, item, mn, market, units, sold in old:
+                groups.setdefault((house, local_day(t), item), []).append((mn, market, units, sold))
             self._fold_profile([(house, t, item, market, sold) for house, t, item, _, market, _, sold in old])
             for (house, day, item), hrs in groups.items():
                 n = len(hrs)
