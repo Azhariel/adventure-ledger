@@ -358,7 +358,7 @@ Set it up once:
 
 1. In Backblaze, create a **private** bucket and set its lifecycle to **Keep only the last version** (each upload
    replaces the file; older versions are then deleted after a day).
-2. Create one application key per PC, restricted to that bucket, with `listFiles`, `readFiles` and `writeFiles`.
+2. Create one application key per PC: allow access to that bucket only, type of access **Read and Write**.
 3. In each PC's `ledger.cfg` (see `ledger.cfg.example`): `b2_key_id`, `b2_key`, `b2_bucket`, and `pc_name`, the
    name the other PC knows this one by. If you already copied a PC's WTF by hand into `data\pcs\egb`, that PC's
    `pc_name` is `egb`: keep one folder per PC, or its counters count twice. Add `market_master = yes` on the PC whose
