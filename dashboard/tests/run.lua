@@ -911,6 +911,33 @@ test("end to end: fixture SavedVariables -> one character with every section, em
     eq(api.priceSources[1].apiAt, day + 15 * 3600); eq(api.priceSources[1].scanAt, day + 10 * 3600)
     eq(api.account.characters[1].items, 380, "the account rows use the merged market value: 4 Wool Cloth at 95")
     eq(api.characters[1].inventory.items[1].unit, 95, "held items are valued at market value, not the lowest price")
+    eq(api.craftFlips, nil, "no Make or Buy in the WoW folder: no Craft flips, and no error")
+    -- Craft flips: Hero smelts (Make or Buy saved its recipes), with Make or Buy's Planner installed and API data at
+    -- both houses
+    mkdir(wow .. "/Interface/AddOns/MakeOrBuy")
+    U.writeFile(wow .. "/Interface/AddOns/MakeOrBuy/Planner.lua", U.readFile("../addons/MakeOrBuy/Planner.lua"))
+    U.writeFile(charSV .. "/MakeOrBuy.lua", [[MakeOrBuyCharDB = { version = 1, skill = { [186] = { level = 81 } },
+        unlearned = {}, recipes = {
+        [2657] = { recipeID = 2657, profession = 186, outputItemID = 2840, outputQty = 1, reagents = { { itemID = 2770, qty = 1 } } },
+        [3304] = { recipeID = 3304, profession = 186, outputItemID = 3576, outputQty = 1, reagents = { { itemID = 2771, qty = 1 } } },
+        [2659] = { recipeID = 2659, profession = 186, outputItemID = 2841, outputQty = 2,
+            reagents = { { itemID = 2840, qty = 1 }, { itemID = 3576, qty = 1 } } } } }]])
+    local bronze = { [2770] = { now = 195, cheap = 1120 }, [2771] = { now = 114, cheap = 348 },
+        [2841] = { now = 208, market = 208, units = 7623, cheap = 4071, soldPerDay = 47600 } }
+    local flipWanted = {}
+    local flips = Build.data(wow, { names = { [2841] = "Bronze Bar" }, listDirs = listDirs, repoAddons = repo,
+        market = { houses = {
+            [113] = { id = 113, key = "R Horde", latest = day + 15 * 3600, items = bronze, recent = {} },
+            [116] = { id = 116, key = "R Neutral", latest = day + 15 * 3600, items = bronze, recent = {} } } },
+        priceLog = { seen = {}, last = {}, append = function() end },
+        wanted = function(text) flipWanted[#flipWanted + 1] = text end })
+    local fh = flips.craftFlips and flips.craftFlips["R Horde"]
+    truthy(fh and fh[1], "Craft flips at Hero's faction house")
+    eq(fh[1].id, 2841); eq(fh[1].crafts, 348); eq(fh[1].profit, 85); eq(fh[1].crafter.name, "Hero Realm")
+    local fn = flips.craftFlips["R Neutral"]
+    truthy(fn and fn[1], "and at Neutral, with its 15% cut")
+    eq(fn[1].profit, 2 * math.floor(208 * 0.85) - 309)
+    truthy(flipWanted[1]:find("R Horde\t2841\n", 1, true), "a flip's product is wanted")
     -- API data for the Neutral house only: the faction house has none, but its scan-based Buy low list still shows
     local onlyN = Build.data(wow, { names = { [2592] = "Wool Cloth" }, listDirs = listDirs, repoAddons = repo,
         market = { houses = { [116] = { id = 116, key = "R Neutral", latest = day + 15 * 3600,
@@ -2183,6 +2210,7 @@ local function smelting(learnBronze, learnTin)
         [2659] = rec(2659, 186, 2841, 2, { { 2840, 1 }, { 3576, 1 } }),
     }
     r[2659].learn, r[3304].learn = learnBronze, learnTin
+    r[2659].name = "Smelt Bronze"
     return r
 end
 
@@ -2193,6 +2221,7 @@ test("signals.craftFlips: the Bronze Bar play, capped by cheap Tin Ore", functio
     eq(#list, 1)
     local f = list[1]
     eq(f.id, 2841); eq(f.recipeID, 2659); eq(f.outputQty, 2)
+    eq(f.name, "Item 2841", "the product, not the recipe"); eq(f.recipeName, "Smelt Bronze")
     eq(f.cost, 309, "195 copper ore + 114 tin ore, smelted"); eq(f.sale, 394, "2 x floor(208 x 0.95)"); eq(f.profit, 85)
     eq(f.crafts, 348); eq(f.capBy, 2771); eq(f.capName, "Item 2771")
     eq(f.lowballs, 0, "now is market"); eq(f.buyout, 0); eq(f.gold, 29580); near(f.hours, 696 / (47600 / 24))

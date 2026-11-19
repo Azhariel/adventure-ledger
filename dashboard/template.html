@@ -140,6 +140,7 @@ input.search:focus { outline: 1px solid var(--purple); border-color: var(--purpl
 .g { color: var(--gold); } .s { color: var(--silver); } .c { color: var(--copper); }
 .pos { color: var(--good); } .neg { color: var(--bad); }
 .muted { color: var(--muted); }
+.flip-parts { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .pill { display: inline-block; padding: 0 7px; border-radius: 4px; font: 11px/18px var(--mono); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .pill.kill { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
 .pill.death, .pill.hostile { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
@@ -444,6 +445,7 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w4"><div class="ph"><h2>Your best sellers</h2></div><p class="hint">Your holdings furthest above their launch low. Click one for its chart.</p><div class="scroll"><table id="windowTable"></table></div></article>
       <article class="panel w12" id="marketPanel"><div class="ph"><h2>Buy low, sell high</h2><span class="pill faction">faction AH</span></div><p class="hint" id="marketHint"></p><div id="marketBox"></div></article>
       <article class="panel w12" id="dealsPanel" hidden><div class="ph"><h2>Deals</h2><span class="pill" id="dealsHouse"></span></div><p class="hint" id="dealsHint"></p><div class="scroll"><table id="dealTable"></table></div></article>
+      <article class="panel w12" id="craftFlipsPanel" hidden><div class="ph"><h2>Craft flips</h2><span class="pill" id="craftFlipsHouse"></span></div><p class="hint" id="craftFlipsHint"></p><div class="scroll"><table id="craftFlipTable"></table></div></article>
       <article class="panel w12" id="sellWinPanel" hidden><div class="ph"><h2>Sell windows</h2></div><p class="hint" id="sellWinHint"></p><div class="scroll"><table id="sellWinTable"></table></div></article>
     </section>
 
@@ -1960,6 +1962,41 @@ function renderDeals(list, key, rule) {
     { defaultCol: 7, onRender: () => pickRows(mktItem) });
 }
 
+// Craft flips (the build's Sg.craftFlips): how long the stack takes to sell, who crafts it, what caps the crafts
+const sellsIn = h => {
+  const m = Math.max(1, Math.round(h * 60));
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h` + (m % 60 ? ` ${m % 60}m` : "");
+};
+const flipLearn = l => !l ? "" : l.how === "trainer" ? ` · learn ${money(l.cost ?? 0)}`
+  : ` · vendor recipe${l.cost != null ? " " + money(l.cost) : ""}`;
+function flipWho(r) {
+  const c = r.crafter || {};
+  const others = (r.who || []).filter(w => w.id !== c.id);
+  const notes = [];
+  if (r.paysBackIn) notes.push(`Pays back in ${r.paysBackIn} flip${r.paysBackIn === 1 ? "" : "s"}`);
+  if (others.length) notes.push("Also: " + others.map(w => esc(w.name) + (w.learn ? ` (${flipLearn(w.learn).slice(3)})` : "")).join(", "));
+  const text = esc(c.name) + flipLearn(c.learn) + (others.length ? ` +${others.length}` : "");
+  return notes.length ? `<span title="${notes.join(". ")}">${text}</span>` : text;
+}
+const flipCrafts = r => `<span data-sort="${r.crafts}">${r.crafts} (${r.capBy === "sales" ? "sales" : esc(r.capName ?? "?")})</span>`;
+const CRAFT_FLIPS_HINT = "Buy every reagent at today's lowest price, craft, and sell at market value after the house's cut. Crafts stop at what the cheap reagents allow and what sells within 2 hours; a craft must still pay with reagents 10% dearer.";
+function renderCraftFlips(list, key) {
+  const pill = el("craftFlipsHouse");
+  const asOf = key ? apiAsOf(key, DATA.priceSources) : "";
+  pill.textContent = key ? houseLabel(key) + (asOf ? " · " + asOf : "") : "";
+  pill.className = "pill " + (isNeutralKey(key) ? "neutral" : "faction");
+  el("craftFlipsHint").textContent = CRAFT_FLIPS_HINT;
+  const parts = r => (r.reagents || []).map(g => `${esc(g.name)} ${Math.round(g.perCraft * 100) / 100} × ${money(g.unit)}`).join(" · ");
+  table("craftFlipTable", [{ t: "Product" }, { t: "Who" }, { t: "Profit/craft", n: 1 }, { t: "Crafts", n: 1 },
+      { t: "Lowballs", n: 1 }, { t: "Sells in", n: 1 }, { t: "Gold per flip", n: 1 }],
+    (list || []).map(r => rowId(r.id, [whItem(r.id, r.name) + (r.outputQty > 1 ? ` ×${r.outputQty}` : "")
+        + `<div class="flip-parts">${parts(r)}</div>`, flipWho(r), money(r.profit), flipCrafts(r),
+      `<span data-sort="${r.lowballs}">${short(r.lowballs)}</span>`, `<span data-sort="${r.hours}">${sellsIn(r.hours)}</span>`,
+      money(r.gold)], key)),
+    list ? "No craft pays at this house right now." : "No API prices for this house yet.",
+    { defaultCol: 6, onRender: () => pickRows(mktItem) });
+}
+
 function renderSellWindows(list, rule) {
   list = list || [];
   el("sellWinHint").textContent = sellWinHintText(rule);
@@ -2160,9 +2197,11 @@ function modSignals() {
   // without API data, today's Buy low / sell high (faction prices, from the build)
   const api = !!DATA.deals;
   el("marketPanel").hidden = api; el("dealsPanel").hidden = !api; el("sellWinPanel").hidden = !api;
+  el("craftFlipsPanel").hidden = !(api && DATA.craftFlips);
   if (api) {
     const key = segHouseKey();
     renderDeals(key != null ? DATA.deals[key] : null, key, DATA.signalRule);
+    if (DATA.craftFlips) renderCraftFlips(key != null ? DATA.craftFlips[key] : null, key);
     renderSellWindows(DATA.sellWindows, DATA.signalRule);
   } else renderMarket(DATA.market);
 }

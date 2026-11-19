@@ -320,7 +320,8 @@ local function flipRow(crafter, recipe, index, book, cut, P, price, nameOf)
         learnCost = recipe.learn and recipe.learn.cost or 0
         for _, l in pairs(learns) do learnCost = learnCost + (l.cost or 0) end
     end
-    return { id = out, name = recipe.name or nameOf(out), recipeID = recipe.recipeID, outputQty = qty,
+    return { id = out, name = nameOf(out) or recipe.name, recipeName = recipe.name, recipeID = recipe.recipeID,
+        outputQty = qty,
         crafter = { id = crafter.id, name = crafter.name, learn = recipe.learn }, cost = cost, sale = sale,
         profit = profit, crafts = crafts, capBy = capBy, capName = capBy ~= "sales" and nameOf(capBy) or nil,
         lowballs = lowballs, buyout = buyout, hours = (lowballs + crafts * qty) / perHour, gold = gold,

@@ -121,6 +121,15 @@ for each item whose price changed, so each /reload after an AH scan is another p
     lowest price counts one unit a day and says *one cheap listing* next to its name. Until the fetcher has
     counted an item (snapshots from before this count), an item 90% or more under market is taken to be one
     stray listing and says *one cheap listing?*. The house pill shows how old the API snapshot is.
+  - **Craft flips**: crafts that pay when every reagent is bought at the house's lowest price (or from a vendor
+    when cheaper, and crafted from cheaper parts when that is cheaper, such as ore smelted into bars) and the
+    product sells at market value after the house's cut. Recipes are the ones a character knows and the trainer
+    or vendor recipes it could learn at its saved skill (Make or Buy saves them when a profession window opens;
+    the learn cost is shown, with how many flips pay it back, never taken out of the gold). Crafts stop at what
+    the reagents within 10% of their lowest price allow (plus what the crafter holds) and at what sells within 2
+    hours, counting the product's cheap listings under market value, which you'd buy out and relist. A craft
+    must still pay with its reagents 10% dearer, and a product listed for more than a day of sales is too
+    crowded. The best 25 per house, by gold per flip.
   - **Sell windows**: things any of your characters hold, priced 25% or more over market value at the house they'd
     sell at and still selling (1 or more a day) and at least 50c above it each, with the extra
     gold over market value on what sells in a day (*Extra today*: the day's sales, up to all you hold; *scans* rows count everything held), who holds
@@ -388,7 +397,7 @@ Notes:
 | `dashboard/lib/merge.lua` | Pure: merges each character's and account's saved files from several PCs (`data/pcs`) |
 | `dashboard/lib/trends.lua` | Pure: hour-of-week grids, families, the weekly reset (`ah_reset`) and best buy and sell hours |
 | `dashboard/lib/insights.lua` | Pure: market deals, session recaps, items to mail between characters, Faction vs Neutral |
-| `dashboard/lib/signals.lua` | Pure: Deals, Sell windows, Rising and Fallen on the API's numbers, and the flips worth keeping in detail; every threshold in one table, `Sg.C` |
+| `dashboard/lib/signals.lua` | Pure: Deals, Sell windows, Craft flips, Rising and Fallen on the API's numbers, and the flips worth keeping in detail; every threshold in one table, `Sg.C` |
 | `dashboard/template.html` | The page; `build.lua` puts the data where `/*DATA*/null` is |
 | `dashboard/server.py` | Live server: rebuilds on SavedVariables changes, follows the newest combat log, serves the page and screenshots |
 | `dashboard/livelog.py` | Pure: turns combat-log lines into the Live module's picture (you, fights, kills, players around you) |

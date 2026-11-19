@@ -279,6 +279,7 @@ function Build.data(wow, opts)
     local mobLib = Build.makeOrBuy(wow)
     local planner = mobLib.Planner
     local usesById = {}
+    local flipCrafters = {} -- characters with Make or Buy data, for Craft flips: { id, name, faction, houses, mob, held }
     local accounts, groups = {}, {}
     local result = { generated = os.time(), characters = {} }
 
@@ -516,6 +517,10 @@ function Build.data(wow, opts)
             usesById[model.id] = { uses = uses, needs = needs }
             result.characters[#result.characters + 1] = model
             marketValued[model.id] = charMkt.apiLatest ~= nil or nil
+            if mob then
+                flipCrafters[#flipCrafters + 1] = { id = model.id, name = model.profile.fullName, faction = charFaction,
+                    houses = model.houses, mob = mob, held = heldMap(stockChar) }
+            end
         end
     end
     table.sort(result.characters, function(a, b)
@@ -720,6 +725,30 @@ function Build.data(wow, opts)
         end
         result.sellWindows = Sg.sellWindows(holders, function(id) return houseById[id] end, merged, acctNameOf,
             result.market.sell, factionKey)
+        -- Craft flips per house with API data, for the characters whose faction house or Neutral it is
+        if planner and #flipCrafters > 0 then
+            result.craftFlips = {}
+            for _, key in ipairs(keys) do
+                local book = apiByKey[key] and merged[key]
+                if book then
+                    local function bookNow(id)
+                        local e = book.prices and book.prices[id]
+                        return e and e.now
+                    end
+                    local crafters = {}
+                    for _, c in ipairs(flipCrafters) do
+                        if c.houses and (c.houses.faction == key or c.houses.neutral == key) then
+                            crafters[#crafters + 1] = { id = c.id, name = c.name, held = c.held,
+                                recipes = Sg.flipRecipes(c.mob, mobLib.RecipeData, c.faction, bookNow) }
+                        end
+                    end
+                    local cut = key:match(" Neutral$") and I.CUT.neutral or I.CUT.faction
+                    local list = Sg.craftFlips(crafters, book, cut, planner, acctNameOf)
+                    result.craftFlips[key] = list
+                    for i = 1, math.min(#list, Sg.C.WANTED_LIST) do also[list[i].id] = true end
+                end
+            end
+        end
         for _, r in ipairs(result.sellWindows) do also[r.id] = true end
         for _, id in ipairs(Sg.flipIds(result.houses)) do also[id] = true end
         traded = also

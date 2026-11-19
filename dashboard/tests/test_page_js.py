@@ -373,6 +373,26 @@ process.stdout.write(JSON.stringify([nowAtOf({ nowFrom: "api" }, tab), nowAtOf({
 """
         self.assertEqual(json.loads(run_node(js)), [70, 60, 90, None, "none"])
 
+    def test_craft_flip_cells(self):
+        js = page_js(["sellsIn", "flipLearn", "flipWho", "flipCrafts"],
+                     "const money = v => (v / 100) + 's'; const esc = s => String(s);") + """
+const des = { id: "d", name: "Des" };
+process.stdout.write(JSON.stringify([sellsIn(0.351), sellsIn(1.5), sellsIn(2), sellsIn(0.001),
+  flipWho({ crafter: des, who: [des] }),
+  flipWho({ crafter: { ...des, learn: { how: "trainer", cost: 200 } }, who: [des], paysBackIn: 1 }),
+  flipWho({ crafter: { ...des, learn: { how: "vendor" } }, who: [des] }),
+  flipWho({ crafter: des, who: [des, { id: "a", name: "Azhariel" }, { id: "b", name: "Bo", learn: { how: "trainer", cost: 5 } }] }),
+  flipCrafts({ crafts: 348, capBy: 2771, capName: "Tin Ore" }), flipCrafts({ crafts: 120, capBy: "sales" })]));
+"""
+        out = json.loads(run_node(js))
+        self.assertEqual(out[:4], ["21m", "1h 30m", "2h", "1m"])
+        self.assertEqual(out[4], "Des")
+        self.assertEqual(out[5], '<span title="Pays back in 1 flip">Des · learn 2s</span>')
+        self.assertEqual(out[6], "Des · vendor recipe")
+        self.assertEqual(out[7], '<span title="Also: Azhariel, Bo (learn 0.05s)">Des +2</span>')
+        self.assertEqual(out[8], '<span data-sort="348">348 (Tin Ore)</span>')
+        self.assertEqual(out[9], '<span data-sort="120">120 (sales)</span>')
+
     def test_neutral_header_says_where_faction_prices_come_from(self):
         js = page_js(["factionPricesNote"]) + """
 process.stdout.write(JSON.stringify([factionPricesNote({ DEAL_BELOW: 0.5 }), factionPricesNote(undefined)]));
