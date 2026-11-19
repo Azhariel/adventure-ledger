@@ -3,10 +3,13 @@ import os
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import b2  # noqa: E402
 import market_store as ms  # noqa: E402
 import sync  # noqa: E402
 
@@ -243,6 +246,184 @@ class MarketTests(Dirs):
 
     def test_local_latest_without_db(self):
         self.assertIsNone(sync.local_latest(self.data))
+
+
+class FakeClient:
+    """b2.Client's surface over a dict: name -> (bytes, info, uploaded)."""
+
+    def __init__(self, clock):
+        self.files, self.clock, self.calls, self.fail, self.block = {}, clock, [], None, None
+
+    def list(self, prefix):
+        self.calls.append(("list", prefix))
+        if self.fail:
+            raise self.fail
+        return [{"name": n, "size": len(b), "uploaded": u, "info": dict(i)}
+                for n, (b, i, u) in sorted(self.files.items()) if n.startswith(prefix)]
+
+    def upload(self, name, path, info, progress=None):
+        self.calls.append(("upload", name))
+        if self.block:
+            self.block.wait(5)
+        if self.fail:
+            raise self.fail
+        self.files[name] = (read(path), {k: str(v) for k, v in info.items()}, self.clock())
+        return {}
+
+    def download(self, name, dest, progress=None):
+        self.calls.append(("download", name))
+        write(dest, self.files[name][0])
+        return {}
+
+
+def at(h, m=0, day=19):
+    return time.mktime((2026, 11, day, h, m, 0, 0, 0, -1))
+
+
+CFG = {"b2_key_id": "kid", "b2_key": "K3Y-SECRET", "b2_bucket": "ledger-sync"}
+
+
+class SyncerTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        self.now = [at(12)]
+        self.client = FakeClient(lambda: self.now[0])
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def pc(self, name, master=False, cfg=None, client="shared"):
+        """A Syncer for a PC with its own wow and data folders (a WTF with one file)."""
+        wow, data = os.path.join(self.root, name, "wow"), os.path.join(self.root, name, "data")
+        write(os.path.join(wow, "WTF", "Account", "A", "SavedVariables", "Logbook.lua"), ("-- %s\n" % name).encode())
+        os.makedirs(data, exist_ok=True)
+        c = dict(CFG if cfg is None else cfg)
+        if master:
+            c["market_master"] = "yes"
+        return sync.Syncer(data, wow, c, self.client if client == "shared" else client, name,
+                           now=lambda: self.now[0])
+
+    def test_upload_then_import_on_other_pc(self):
+        egb, home = self.pc("egb"), self.pc("azhariel-base", master=True)
+        self.assertTrue(egb.run("upload-wtf")["ok"])
+        self.now[0] += 60
+        got = home.run("import")
+        self.assertTrue(got["ok"], got)
+        self.assertIn("egb", got["message"])
+        self.assertTrue(got["rebuild"])
+        self.assertEqual(read(os.path.join(home.data, "pcs", "egb", "WTF", "Account", "A", "SavedVariables",
+                                           "Logbook.lua")), b"-- egb\n")
+        again = home.run("import")
+        self.assertEqual(again["message"], "Already up to date")
+        self.assertFalse(again.get("rebuild"))
+
+    def test_import_skips_own_name_any_case(self):
+        me = self.pc("EGB")
+        me.run("upload-wtf")
+        me.run("import")
+        self.assertFalse(os.path.exists(os.path.join(me.data, "pcs")))
+
+    def market_on(self, syncer, ts):
+        fill(syncer.data, ts).close()
+
+    def test_master_never_imports_market(self):
+        home, egb = self.pc("azhariel-base", master=True), self.pc("egb")
+        self.market_on(home, [100])
+        self.market_on(egb, [100, 200, 300])
+        egb.master = True             # a work PC misconfigured as master uploads
+        egb.run("upload-market")
+        self.now[0] += 60
+        home.run("import")
+        self.assertEqual(count(home.data), 1)
+
+    def test_non_master_imports_market(self):
+        home, egb = self.pc("azhariel-base", master=True), self.pc("egb")
+        self.market_on(home, [100, 200])
+        self.assertTrue(home.run("upload-market")["ok"])
+        self.now[0] += 60
+        got = egb.run("import")
+        self.assertTrue(got["ok"], got)
+        self.assertIn("market db", got["message"])
+        self.assertEqual(sync.local_latest(egb.data), 200)
+
+    def test_non_master_cannot_upload_market(self):
+        egb = self.pc("egb")
+        self.market_on(egb, [100])
+        got = egb.run("upload-market")
+        self.assertEqual(got["message"], "Only the market master uploads the market db")
+        self.assertNotIn(("upload", "market/market.zip"), self.client.calls)
+
+    def test_busy_refuses_second_job(self):
+        egb = self.pc("egb")
+        self.client.block = threading.Event()
+        t = threading.Thread(target=egb.run, args=("upload-wtf",))
+        t.start()
+        for _ in range(100):
+            if ("upload", "wtf/egb.zip") in self.client.calls:
+                break
+            time.sleep(0.02)
+        got = egb.run("import")
+        self.client.block.set()
+        t.join()
+        self.assertEqual(got["message"], "Another sync job is running")
+
+    def test_job_error_message_has_no_key(self):
+        egb = self.pc("egb")
+        self.client.fail = b2.B2Error(401, "bad_auth_token", "nope")
+        got = egb.run("upload-wtf")
+        self.assertFalse(got["ok"])
+        self.assertIn("ledger.cfg", got["message"])
+        with open(os.path.join(egb.data, sync.STATE_FILE), encoding="utf-8") as fh:
+            self.assertNotIn("K3Y-SECRET", fh.read())
+        self.client.fail = b2.B2Error(0, "network", "refused")
+        self.assertIn("unreachable", egb.run("upload-wtf")["message"])
+
+    def test_daily_due(self):
+        home = self.pc("azhariel-base", master=True)
+        self.market_on(home, [100])
+        self.now[0] = at(7, 59)
+        self.assertFalse(home.daily_due())
+        self.now[0] = at(8, 1)
+        self.assertTrue(home.daily_due())
+        self.assertFalse(self.pc("egb").daily_due())      # not the master
+        self.client.fail = b2.B2Error(503, "service_unavailable", "busy")
+        home.run("upload-market")
+        self.client.fail = None
+        self.now[0] = at(8, 30)
+        self.assertFalse(home.daily_due())                # retried at most hourly
+        self.now[0] = at(9, 2)
+        self.assertTrue(home.daily_due())
+        self.assertTrue(home.run("upload-market")["ok"])
+        self.now[0] = at(23, 0)
+        self.assertFalse(home.daily_due())                # done today
+        self.now[0] = at(7, 0, day=20)
+        self.assertFalse(home.daily_due())
+        self.now[0] = at(8, 0, day=20)
+        self.assertTrue(home.daily_due())
+
+    def test_status_due_flags(self):
+        egb, home = self.pc("egb"), self.pc("azhariel-base", master=True)
+        st = egb.status(self.now[0] - 10, None)
+        self.assertTrue(st["configured"])
+        self.assertTrue(st["uploadDue"])                  # never uploaded
+        egb.run("upload-wtf")
+        st = egb.status(self.now[0] - 10, None)
+        self.assertFalse(st["uploadDue"])
+        self.assertTrue(egb.status(self.now[0] + 5, self.now[0] + 200)["unsaved"])
+        self.now[0] += 120
+        st = home.status(None, None)
+        self.assertTrue(st["importDue"])
+        self.assertEqual([b["pc"] for b in st["bucket"] if b["kind"] == "wtf"], ["egb"])
+        home.run("import")
+        self.now[0] += 120
+        st = home.status(None, None)
+        self.assertFalse(st["importDue"])
+        self.assertEqual(st["pcs"][0]["name"], "egb")
+        bare = self.pc("bare", cfg={}, client=None)
+        st = bare.status(None, None)
+        self.assertFalse(st["configured"])
+        self.assertFalse(bare.run("import")["ok"])
 
 
 if __name__ == "__main__":
