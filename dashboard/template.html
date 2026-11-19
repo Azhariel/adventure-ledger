@@ -29,7 +29,11 @@
   --side: 232px;
 }
 * { box-sizing: border-box; }
-html { background: var(--void); }
+html { background: var(--void); scrollbar-gutter: stable; }
+/* scrollbars: thin and muted, in the palette; the page's own hides while the drawer is open (it still scrolls, and its
+   gutter stays, so nothing moves) */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+html.drawer-open { scrollbar-color: transparent transparent; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; border-radius: 3px; }
@@ -37,7 +41,7 @@ a { color: inherit; }
 
 /* ------------------------------------------------------------- shell */
 .app { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); min-height: 100vh; }
-.side { background: var(--void); border-right: 1px solid var(--line2); position: sticky; top: 0; height: 100vh; overflow-y: auto;
+.side { background: var(--void); border-right: 1px solid var(--line2); position: sticky; top: 0; height: 100vh; overflow-y: auto; scrollbar-gutter: stable;
   display: flex; flex-direction: column; padding: 18px 12px 14px; gap: 18px; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
 .brand svg { flex: none; }
@@ -187,7 +191,7 @@ svg.spark { display: block; margin-left: auto; }
 .trends-bar .chips { margin: 0; flex: 1 1 320px; }
 @media (max-width: 860px) { .wk .cell { height: 14px; } }
 /* the item drawer: one item at one auction house, beside the table it was opened from */
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 100%; z-index: 20; overflow-y: auto; overscroll-behavior: contain;
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 100%; z-index: 20; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
   background: var(--panel); border-left: 1px solid var(--line); box-shadow: -18px 0 40px rgba(0, 0, 0, .45); padding: 16px 18px 28px; }
 .drawer .dr-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .drawer .dr-head h2 { font-size: 17px; }
@@ -2627,6 +2631,7 @@ function openDrawer(id, houseKey, from) {
   mktItem = id; saveMkt(); pickRows(id);
   const d = el("drawer"), was = !d.hidden;
   d.hidden = false;
+  document.documentElement.classList.add("drawer-open");
   if (!was) d.scrollTop = 0;
   maybeFetch();
   drawHeader(); drawPrice(); drawWeek(); drawScans();
@@ -2637,6 +2642,7 @@ function closeDrawer(opts = {}) {
   const d = el("drawer");
   if (!d || d.hidden) return;
   d.hidden = true; DR.open = false;
+  document.documentElement.classList.remove("drawer-open");
   drCharts.splice(0).forEach(ch => ch.destroy());
   inspCharts.splice(0).forEach(ch => ch.destroy());
   const from = DR.from; DR.from = null;
