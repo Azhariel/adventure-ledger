@@ -45,9 +45,18 @@ def read_profile(db, house, items=None):
     return (got[0] if got else None), out
 
 
+STORE_VERSION = 1   # PRAGMA user_version; bump with each migration below
+
+
+def store_version(db):
+    """The schema version a db was last opened with by Store (0: before versions existed)."""
+    return db.execute("PRAGMA user_version").fetchone()[0]
+
+
 class Store:
-    def __init__(self, path):
-        self.db = sqlite3.connect(path)
+    def __init__(self, path, timeout=300):
+        # A long timeout: a write waits out a sync import (a whole-db copy) instead of failing.
+        self.db = sqlite3.connect(path, timeout=timeout)
         # WAL: a reader in another process does not block the fetcher.
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
@@ -60,6 +69,9 @@ class Store:
             with self.db:   # commit, or the UPDATE's transaction stays open and holds a write lock
                 self.db.execute("ALTER TABLE daily ADD COLUMN priced INTEGER")
                 self.db.execute("UPDATE daily SET priced = hours")
+        if store_version(self.db) != STORE_VERSION:
+            with self.db:
+                self.db.execute("PRAGMA user_version = %d" % STORE_VERSION)
 
     def record(self, house, t, rows, sold, ids):
         """One snapshot in one transaction. An item that sold out (in `sold`, not in `rows`) gets an

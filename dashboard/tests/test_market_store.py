@@ -199,6 +199,22 @@ class StoreTests(unittest.TestCase):
         days = self.store.db.execute("SELECT min, market, hours FROM daily").fetchall()
         self.assertEqual(days, [(80, 120, 3)])
 
+    def test_store_sets_version(self):
+        self.assertEqual(ms.store_version(self.store.db), ms.STORE_VERSION)
+
+    def test_old_db_migrated_and_versioned(self):
+        path = os.path.join(self.dir.name, "old.db")
+        db = sqlite3.connect(path)
+        db.executescript("CREATE TABLE hourly (house INTEGER, t INTEGER, item INTEGER, min INTEGER, market INTEGER,"
+                         " units INTEGER, listings INTEGER, sold INTEGER);")
+        db.close()
+        s = ms.Store(path)
+        try:
+            self.assertIn("cheap", [c[1] for c in s.db.execute("PRAGMA table_info(hourly)")])
+            self.assertEqual(ms.store_version(s.db), ms.STORE_VERSION)
+        finally:
+            s.close()
+
 
 if __name__ == "__main__":
     unittest.main()
