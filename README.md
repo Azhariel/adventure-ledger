@@ -207,11 +207,13 @@ Open dashboard, Live server (Start, Stop), AH fetcher (Start, Stop, Fetch now), 
 (a shortcut in your Startup folder), Quit (stops both). `wowstats stop` stops the tray, the server and the fetcher.
 The logs are `server.log`, `fetcher.log` and `tray.log` in the data folder.
 
-**Other PCs.** Only one PC needs to fetch: the one that's on the most. To use the data elsewhere, copy that PC's
-`data/market.db` into the other PC's `data/` now and then (like the WTF copies below). Copy it while the fetcher is
-stopped (tray > AH fetcher > Stop, then Start again after): the database keeps recent writes in a side file
-(`market.db-wal`) while it runs, so a copy taken then can be incomplete. Hours when the fetching PC is off are simply
-missing. Two databases are not merged: the copy replaces the old one.
+**Other PCs.** Every PC may fetch, each with its own Battle.net client (create a second one for the second PC, so
+either can be revoked alone). A PC only records the hours it's on, so one PC, the one that's on the most, is the
+**market master**: the others take its `market.db` through the Sync page (see "Playing on more than one PC"), and
+fetch on their own between imports. Without sync, copy the master's `data/market.db` into the other PC's `data/`
+by hand, with the fetcher stopped (tray > AH fetcher > Stop, then Start again after): the database keeps recent
+writes in a side file (`market.db-wal`) while it runs, so a copy taken then can be incomplete. Two databases are
+never merged: the copy replaces the old one.
 
 **Trends tab.** With API data, the Market area gets a Trends tab: pick a house, then Whole house or a family of
 trade goods, or search for an item. The family's price grid sits beside the house's sold grid (Whole house shows
@@ -341,16 +343,43 @@ sessions lists "play this computer never logged", and Gold's How it adds up poin
 
 1. Install the addons there too (`install.bat` on that PC, or copy the `addons` folders into its
    `Interface\AddOns`). Without them nothing is recorded there.
-2. Now and then, copy that PC's `_forever_\WTF` folder into `data\pcs\<any name>\WTF` here (a copy of the WTF
-   folder itself, holding `Account`, works too). Copy it after logging out there, so its files are written.
-3. Run `wowstats`. The build merges every folder under `data\pcs` with this PC's files.
+2. Get the other PC's `_forever_\WTF` folder into `data\pcs\<its name>\WTF` here: with the Sync page (below), or by
+   copying it by hand after logging out there, so its files are written.
+3. Run `wowstats` (the live server rebuilds by itself after an Import). The build merges every folder under
+   `data\pcs` with this PC's files.
+
+### Sync through a Backblaze B2 bucket
+
+The Sync page (in the menu next to Live; it needs the live server, so the tray or `wowstats live`) moves the saved
+data and the market db between your PCs through a private bucket you own. Nothing is installed on either PC beyond
+this repo, and the game's own WTF folder is never written: imports go to the data folder only.
+
+Set it up once:
+
+1. In Backblaze, create a **private** bucket and set its lifecycle to **Keep only the last version** (each upload
+   replaces the file; older versions are then deleted after a day).
+2. Create one application key per PC, restricted to that bucket, with `listFiles`, `readFiles` and `writeFiles`.
+3. In each PC's `ledger.cfg` (see `ledger.cfg.example`): `b2_key_id`, `b2_key`, `b2_bucket`, and `pc_name`, the
+   name the other PC knows this one by. If you already copied a PC's WTF by hand into `data\pcs\egb`, that PC's
+   `pc_name` is `egb`: keep one folder per PC, or its counters count twice. Add `market_master = yes` on the PC whose
+   market db the others take, and only there.
+4. Restart the tray. On a new PC, press Import once: that's its starter (the other PCs' WTF and the market db).
+
+Then, day to day: press **Upload WTF** before you leave a PC (log out or /reload first, so WoW has saved), and
+**Import** at the other. The page says when either is due, and the Sync item in the menu shows a dot. The market
+master uploads its market db by itself every day at 08:00 (or as soon as it runs after that), with its net-worth and
+price logs; Import on another PC replaces that PC's market db with it.
+
+Keys stay in `ledger.cfg` (never committed, never logged). A personal API secret and personal data on a work PC
+are your call under your employer's rules.
 
 How it merges, per character: Logbook's log lines from every PC in time order (a line in two copies once),
 every session piece, counters added up (records such as the longest fight: the highest), each level's
 snapshot, the trail; MuddyBoots' older history once. Haul sessions, Make or Buy's recipes (each profession's
 skill from the PC where it's highest) and Auctionator's scan days are combined; Stockpile's contents and the
-account row (gold, level) come from the PC where the character was seen last. DropLab and Ledger Link's Neutral
-visits are read from this PC only.
+account row (gold, level) come from the PC where the character was seen last. Ledger Link's visits and Neutral book
+are combined (a visit in two copies once), and DropLab's kills, drops and node loot are added up: each PC's file
+counts only the kills made on it.
 
 Copy the other PC's files here, not this PC's files onto the other: two copies of the same file share their log
 (that's caught) and their counters (that isn't: they'd count twice). The build warns when two copies share lines.
@@ -406,6 +435,8 @@ Notes:
 | `dashboard/tray.ps1`, `tray.bat` | The tray icon: starts and watches the live server and the AH fetcher (`tray.bat` starts it hidden) |
 | `dashboard/fetcher.py` | Hourly AH fetcher: Battle.net prices into `market.db`, status in `fetcher_status.json`; `--match` finds your houses |
 | `dashboard/bnet.py` | Battle.net API client (token, auctions and commodities, retries) |
+| `dashboard/b2.py` | Backblaze B2 client for the Sync page (list, upload, download; keys never in errors) |
+| `dashboard/sync.py` | The Sync page's jobs: WTF zips, the market bundle, what's due, the master's 08:00 upload |
 | `dashboard/market_reduce.py` | Pure: one price row per item from a snapshot, and estimated sales between two snapshots |
 | `dashboard/market_store.py` | SQLite store for the hourly rows; folds hours older than 30 days into days |
 | `dashboard/ledgerlog.py` | Dated, rotating logs for the server and the fetcher |
@@ -414,7 +445,7 @@ Notes:
 | `install.bat`, `install.ps1` | Copies (or with `-Dev`, links) the addons into WoW and writes `ledger.cfg` |
 | `bin/wowstats.bat` | The `wowstats` command |
 | `ledger.cfg` | Your paths (not tracked; see `ledger.cfg.example`) |
-| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `market.db`, `market.lua`, `market_wanted.tsv`, `fetcher_status.json`, `server.log`, `fetcher.log`, `tray.log` |
+| `data/` | Not tracked: `dashboard.html`, `price_log.tsv`, `price_log_neutral.tsv`, `networth_log.tsv`, `neutral_days.txt`, `maps/`, `pcs/` (other PCs' WTF copies), `market.db`, `market.lua`, `market_wanted.tsv`, `fetcher_status.json`, `sync_state.json`, `sync_tmp/`, `server.log`, `fetcher.log`, `tray.log` |
 
 ## Tests
 
