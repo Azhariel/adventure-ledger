@@ -312,6 +312,9 @@ class Syncer:
         try:
             self.busy = kind
             self._installed = False   # set by _import per WTF swapped in: a later failure still needs a rebuild
+            self._market = False      # set by _import once the market db is replaced
+            t0 = time.time()
+            _LOG.info("sync %s: started (this PC: %s)", kind, self.name)
             state = self.load()
             extra = {}
             try:
@@ -325,11 +328,19 @@ class Syncer:
                 last = {"ok": True, "message": extra.pop("message")}
             except b2.B2Error as e:
                 last = {"ok": False, "message": self._b2_message(e)}
+                _LOG.warning("sync %s: %r", kind, e)   # B2's error is scrubbed of the key and tokens
             except (ValueError, OSError, zipfile.BadZipFile, sqlite3.Error) as e:
                 last = {"ok": False, "message": str(e) or type(e).__name__}
+                _LOG.warning("sync %s: %s: %s", kind, type(e).__name__, e)
             except Exception:   # noqa: BLE001  (a malformed reply, a bug: report it, never kill the job thread)
                 _LOG.exception("sync %s failed", kind)
                 last = {"ok": False, "message": "Sync failed: see server.log"}
+            secs = time.time() - t0
+            if last["ok"]:
+                _LOG.info("sync %s: OK in %.1fs: %s", kind, secs, last["message"])
+            else:
+                _LOG.warning("sync %s: FAILED in %.1fs: %s", kind, secs, last["message"])
+            last["kind"] = kind
             last["at"] = self.now()
             state["last"] = last
             try:
@@ -340,6 +351,7 @@ class Syncer:
             out = dict(last)
             out.update(extra)
             out["rebuild"] = self._installed
+            out["market"] = self._market
             return out
         finally:
             self.busy = None
@@ -358,9 +370,9 @@ class Syncer:
         progress("zipping", 0, 0)
         dest = os.path.join(tmp_dir(self.data), "wtf.zip")
         size = zip_wtf(self.wow, dest)
+        _LOG.info("sync: zipped WTF (%s)", mb(size))
         now = self.now()
-        self.client.upload(WTF_PREFIX + self.name + ".zip", dest, {"pc": self.name, "at": str(int(now))},
-                           progress=lambda s, t: progress("uploading", s, t))
+        self._upload(WTF_PREFIX + self.name + ".zip", dest, size, {"pc": self.name, "at": str(int(now))}, progress)
         state["wtf_upload"] = {"at": now, "size": size}
         return {"message": "Uploaded WTF (%s) at %s" % (mb(size), clock(now, now))}
 
@@ -372,16 +384,30 @@ class Syncer:
         progress("copying", 0, 0)
         dest = os.path.join(tmp_dir(self.data), "market.zip")
         got = export_market(self.data, dest)
-        self.client.upload(MARKET_NAME, dest, {"pc": self.name, "at": str(int(now)), "latest": str(got["latest"]),
-                                               "store": str(got["store"])},
-                           progress=lambda s, t: progress("uploading", s, t))
+        _LOG.info("sync: copied the market db (%s, newest hour %s, store version %s)",
+                  mb(got["size"]), clock(got["latest"], now), got["store"])
+        self._upload(MARKET_NAME, dest, got["size"], {"pc": self.name, "at": str(int(now)),
+                                                      "latest": str(got["latest"]), "store": str(got["store"])}, progress)
         state["market_upload"] = {"at": now, "size": got["size"], "latest": got["latest"],
                                   "day": time.strftime("%Y-%m-%d", time.localtime(now))}
         return {"message": "Uploaded the market db (%s, newest hour %s) at %s"
                            % (mb(got["size"]), clock(got["latest"], now), clock(now, now))}
 
+    def _upload(self, name, path, size, info, progress):
+        t0 = time.time()
+        self.client.upload(name, path, info, progress=lambda s, t: progress("uploading", s, t))
+        _LOG.info("sync: uploaded %s (%s) in %.1fs", name, mb(size), time.time() - t0)
+
+    def _download(self, name, dest, size, phase, progress):
+        t0 = time.time()
+        self.client.download(name, dest, progress=lambda s, tot: progress(phase, s, tot))
+        _LOG.info("sync: downloaded %s (%s) in %.1fs", name, mb(size), time.time() - t0)
+
     def _import(self, state, progress):
         files, now = self._files(fresh=True), self.now()
+        for f in files:
+            _LOG.info("sync: bucket has %s (%s, uploaded %s by %s)", f["name"], mb(f.get("size") or 0),
+                      clock(_uploaded_at(f), now), (f.get("info") or {}).get("pc", "?"))
         imports = state.setdefault("imports", {})
         done, rebuild = [], False
         for f in files:
@@ -395,11 +421,12 @@ class Syncer:
             phase = "importing " + pc
             progress(phase, 0, f.get("size") or 0)
             dest = os.path.join(tmp_dir(self.data), pc + ".zip")
-            self.client.download(n, dest, progress=lambda s, tot: progress(phase, s, tot))
+            self._download(n, dest, f.get("size") or 0, phase, progress)
             try:
                 install_wtf(dest, self.data, pc)
             except (ValueError, zipfile.BadZipFile) as e:
                 raise ValueError("%s's upload is damaged (%s): upload it again from %s" % (pc, e, pc)) from None
+            _LOG.info("sync: installed pcs/%s/WTF", pc)
             imports[pc], rebuild, self._installed = t, True, True
             done.append("%s's WTF (%s)" % (pc, clock(t, now)))
         market = next((f for f in files if f["name"] == MARKET_NAME), None)
@@ -408,10 +435,11 @@ class Syncer:
             if src != self.name and t > state.get("market_import", 0):
                 progress("importing the market db", 0, market.get("size") or 0)
                 dest = os.path.join(tmp_dir(self.data), "market.zip")
-                self.client.download(MARKET_NAME, dest,
-                                     progress=lambda s, tot: progress("importing the market db", s, tot))
+                self._download(MARKET_NAME, dest, market.get("size") or 0, "importing the market db", progress)
                 got = import_market(dest, self.data)
-                state["market_import"] = t
+                _LOG.info("sync: replaced the market db (newest hour %s, was %s)", clock(got["latest"], now),
+                          clock(got["replaced_latest"], now) if got.get("replaced_latest") else "none")
+                state["market_import"], self._market = t, True
                 done.append("the market db (newest hour %s)" % clock(got["latest"], now))
         return {"message": "Imported " + _and(done) if done else "Already up to date", "rebuild": rebuild}
 

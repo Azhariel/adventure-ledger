@@ -10,6 +10,7 @@ import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import b2  # noqa: E402
+import logging  # noqa: E402
 import market_store as ms  # noqa: E402
 import sync  # noqa: E402
 
@@ -292,8 +293,11 @@ class SyncerTests(unittest.TestCase):
         self.root = self._tmp.name
         self.now = [at(12)]
         self.client = FakeClient(lambda: self.now[0])
+        self.quiet = logging.NullHandler()   # the jobs' warnings stay out of the test output; assertLogs still sees them
+        logging.getLogger("server").addHandler(self.quiet)
 
     def tearDown(self):
+        logging.getLogger("server").removeHandler(self.quiet)
         self._tmp.cleanup()
 
     def pc(self, name, master=False, cfg=None, client="shared"):
@@ -362,6 +366,49 @@ class SyncerTests(unittest.TestCase):
         self.assertFalse(got["ok"])
         self.assertTrue(got["rebuild"], "egb's WTF went in before the market failed")
         self.assertTrue(os.path.isdir(os.path.join(laptop.data, "pcs", "egb", "WTF")))
+
+    def test_result_names_its_job(self):
+        egb = self.pc("egb")
+        egb.run("upload-wtf")
+        self.assertEqual(egb.load()["last"]["kind"], "upload-wtf")
+        self.assertEqual(egb.status(None, None)["last"]["kind"], "upload-wtf")
+
+    def test_import_says_when_the_market_db_was_replaced(self):
+        home, egb = self.pc("azhariel-base", master=True), self.pc("egb")
+        self.assertFalse(home.run("upload-wtf").get("market"))
+        self.market_on(home, [100, 200])
+        home.run("upload-market")
+        self.now[0] += 60
+        got = egb.run("import")
+        self.assertTrue(got["market"])
+        self.assertFalse(egb.run("import")["market"])
+
+    def test_jobs_are_logged_step_by_step(self):
+        egb, home = self.pc("egb"), self.pc("azhariel-base", master=True)
+        with self.assertLogs("server", "INFO") as logs:
+            egb.run("upload-wtf")
+            self.now[0] += 60
+            home.run("import")
+        text = "\n".join(logs.output)
+        self.assertIn("sync upload-wtf: started", text)
+        self.assertRegex(text, r"zipped WTF \(\d+\.\d MB\)")
+        self.assertRegex(text, r"uploaded wtf/egb\.zip \(\d+\.\d MB\) in \d+\.\ds")
+        self.assertRegex(text, r"sync upload-wtf: OK in \d+\.\ds: Uploaded WTF")
+        self.assertIn("bucket has wtf/egb.zip", text)
+        self.assertRegex(text, r"downloaded wtf/egb\.zip \(\d+\.\d MB\) in \d+\.\ds")
+        self.assertIn("installed pcs/egb/WTF", text)
+        self.assertRegex(text, r"sync import: OK in \d+\.\ds: Imported egb's WTF")
+
+    def test_failures_are_logged_with_the_b2_error(self):
+        egb = self.pc("egb")
+        self.client.fail = b2.B2Error(503, "service_unavailable", "busy")
+        with self.assertLogs("server", "WARNING") as logs:
+            egb.run("upload-wtf")
+        text = "\n".join(logs.output)
+        self.assertIn("WARNING", text)
+        self.assertRegex(text, r"sync upload-wtf: FAILED in \d+\.\ds: Bucket: service_unavailable: busy")
+        self.assertIn("B2Error(503, 'service_unavailable', 'busy')", text)
+        self.assertNotIn("K3Y-SECRET", text)
 
     def test_unexpected_error_becomes_a_result(self):
         egb = self.pc("egb")
