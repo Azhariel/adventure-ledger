@@ -11,8 +11,12 @@ local Sg = {}
 -- one stray listing, so it counts one unit, not what the market takes, and is marked lone.
 -- Deals are stricter than I.MARKET's buy rule: on the API's data (Nov 2026) 0.70 and 2 sales a day made 784
 -- deals at PvP Horde and 224 at PvP Neutral; 0.50 and 5 a day make about 200 and 75.
+-- Craft flips: FLIP_SELL_HOURS: the whole stack (lowballs bought out plus crafted) must sell within this many hours
+-- of the product's sales. FLIP_BOOK_DAYS: a product listed for more days of sales than this is too crowded.
+-- FLIP_BAND: a craft must still pay with its AH reagents this much dearer (the top of the 10% cheap band).
 Sg.C = { DEAL_BELOW = 0.50, DEAL_SUSPECT = 0.90, DEAL_MIN_SOLD = 5, MIN_GAIN = 50, SELL_ABOVE = 1.25, SELL_MIN_SOLD = 1, LIMIT = 25,
-    RISE = 0.25, FALL = -0.20, MOVER_MIN_SOLD = 2, MOVER_LIMIT = 30, WANTED_LIST = 25, FLIP_MIN_LISTED = 5 }
+    RISE = 0.25, FALL = -0.20, MOVER_MIN_SOLD = 2, MOVER_LIMIT = 30, WANTED_LIST = 25, FLIP_MIN_LISTED = 5,
+    FLIP_SELL_HOURS = 2, FLIP_BOOK_DAYS = 1, FLIP_BAND = 1.10 }
 
 local function num(v) return type(v) == "number" and v or nil end
 
@@ -245,6 +249,137 @@ function Sg.flipRecipes(mob, recipeData, faction, bookNow)
         end
     end
     return out
+end
+
+-- The items one craft of `plan` buys, at any depth: { [itemID] = { amount, unit, source } }. A crafted reagent is
+-- planned per unit, so its own reagents scale by qty / outputQty and stay fractional. learns collects the learn
+-- of every crafted sub-recipe that has one.
+local function flipLeaves(plan, mult, leaves, learns)
+    for _, r in ipairs(plan.reagents or {}) do
+        local amount, node = mult * r.qty, r.node
+        if node.method == "craft" then
+            local sub = node.craft
+            if sub.recipe.learn then learns[sub.recipe.recipeID or sub.recipe] = sub.recipe.learn end
+            flipLeaves(sub, amount / sub.outputQty, leaves, learns)
+        else
+            local l = leaves[node.itemID]
+            if not l then
+                l = { amount = 0, unit = node.buyPrice, source = node.buySource }
+                leaves[node.itemID] = l
+            end
+            l.amount = l.amount + amount
+        end
+    end
+end
+
+-- One crafter's flip of one recipe at a house, or nil (rules in Sg.craftFlips)
+local function flipRow(crafter, recipe, index, book, cut, P, price, nameOf)
+    local C, prices = Sg.C, book.prices or {}
+    local out = recipe.outputItemID
+    local e = out and prices[out]
+    local market, sold, units = e and num(e.market), e and num(e.soldPerDay), e and num(e.units)
+    if not (market and market > 0 and sold and sold > 0 and units) then return nil end
+    if units / sold > C.FLIP_BOOK_DAYS then return nil end
+    local plan = P.PlanRecipe(recipe, index, price)
+    if not plan.complete then return nil end
+    local qty = plan.outputQty
+    local unitValue = math.floor(market * (1 - cut))
+    local cost, sale = math.floor(plan.total), qty * unitValue
+    local profit = sale - cost
+    if profit <= 0 then return nil end
+    local leaves, learns = {}, {}
+    flipLeaves(plan, 1, leaves, learns)
+    local band = 0
+    for _, l in pairs(leaves) do
+        band = band + l.amount * (l.source == "vendor" and l.unit or l.unit * C.FLIP_BAND)
+    end
+    if sale - band <= 0 then return nil end
+    local now = num(e.now)
+    local lowballs = 0
+    if e.nowFrom == "api" and num(e.cheap) and now and now < unitValue then lowballs = e.cheap end
+    local perHour = sold / 24
+    local crafts, capBy = math.floor((perHour * C.FLIP_SELL_HOURS - lowballs) / qty), "sales"
+    local reagents = {}
+    for id, l in pairs(leaves) do
+        local le = prices[id]
+        local cheap = le and le.nowFrom == "api" and num(le.cheap) or nil
+        local held = crafter.held and crafter.held[id] or 0
+        if l.source ~= "vendor" then
+            local cap = math.floor(((cheap or 0) + held) / l.amount + 1e-9)
+            if cap < crafts then crafts, capBy = cap, id end
+        end
+        reagents[#reagents + 1] = { id = id, name = nameOf(id), perCraft = l.amount, unit = l.unit,
+            source = l.source == "vendor" and "vendor" or "ah", cheap = cheap, held = held > 0 and held or nil }
+    end
+    if crafts < 1 then return nil end
+    table.sort(reagents, function(a, b) return a.id < b.id end)
+    local buyout = lowballs > 0 and (unitValue - now) * lowballs or 0
+    local gold = profit * crafts + buyout
+    local learnCost
+    if recipe.learn or next(learns) then
+        learnCost = recipe.learn and recipe.learn.cost or 0
+        for _, l in pairs(learns) do learnCost = learnCost + (l.cost or 0) end
+    end
+    return { id = out, name = recipe.name or nameOf(out), recipeID = recipe.recipeID, outputQty = qty,
+        crafter = { id = crafter.id, name = crafter.name, learn = recipe.learn }, cost = cost, sale = sale,
+        profit = profit, crafts = crafts, capBy = capBy, capName = capBy ~= "sales" and nameOf(capBy) or nil,
+        lowballs = lowballs, buyout = buyout, hours = (lowballs + crafts * qty) / perHour, gold = gold,
+        learnCost = learnCost, paysBackIn = learnCost and learnCost > 0 and math.ceil(learnCost / gold) or nil,
+        soldPerDay = sold, units = units, reagents = reagents }
+end
+
+-- Craft flips at one house: buy every reagent at the house's lowest price (vendor when cheaper), craft, sell at
+-- market value after the cut. crafters = { { id, name, recipes = Sg.flipRecipes(...), held = { [id] = n } } };
+-- book: the house's merged book (prices, vendor); cut: I.CUT's; P: Make or Buy's Planner. A row needs:
+-- - a product with a market value, sales a day and listings, listed for at most FLIP_BOOK_DAYS of sales;
+-- - a profit, still positive with every AH-bought reagent at FLIP_BAND times its price;
+-- - at least one craft, capped by each AH reagent's cheap units (plus what the crafter holds; vendor reagents are
+--   unlimited) and by what sells in FLIP_SELL_HOURS, after the product's cheap listings under value (lowballs,
+--   bought out and relisted: buyout is what that earns).
+-- One row per product: the crafter with the most gold (the known one on a tie); who lists every crafter, known
+-- first. learnCost (shown, never subtracted) sums the recipe's and its sub-crafts' learn costs. Sorted by gold.
+function Sg.craftFlips(crafters, book, cut, P, nameOf)
+    local best, who = {}, {}
+    if not (P and book) then return {} end
+    local prices, vendor = book.prices or {}, book.vendor or {}
+    local function price(id)
+        local v, e = num(vendor[id]), prices[id]
+        local now = e and num(e.now)
+        if now and now <= 0 then now = nil end
+        if v and (not now or v <= now) then return v, "vendor" end
+        if now then return now, "ah" end
+        return nil
+    end
+    for _, c in ipairs(crafters or {}) do
+        local index = P.IndexByOutput(c.recipes)
+        local mine = {}
+        for _, recipe in pairs(c.recipes or {}) do
+            local row = flipRow(c, recipe, index, book, cut, P, price, nameOf)
+            if row and (not mine[row.id] or row.gold > mine[row.id].gold) then mine[row.id] = row end
+        end
+        for id, row in pairs(mine) do
+            who[id] = who[id] or {}
+            who[id][#who[id] + 1] = { id = c.id, name = c.name, learn = row.crafter.learn }
+            local b = best[id]
+            if not b or row.gold > b.gold or (row.gold == b.gold and b.crafter.learn and not row.crafter.learn) then
+                best[id] = row
+            end
+        end
+    end
+    local list = {}
+    for id, row in pairs(best) do
+        table.sort(who[id], function(a, b)
+            if (a.learn == nil) ~= (b.learn == nil) then return a.learn == nil end
+            return tostring(a.name) < tostring(b.name)
+        end)
+        row.who = who[id]
+        list[#list + 1] = row
+    end
+    table.sort(list, function(a, b)
+        if a.gold ~= b.gold then return a.gold > b.gold end
+        return a.id < b.id
+    end)
+    return trim(list, Sg.C.LIMIT)
 end
 
 return Sg

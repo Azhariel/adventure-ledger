@@ -2159,6 +2159,142 @@ test("signals.flipRecipes: no saved skill keeps known recipes and leaves learnab
 end)
 
 
+-- Make or Buy's own Planner from this repo (no WoW folder needed)
+local function repoPlanner()
+    local ns = {}
+    assert(loadfile("../addons/MakeOrBuy/Planner.lua"))("MakeOrBuy", ns)
+    return ns.Planner
+end
+
+-- 2026-11-18 23:25, PvP Horde: the Bronze Bar play
+local function bronzeBook()
+    return { vendor = {}, prices = {
+        [2770] = { now = 195, cheap = 1120, nowFrom = "api" },
+        [2771] = { now = 114, cheap = 348, nowFrom = "api" },
+        [3576] = { now = 120, cheap = 69, nowFrom = "api" },
+        [2840] = { now = 229, nowFrom = "api" },
+        [2841] = { now = 208, market = 208, units = 7623, cheap = 4071, soldPerDay = 47600, nowFrom = "api" },
+    } }
+end
+local function smelting(learnBronze, learnTin)
+    local r = {
+        [2657] = rec(2657, 186, 2840, 1, { { 2770, 1 } }),
+        [3304] = rec(3304, 186, 3576, 1, { { 2771, 1 } }),
+        [2659] = rec(2659, 186, 2841, 2, { { 2840, 1 }, { 3576, 1 } }),
+    }
+    r[2659].learn, r[3304].learn = learnBronze, learnTin
+    return r
+end
+
+test("signals.craftFlips: the Bronze Bar play, capped by cheap Tin Ore", function()
+    local P = repoPlanner()
+    local list = Sg.craftFlips({ { id = "des", name = "Des", recipes = smelting(), held = {} } }, bronzeBook(),
+        I.CUT.faction, P, itemName)
+    eq(#list, 1)
+    local f = list[1]
+    eq(f.id, 2841); eq(f.recipeID, 2659); eq(f.outputQty, 2)
+    eq(f.cost, 309, "195 copper ore + 114 tin ore, smelted"); eq(f.sale, 394, "2 x floor(208 x 0.95)"); eq(f.profit, 85)
+    eq(f.crafts, 348); eq(f.capBy, 2771); eq(f.capName, "Item 2771")
+    eq(f.lowballs, 0, "now is market"); eq(f.buyout, 0); eq(f.gold, 29580); near(f.hours, 696 / (47600 / 24))
+    eq(f.crafter.id, "des"); eq(f.crafter.learn, nil); eq(#f.who, 1); eq(f.learnCost, nil); eq(f.paysBackIn, nil)
+    eq(f.soldPerDay, 47600); eq(f.units, 7623)
+    local by = {}
+    for _, r in ipairs(f.reagents) do by[r.id] = r end
+    eq(by[2770].perCraft, 1); eq(by[2770].unit, 195); eq(by[2770].source, "ah"); eq(by[2770].cheap, 1120)
+    eq(by[2771].cheap, 348); eq(by[3576], nil, "tin bars are smelted, not bought")
+end)
+
+test("signals.craftFlips: what you hold adds to a reagent's cheap units", function()
+    local list = Sg.craftFlips({ { id = "des", name = "Des", recipes = smelting(), held = { [2771] = 100 } } },
+        bronzeBook(), I.CUT.faction, repoPlanner(), itemName)
+    eq(list[1].crafts, 448); eq(list[1].capBy, 2771)
+    local by = {}
+    for _, r in ipairs(list[1].reagents) do by[r.id] = r end
+    eq(by[2771].held, 100)
+end)
+
+test("signals.craftFlips: a crowded market (over a day of sales listed) has no row", function()
+    local book = bronzeBook()
+    book.prices[2841].units = 60000
+    eq(#Sg.craftFlips({ { id = "des", name = "Des", recipes = smelting(), held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName), 0)
+end)
+
+test("signals.craftFlips: lowballs under market are bought out and count toward the two hours", function()
+    local book = bronzeBook()
+    book.prices[2841].now, book.prices[2841].cheap = 150, 500
+    local f = Sg.craftFlips({ { id = "des", name = "Des", recipes = smelting(), held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName)[1]
+    eq(f.lowballs, 500); eq(f.buyout, (197 - 150) * 500); eq(f.crafts, 348)
+    eq(f.gold, 85 * 348 + 23500)
+    book.prices[2771].cheap, book.prices[2770].cheap = 5000, 5000
+    f = Sg.craftFlips({ { id = "des", name = "Des", recipes = smelting(), held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName)[1]
+    eq(f.crafts, math.floor((47600 / 24 * 2 - 500) / 2), "the speed cap"); eq(f.capBy, "sales")
+end)
+
+test("signals.craftFlips: a craft that stops paying with reagents 10% dearer has no row", function()
+    local book = { vendor = {}, prices = {
+        [10] = { now = 100, cheap = 1000, nowFrom = "api" },
+        [20] = { now = 109, market = 109, units = 10, soldPerDay = 100, nowFrom = "api" },
+    } }
+    local recipes = { [1] = rec(1, 197, 20, 1, { { 10, 1 } }) }
+    eq(#Sg.craftFlips({ { id = "a", name = "A", recipes = recipes, held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName), 0, "103 - 100 = 3c, but 103 - 110 loses")
+end)
+
+test("signals.craftFlips: vendor reagents cost their vendor price and never cap", function()
+    local book = { vendor = { [30] = 10 }, prices = {
+        [10] = { now = 100, cheap = 50, nowFrom = "api" },
+        [20] = { now = 300, market = 300, units = 10, soldPerDay = 2400, nowFrom = "api" },
+    } }
+    local recipes = { [1] = rec(1, 197, 20, 1, { { 10, 1 }, { 30, 1 } }) }
+    local f = Sg.craftFlips({ { id = "a", name = "A", recipes = recipes, held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName)[1]
+    eq(f.cost, 110); eq(f.profit, 175); eq(f.crafts, 50); eq(f.capBy, 10)
+    local by = {}
+    for _, r in ipairs(f.reagents) do by[r.id] = r end
+    eq(by[30].source, "vendor"); eq(by[30].unit, 10)
+end)
+
+test("signals.craftFlips: a sub-craft making 2 halves the leaf per craft, not the cap", function()
+    local book = { vendor = {}, prices = {
+        [10] = { now = 100, cheap = 100, nowFrom = "api" },
+        [20] = { now = 1000, market = 1000, units = 10, soldPerDay = 24000, nowFrom = "api" },
+    } }
+    local recipes = { [1] = rec(1, 197, 15, 2, { { 10, 1 } }), [2] = rec(2, 197, 20, 1, { { 15, 1 } }) }
+    local f = Sg.craftFlips({ { id = "a", name = "A", recipes = recipes, held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName)[1]
+    eq(f.cost, 50)
+    eq(f.reagents[1].id, 10); eq(f.reagents[1].perCraft, 0.5); eq(f.crafts, 200)
+end)
+
+test("signals.craftFlips: no sales rate or no entry for the product, no row", function()
+    local book = bronzeBook()
+    book.prices[2841].soldPerDay = nil
+    local one = { { id = "des", name = "Des", recipes = smelting(), held = {} } }
+    eq(#Sg.craftFlips(one, book, I.CUT.faction, repoPlanner(), itemName), 0)
+    book.prices[2841] = nil
+    eq(#Sg.craftFlips(one, book, I.CUT.faction, repoPlanner(), itemName), 0)
+    eq(#Sg.craftFlips({}, bronzeBook(), I.CUT.faction, repoPlanner(), itemName), 0)
+end)
+
+test("signals.craftFlips: the best crafter fills the row; who lists everyone, known first; learn cost", function()
+    local crafters = {
+        { id = "b", name = "B", recipes = smelting({ how = "trainer", cost = 500, skill = 65 },
+            { how = "trainer", cost = 100, skill = 65 }), held = { [2771] = 100 } },
+        { id = "a", name = "A", recipes = smelting(), held = {} },
+    }
+    local f = Sg.craftFlips(crafters, bronzeBook(), I.CUT.faction, repoPlanner(), itemName)[1]
+    eq(f.crafter.id, "b"); eq(f.crafts, 448)
+    eq(#f.who, 2); eq(f.who[1].id, "a"); eq(f.who[1].learn, nil); eq(f.who[2].id, "b")
+    eq(f.learnCost, 600, "bronze 500 + the unlearned tin smelt 100"); eq(f.paysBackIn, 1)
+    local solo = Sg.craftFlips({ { id = "c", name = "C", recipes = smelting({ how = "trainer", cost = 500, skill = 65 }),
+        held = {} } }, bronzeBook(), I.CUT.faction, repoPlanner(), itemName)[1]
+    eq(solo.gold, 29580); eq(solo.learnCost, 500); eq(solo.paysBackIn, 1)
+end)
+
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then
