@@ -2346,6 +2346,38 @@ test("crafts: a product with few sales or listings at the house is marked price 
 end)
 
 
+test("signals.craftFlips: an unlearned sub-craft is named on the row and the crafter counts as learnable", function()
+    local learner = smelting(nil, { how = "trainer", cost = 50, skill = 65 })
+    learner[3304].name = "Smelt Tin"
+    local f = Sg.craftFlips({ { id = "des", name = "Des", recipes = learner, held = {} } }, bronzeBook(),
+        I.CUT.faction, repoPlanner(), itemName)[1]
+    eq(f.crafter.learn, nil, "the product's own recipe is known")
+    truthy(f.subLearns and f.subLearns[1], "the unlearned smelt is listed")
+    eq(f.subLearns[1].name, "Smelt Tin"); eq(f.subLearns[1].cost, 50); eq(f.learnCost, 50)
+    eq(f.who[1].subLearn, true)
+    -- the same gold from a character who knows everything wins the tie and is listed first
+    local both = Sg.craftFlips({ { id = "des", name = "Des", recipes = learner, held = {} },
+        { id = "zed", name = "Zed", recipes = smelting(), held = {} } }, bronzeBook(), I.CUT.faction, repoPlanner(), itemName)[1]
+    eq(both.crafter.id, "zed"); eq(both.who[1].id, "zed"); eq(both.who[2].subLearn, true)
+end)
+
+test("signals.craftFlips: an in-game scan newer than the API keeps the API's cheap counts", function()
+    local book = bronzeBook()
+    for _, id in ipairs({ 2770, 2771, 3576, 2840, 2841 }) do book.prices[id].nowFrom = "scan" end
+    local f = Sg.craftFlips({ { id = "des", name = "Des", recipes = smelting(), held = {} } }, book, I.CUT.faction,
+        repoPlanner(), itemName)[1]
+    truthy(f, "still a row"); eq(f.crafts, 348); eq(f.capBy, 2771)
+end)
+
+test("signals.craftFlips: one broken saved recipe is skipped, the others still flip", function()
+    local recipes = smelting()
+    recipes[9999] = { recipeID = 9999, profession = 186, outputItemID = 2841, outputQty = 1, reagents = { { itemID = 2770 } } }
+    local list = Sg.craftFlips({ { id = "des", name = "Des", recipes = recipes, held = {} } }, bronzeBook(),
+        I.CUT.faction, repoPlanner(), itemName)
+    eq(#list, 1); eq(list[1].recipeID, 2659)
+end)
+
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

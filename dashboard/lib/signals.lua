@@ -259,7 +259,7 @@ local function flipLeaves(plan, mult, leaves, learns)
         local amount, node = mult * r.qty, r.node
         if node.method == "craft" then
             local sub = node.craft
-            if sub.recipe.learn then learns[sub.recipe.recipeID or sub.recipe] = sub.recipe.learn end
+            if sub.recipe.learn then learns[sub.recipe.recipeID or sub.recipe] = sub.recipe end
             flipLeaves(sub, amount / sub.outputQty, leaves, learns)
         else
             local l = leaves[node.itemID]
@@ -296,13 +296,14 @@ local function flipRow(crafter, recipe, index, book, cut, P, price, nameOf)
     if sale - band <= 0 then return nil end
     local now = num(e.now)
     local lowballs = 0
-    if e.nowFrom == "api" and num(e.cheap) and now and now < unitValue then lowballs = e.cheap end
+    -- cheap is the API's count near its lowest; a newer in-game scan keeps it (R.merge copies it), so it counts too
+    if num(e.cheap) and now and now < unitValue then lowballs = e.cheap end
     local perHour = sold / 24
     local crafts, capBy = math.floor((perHour * C.FLIP_SELL_HOURS - lowballs) / qty), "sales"
     local reagents = {}
     for id, l in pairs(leaves) do
         local le = prices[id]
-        local cheap = le and le.nowFrom == "api" and num(le.cheap) or nil
+        local cheap = le and num(le.cheap) or nil
         local held = crafter.held and crafter.held[id] or 0
         if l.source ~= "vendor" then
             local cap = math.floor(((cheap or 0) + held) / l.amount + 1e-9)
@@ -315,14 +316,20 @@ local function flipRow(crafter, recipe, index, book, cut, P, price, nameOf)
     table.sort(reagents, function(a, b) return a.id < b.id end)
     local buyout = lowballs > 0 and (unitValue - now) * lowballs or 0
     local gold = profit * crafts + buyout
-    local learnCost
+    local learnCost, subLearns
     if recipe.learn or next(learns) then
         learnCost = recipe.learn and recipe.learn.cost or 0
-        for _, l in pairs(learns) do learnCost = learnCost + (l.cost or 0) end
+        for _, r in pairs(learns) do
+            learnCost = learnCost + (r.learn.cost or 0)
+            subLearns = subLearns or {}
+            subLearns[#subLearns + 1] = { name = r.name or nameOf(r.outputItemID), how = r.learn.how, cost = r.learn.cost }
+        end
+        if subLearns then table.sort(subLearns, function(a, b) return tostring(a.name) < tostring(b.name) end) end
     end
     return { id = out, name = nameOf(out) or recipe.name, recipeName = recipe.name, recipeID = recipe.recipeID,
         outputQty = qty,
-        crafter = { id = crafter.id, name = crafter.name, learn = recipe.learn }, cost = cost, sale = sale,
+        crafter = { id = crafter.id, name = crafter.name, learn = recipe.learn, subLearn = subLearns and true or nil },
+        subLearns = subLearns, cost = cost, sale = sale,
         profit = profit, crafts = crafts, capBy = capBy, capName = capBy ~= "sales" and nameOf(capBy) or nil,
         lowballs = lowballs, buyout = buyout, hours = (lowballs + crafts * qty) / perHour, gold = gold,
         learnCost = learnCost, paysBackIn = learnCost and learnCost > 0 and math.ceil(learnCost / gold) or nil,
@@ -338,7 +345,10 @@ end
 --   unlimited) and by what sells in FLIP_SELL_HOURS, after the product's cheap listings under value (lowballs,
 --   bought out and relisted: buyout is what that earns).
 -- One row per product: the crafter with the most gold (the known one on a tie); who lists every crafter, known
--- first. learnCost (shown, never subtracted) sums the recipe's and its sub-crafts' learn costs. Sorted by gold.
+-- first (a crafter who must learn a sub-craft counts as learning: subLearns names those). learnCost (shown, never
+-- subtracted) sums the recipe's and its sub-crafts' learn costs. Sorted by gold.
+local function learnable(c) return (c.learn or c.subLearn) and true or false end
+
 function Sg.craftFlips(crafters, book, cut, P, nameOf)
     local best, who = {}, {}
     if not (P and book) then return {} end
@@ -355,14 +365,15 @@ function Sg.craftFlips(crafters, book, cut, P, nameOf)
         local index = P.IndexByOutput(c.recipes)
         local mine = {}
         for _, recipe in pairs(c.recipes or {}) do
-            local row = flipRow(c, recipe, index, book, cut, P, price, nameOf)
-            if row and (not mine[row.id] or row.gold > mine[row.id].gold) then mine[row.id] = row end
+            -- a saved recipe the planner can't read (a reagent without a quantity) is skipped, never the whole build
+            local ok, row = pcall(flipRow, c, recipe, index, book, cut, P, price, nameOf)
+            if ok and row and (not mine[row.id] or row.gold > mine[row.id].gold) then mine[row.id] = row end
         end
         for id, row in pairs(mine) do
             who[id] = who[id] or {}
-            who[id][#who[id] + 1] = { id = c.id, name = c.name, learn = row.crafter.learn }
+            who[id][#who[id] + 1] = { id = c.id, name = c.name, learn = row.crafter.learn, subLearn = row.crafter.subLearn }
             local b = best[id]
-            if not b or row.gold > b.gold or (row.gold == b.gold and b.crafter.learn and not row.crafter.learn) then
+            if not b or row.gold > b.gold or (row.gold == b.gold and learnable(b.crafter) and not learnable(row.crafter)) then
                 best[id] = row
             end
         end
@@ -370,7 +381,7 @@ function Sg.craftFlips(crafters, book, cut, P, nameOf)
     local list = {}
     for id, row in pairs(best) do
         table.sort(who[id], function(a, b)
-            if (a.learn == nil) ~= (b.learn == nil) then return a.learn == nil end
+            if learnable(a) ~= learnable(b) then return not learnable(a) end
             return tostring(a.name) < tostring(b.name)
         end)
         row.who = who[id]

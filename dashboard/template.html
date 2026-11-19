@@ -1972,13 +1972,19 @@ const sellsIn = h => {
 };
 const flipLearn = l => !l ? "" : l.how === "trainer" ? ` · learn ${money(l.cost ?? 0)}`
   : ` · vendor recipe${l.cost != null ? " " + money(l.cost) : ""}`;
+// the same, as plain text for a title (money() is markup)
+const flipLearnText = l => !l ? "" : l.how === "trainer" ? `learn ${moneyText(l.cost ?? 0)}`
+  : `vendor recipe${l.cost != null ? " " + moneyText(l.cost) : ""}`;
 function flipWho(r) {
   const c = r.crafter || {};
   const others = (r.who || []).filter(w => w.id !== c.id);
   const notes = [];
   if (r.paysBackIn) notes.push(`Pays back in ${r.paysBackIn} flip${r.paysBackIn === 1 ? "" : "s"}`);
-  if (others.length) notes.push("Also: " + others.map(w => esc(w.name) + (w.learn ? ` (${flipLearn(w.learn).slice(3)})` : "")).join(", "));
-  const text = esc(c.name) + flipLearn(c.learn) + (others.length ? ` +${others.length}` : "");
+  if (others.length) notes.push("Also: " + others.map(w => esc(w.name) + (w.learn ? ` (${flipLearnText(w.learn)})`
+    : w.subLearn ? " (must learn a step)" : "")).join(", "));
+  // a step of the chain the crafter still has to learn (a smelt, a bolt), named so it isn't bought for nothing
+  const subs = (r.subLearns || []).map(s => ` · learn ${esc(s.name)}${s.cost != null ? " " + money(s.cost) : ""}`).join("");
+  const text = esc(c.name) + flipLearn(c.learn) + subs + (others.length ? ` +${others.length}` : "");
   return notes.length ? `<span title="${notes.join(". ")}">${text}</span>` : text;
 }
 const flipCrafts = r => `<span data-sort="${r.crafts}">${r.crafts} (${r.capBy === "sales" ? "sales" : esc(r.capName ?? "?")})</span>`;

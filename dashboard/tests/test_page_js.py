@@ -374,8 +374,8 @@ process.stdout.write(JSON.stringify([nowAtOf({ nowFrom: "api" }, tab), nowAtOf({
         self.assertEqual(json.loads(run_node(js)), [70, 60, 90, None, "none"])
 
     def test_craft_flip_cells(self):
-        js = page_js(["sellsIn", "flipLearn", "flipWho", "flipCrafts"],
-                     "const money = v => (v / 100) + 's'; const esc = s => String(s);") + """
+        js = page_js(["sellsIn", "flipLearn", "flipLearnText", "flipWho", "flipCrafts"],
+                     "const money = v => (v / 100) + 's'; const moneyText = money; const esc = s => String(s);") + """
 const des = { id: "d", name: "Des" };
 process.stdout.write(JSON.stringify([sellsIn(0.351), sellsIn(1.5), sellsIn(2), sellsIn(0.001),
   flipWho({ crafter: des, who: [des] }),
@@ -400,6 +400,20 @@ process.stdout.write(JSON.stringify([unsurePill({ unsure: true }), unsurePill({}
         on, off = json.loads(run_node(js))
         self.assertEqual(on, ' <span class="pill death" title="Few sales or listings at this house: this price may be one odd listing">price unsure</span>')
         self.assertEqual(off, "")
+
+    def test_craft_flip_who_titles_are_text_and_sub_learns_show(self):
+        js = page_js(["flipLearn", "flipLearnText", "flipWho"],
+                     "const money = v => `<span class=\"coin\" data-sort=\"${v}\">${v / 100}s</span>`; const moneyText = v => (v / 100) + 's'; const esc = s => String(s).replace(/\"/g, '&quot;');") + """
+const des = { id: "d", name: "Des" };
+process.stdout.write(JSON.stringify([
+  flipWho({ crafter: des, who: [des, { id: "b", name: "Bo", learn: { how: "trainer", cost: 200 } }] }),
+  flipWho({ crafter: des, who: [des], subLearns: [{ name: "Smelt Tin", cost: 50 }] })]));
+"""
+        other, sub = json.loads(run_node(js))
+        title = other.split('title="', 1)[1].split('"', 1)[0]
+        self.assertEqual(title, "Also: Bo (learn 2s)")
+        self.assertNotIn("<", title)
+        self.assertIn('Des · learn Smelt Tin <span class="coin"', sub)
 
     def test_neutral_header_says_where_faction_prices_come_from(self):
         js = page_js(["factionPricesNote"]) + """
