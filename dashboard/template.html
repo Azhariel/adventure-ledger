@@ -108,9 +108,14 @@ h3, .sub2 { font: 600 13.5px/1.35 var(--sans); margin: 14px 0 4px; color: var(--
 /* a chart beside a taller panel grows into the row's height instead of leaving a blank strip under it */
 .panel.fill { display: flex; flex-direction: column; }
 .panel.fill > .chart { flex: 1 1 auto; }
-.scroll { max-height: 380px; overflow: auto; }
+.scroll { max-height: 380px; overflow: auto; scrollbar-gutter: stable; }
 .scroll.tall { max-height: 520px; }
 .scroll.all { max-height: none; }
+/* a table whose rows change with a switch (house, family, chip) keeps its box height, so the page below stays put */
+.scroll.hold { height: 380px; } .scroll.tall.hold { height: 520px; }
+/* fixed columns (a column's `w` in table()): widths no longer follow the rows shown */
+table.fixed { table-layout: fixed; }
+table.fixed td { overflow-wrap: anywhere; }
 .ph .expand { font-size: 12.5px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; }
@@ -448,26 +453,26 @@ tr.flash td { animation: flash .8s ease-out; }
         <div class="chart tall"><canvas id="valueChart"></canvas></div><div class="method" id="valueMethod"></div></article>
       <article class="panel w4"><div class="ph"><h2>Your best sellers</h2></div><p class="hint">Your holdings furthest above their launch low. Click one for its chart.</p><div class="scroll"><table id="windowTable"></table></div></article>
       <article class="panel w12" id="marketPanel"><div class="ph"><h2>Buy low, sell high</h2><span class="pill faction">faction AH</span></div><p class="hint" id="marketHint"></p><div id="marketBox"></div></article>
-      <article class="panel w12" id="dealsPanel" hidden><div class="ph"><h2>Deals</h2><span class="pill" id="dealsHouse"></span></div><p class="hint" id="dealsHint"></p><div class="scroll"><table id="dealTable"></table></div></article>
-      <article class="panel w12" id="craftFlipsPanel" hidden><div class="ph"><h2>Craft flips</h2><span class="pill" id="craftFlipsHouse"></span></div><p class="hint" id="craftFlipsHint"></p><div class="scroll"><table id="craftFlipTable"></table></div></article>
+      <article class="panel w12" id="dealsPanel" hidden><div class="ph"><h2>Deals</h2><span class="pill" id="dealsHouse"></span></div><p class="hint" id="dealsHint"></p><div class="scroll hold"><table id="dealTable"></table></div></article>
+      <article class="panel w12" id="craftFlipsPanel" hidden><div class="ph"><h2>Craft flips</h2><span class="pill" id="craftFlipsHouse"></span></div><p class="hint" id="craftFlipsHint"></p><div class="scroll hold"><table id="craftFlipTable"></table></div></article>
       <article class="panel w12" id="sellWinPanel" hidden><div class="ph"><h2>Sell windows</h2></div><p class="hint" id="sellWinHint"></p><div class="scroll"><table id="sellWinTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="stockpile" hidden>
       <article class="panel w12"><div class="ph"><h2>Your stockpile</h2></div><p class="hint" id="stockHint"></p>
         <div class="toolbar"><div class="chips" id="stockChips"></div><input type="search" class="search" data-table="stockTable" placeholder="Filter stockpile"></div>
-        <div class="scroll tall"><table id="stockTable"></table></div></article>
+        <div class="scroll tall hold"><table id="stockTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="browse" hidden>
       <article class="panel w12"><div class="ph"><h2>Every priced item</h2></div><p class="hint" id="famHint"></p>
         <div class="toolbar"><div class="chips" id="famChips"></div><input type="search" class="search" id="famSearch" data-table="famTable" placeholder="Search market items"></div>
-        <div class="scroll tall"><table id="famTable"></table></div></article>
+        <div class="scroll tall hold"><table id="famTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="movers" hidden>
-      <article class="panel w6"><div class="ph"><h2>Rising fastest</h2></div><p class="hint" id="risingHint">50% or more over their launch low, at least 20 listed, launch low 10c or more.</p><div class="scroll tall"><table id="risingTable"></table></div></article>
-      <article class="panel w6"><div class="ph"><h2>Fallen furthest</h2></div><p class="hint" id="fallingHint">30% or more under their peak: a chance to buy, or a market flooding.</p><div class="scroll tall"><table id="fallingTable"></table></div></article>
+      <article class="panel w6"><div class="ph"><h2>Rising fastest</h2></div><p class="hint" id="risingHint">50% or more over their launch low, at least 20 listed, launch low 10c or more.</p><div class="scroll tall hold"><table id="risingTable"></table></div></article>
+      <article class="panel w6"><div class="ph"><h2>Fallen furthest</h2></div><p class="hint" id="fallingHint">30% or more under their peak: a chance to buy, or a market flooding.</p><div class="scroll tall hold"><table id="fallingTable"></table></div></article>
     </section>
 
     <section class="mod" data-mod="neutral" hidden>
@@ -498,7 +503,7 @@ tr.flash td { animation: flash .8s ease-out; }
       <article class="panel w6"><div class="ph"><h2 id="trendsRightTitle"></h2></div><p class="hint" id="trendsRightHint"></p>
         <div id="trendsRight"></div></article>
       <article class="panel w12"><div class="ph"><h2 id="trendsNowTitle">Right now</h2><span class="meta" id="trendsNowMeta"></span></div>
-        <p class="hint" id="trendsNowHint"></p><div class="scroll tall"><table id="trendsTable"></table></div>
+        <p class="hint" id="trendsNowHint"></p><div class="scroll tall hold"><table id="trendsTable"></table></div>
         <div class="method" id="trendsAge"></div><div class="method" id="trendsAgree"></div></article>
     </section>
 
@@ -943,10 +948,17 @@ function drawTable(id) {
   if (opts.limit && list.length > opts.limit) list = list.slice(0, opts.limit);
   if (opts.onRender) opts.onRender(list.length, filteredTotal, rows.length);
   if (!rows.length) {
+    node.classList.remove("fixed"); node.style.minWidth = "";
     node.innerHTML = `<tbody><tr><td>${empty(emptyMsg)}</td></tr></tbody>`;
     return;
   }
-  const thead = `<thead><tr>${head.map((h, i) => {
+  // columns with a width (h.w, px) make the table fixed: the rest share what's left, and nothing moves when the rows
+  // change; min-width keeps narrow screens scrolling instead of squeezing
+  const fixed = head.some(h => h.w);
+  node.classList.toggle("fixed", fixed);
+  node.style.minWidth = fixed ? `${head.reduce((a, h) => a + (h.w || 200), 0)}px` : "";
+  const cols = fixed ? `<colgroup>${head.map(h => h.w ? `<col style="width:${h.w}px">` : "<col>").join("")}</colgroup>` : "";
+  const thead = cols + `<thead><tr>${head.map((h, i) => {
     const canSort = h.t && !h.nosort;
     const active = col === i;
     const cls = [h.n ? "n" : "", canSort ? "sortable" : ""].filter(Boolean).join(" ");
@@ -1957,8 +1969,8 @@ function renderDeals(list, key, rule) {
   pill.className = "pill " + (isNeutralKey(key) ? "neutral" : "faction");
   el("dealsHint").textContent = dealsHintText(rule);
   const pctTxt = x => Math.round(x * 100) + "%";
-  table("dealTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Market", n: 1 }, { t: "Under", n: 1 }, { t: "Sold/day", n: 1 },
-      { t: "Listed", n: 1 }, { t: "Profit each", n: 1 }, { t: "Per day", n: 1 }],
+  table("dealTable", [{ t: "Item" }, { t: "Now", n: 1, w: 112 }, { t: "Market", n: 1, w: 120 }, { t: "Under", n: 1, w: 72 },
+      { t: "Sold/day", n: 1, w: 88 }, { t: "Listed", n: 1, w: 136 }, { t: "Profit each", n: 1, w: 120 }, { t: "Per day", n: 1, w: 128 }],
     (list || []).map(d => {
       const api = d.basis === "api";
       return rowId(d.id, [whItem(d.id, d.name) + lonePill(d), nowMoney(d), api ? money(d.market) : `${money(d.usual)} ${scansPill}`,
@@ -2000,8 +2012,8 @@ function renderCraftFlips(list, key) {
   pill.className = "pill " + (isNeutralKey(key) ? "neutral" : "faction");
   el("craftFlipsHint").textContent = CRAFT_FLIPS_HINT;
   const parts = r => (r.reagents || []).map(g => `${esc(g.name)} ${Math.round(g.perCraft * 100) / 100} × ${money(g.unit)}`).join(" · ");
-  table("craftFlipTable", [{ t: "Product" }, { t: "Who" }, { t: "Profit/craft", n: 1 }, { t: "Crafts", n: 1 },
-      { t: "Lowballs", n: 1 }, { t: "Sells in", n: 1 }, { t: "Gold per flip", n: 1 }],
+  table("craftFlipTable", [{ t: "Product" }, { t: "Who" }, { t: "Profit/craft", n: 1, w: 104 }, { t: "Crafts", n: 1, w: 256 },
+      { t: "Lowballs", n: 1, w: 88 }, { t: "Sells in", n: 1, w: 80 }, { t: "Gold per flip", n: 1, w: 120 }],
     (list || []).map(r => rowId(r.id, [whItem(r.id, r.name) + (r.outputQty > 1 ? ` ×${r.outputQty}` : "")
         + `<div class="flip-parts">${parts(r)}</div>`, flipWho(r), money(r.profit), flipCrafts(r),
       `<span data-sort="${r.lowballs}">${short(r.lowballs)}</span>`, `<span data-sort="${r.hours}">${sellsIn(r.hours)}</span>`,
@@ -2203,7 +2215,7 @@ function modSignals() {
     ] }, options: timeOpts(v => moneyText(v), { legendFilter: true }) });
   // Best sellers
   const best = owned.filter(it => it.change != null && it.change > 0).sort((a, b) => b.change - a.change).slice(0, 15);
-  table("windowTable", [{ t: "Item" }, { t: "vs low", n: 1 }, { t: "Value", n: 1 }],
+  table("windowTable", [{ t: "Item" }, { t: "vs low", n: 1, w: 80 }, { t: "Value", n: 1, w: 96 }],
     best.map(it => rowId(it.id, [whItem(it.id, it.name) + " " + signal(it), signedPct(it.change), money(it.now * it.have, { short: true })])),
     "Nothing you hold is above its launch low.");
   // Deals (the market switch's house) and Sell windows (each holder's own house) on the API's market values;
@@ -2240,7 +2252,7 @@ function modStockpile() {
   const famIds = mktFilter === "all" ? null : new Set(fams.find(f => f.key === mktFilter).ids);
   const rows = owned.filter(it => !famIds || famIds.has(it.id));
   el("stockHint").textContent = `Everything your characters hold that this house has priced, by value. "vs low" = today's price against the lowest daily low; supply = listed now against the first scan day (green = fewer). Click a row for its chart.`;
-  table("stockTable", [{ t: "Item" }, { t: "Have", n: 1 }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "vs low", n: 1 }, { t: "Peak", n: 1 }, { t: "Supply", n: 1 }, { t: "Trend", n: 1 }, { t: "Value", n: 1 }, { t: "Signal", n: 1 }],
+  table("stockTable", [{ t: "Item" }, { t: "Have", n: 1, w: 64 }, { t: "Now", n: 1, w: 96 }, { t: "Launch low", n: 1, w: 104 }, { t: "vs low", n: 1, w: 80 }, { t: "Peak", n: 1, w: 96 }, { t: "Supply", n: 1, w: 80 }, { t: "Trend", n: 1, w: 128 }, { t: "Value", n: 1, w: 96 }, { t: "Signal", n: 1, w: 144 }],
     rows.map(it => rowId(it.id, [whItem(it.id, it.name), `<span data-sort="${it.have}" title="${esc((it.holders || []).join(", "))}">${short(it.have)}</span>`, money(it.now), money(it.low), signedPct(it.change),
       money(it.peak), supplyPct(it.supply), itemSpark(it), money(it.now * it.have, { short: true }), signal(it)])),
     "You don't hold anything this house has a price for.", { onRender: () => pickRows(mktItem) });
@@ -2256,7 +2268,7 @@ function modBrowse() {
   el("famChips").innerHTML = allFams.map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${k === mktFamily}">${esc(l)}</button>`).join("");
   const fam = mktFamily === "all" ? null : (M.families || []).find(f => f.key === mktFamily);
   const famRows = fam ? fam.ids.map(get).filter(Boolean) : allItems;
-  table("famTable", [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Launch low", n: 1 }, { t: "vs low", n: 1 }, { t: "Peak", n: 1 }, { t: "Supply", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }, { t: "Trend", n: 1 }, { t: "Signal", n: 1 }],
+  table("famTable", [{ t: "Item" }, { t: "Now", n: 1, w: 120 }, { t: "Launch low", n: 1, w: 112 }, { t: "vs low", n: 1, w: 88 }, { t: "Peak", n: 1, w: 120 }, { t: "Supply", n: 1, w: 88 }, { t: "Listed", n: 1, w: 72 }, { t: "Have", n: 1, w: 64 }, { t: "Trend", n: 1, w: 128 }, { t: "Signal", n: 1, w: 144 }],
     famRows.map(it => rowId(it.id, [whItem(it.id, it.name), money(it.now), money(it.low), signedPct(it.change), money(it.peak), supplyPct(it.supply),
       it.available != null ? `<span data-sort="${it.available}">${short(it.available)}</span>` : "",
       it.have ? `<span data-sort="${it.have}" title="${esc((it.holders || []).join(", "))}">${short(it.have)}</span>` : "",
@@ -2303,7 +2315,7 @@ function modMovers() {
     whItem(it.id, it.name) + (it.moveBasis === "shifted" && it.shifted ? " " + shiftPill(it.shifted) : ""),
     nowMoney({ ...it, nowAt: nowAtOf(it, M) }), signedPct(change(it, dir)), `<span class="muted" style="white-space:nowrap">${esc(moveBasisText(it, dir))}</span>`,
     soldCell(it.soldPerDay), listedCell(it), haveCell(it)]));
-  const cols = [{ t: "Item" }, { t: "Now", n: 1 }, { t: "Change", n: 1 }, { t: "Basis" }, { t: "Sold/day", n: 1 }, { t: "Listed", n: 1 }, { t: "Have", n: 1 }];
+  const cols = [{ t: "Item" }, { t: "Now", n: 1, w: 104 }, { t: "Change", n: 1, w: 80 }, { t: "Basis", w: 112 }, { t: "Sold/day", n: 1, w: 80 }, { t: "Listed", n: 1, w: 64 }, { t: "Have", n: 1, w: 56 }];
   const pct = v => rulePct(v) != null ? `${rulePct(v)}%` : "";
   el("kpis").innerHTML = [
     kpi("Rising", String(up.length), `+${pct(rule.RISE)} over 7 days, or a new level`),
@@ -2860,7 +2872,7 @@ function modTrends() {
   el("trendsNowHint").textContent = (fam ? "" : "Every item in a family, held by your characters, or traded at the auction house. ")
     + "Now vs market: the lowest buyout against the API's market value. This hour usually: how far above or below its usual price the item sells at this hour of the week (the family's pattern when the item has too little data of its own). Click a row for its prices.";
   const vsMarket = it => cellNum(it.now) != null && cellNum(it.market) ? it.now / it.market - 1 : null;
-  table("trendsTable", [{ t: "Item" }, { t: "Now vs market", n: 1 }, { t: "This hour usually", n: 1 }, { t: "Sold/day", n: 1 }, { t: "Trend", n: 1 }],
+  table("trendsTable", [{ t: "Item" }, { t: "Now vs market", n: 1, w: 128 }, { t: "This hour usually", n: 1, w: 176 }, { t: "Sold/day", n: 1, w: 96 }, { t: "Trend", n: 1, w: 80 }],
     list.map(it => {
       const sold = cellNum(it.soldPerDay);
       return rowId(it.id, [whItem(it.id, it.name), signedPct(vsMarket(it)), usualCell(hourUsual(it.id, key, ci)),
