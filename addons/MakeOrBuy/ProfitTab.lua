@@ -1044,7 +1044,7 @@ local function Undock()
         end
     end)
     if not panel.daylightLook and ns.Daylight then
-        local sizes = { [title] = 18, [summary] = 12, [legend] = 10, [showAllLabel] = 12, [targetLabel] = 12,
+        local sizes = { [title] = 18, [summary] = 12, [legend] = 10, [showAllLabel] = 10, [targetLabel] = 10,
             [restockText] = 12, [emptyText] = 13 }
         if ns.Daylight.SkinWindow(panel, sizes) then
             panel.daylightLook = true
@@ -1058,8 +1058,8 @@ local function Undock()
     if closeButton then
         closeButton:SetPoint("TOPRIGHT", -8, -8)
         closeButton:Show()
-        -- The mode buttons make room for it
-        modeButtons[MODE_ORDER[#MODE_ORDER]]:SetPoint("TOPRIGHT", -40, -8)
+        -- The mode buttons (laid out right to left from MODE_ORDER[1]) make room for it
+        modeButtons[MODE_ORDER[1]]:SetPoint("TOPRIGHT", -40, -8)
     end
 end
 
@@ -1077,7 +1077,7 @@ function ProfitTab.Dock()
     panel:SetScript("OnDragStop", nil)
     if closeButton then
         closeButton:Hide()
-        modeButtons[MODE_ORDER[#MODE_ORDER]]:SetPoint("TOPRIGHT", -12, -8)
+        modeButtons[MODE_ORDER[1]]:SetPoint("TOPRIGHT", -12, -8)
     end
 end
 
