@@ -233,6 +233,36 @@ return function(H)
         mailCleanup()
     end)
 
+    H.test("Daylight UI's mailbox: the panel sits beside it and a click fills its Send page", function()
+        local ns, ev = bootMail({})
+        -- Daylight UI shows its own window and parks the game's (still shown, out of sight)
+        _G.DaylightUIMail = widget(); DaylightUIMail.shown = true
+        local page = widget()
+        page.to, page.subject = widget(), widget()
+        page.subject.text = ""
+        local send = { page = page }
+        local window = { ShowTab = function(id) if id == "send" then page.shown = true end end }
+        DaylightUI = { GetModule = function(_, name) return name == "Mail" and { ns = { Window = window, Send = send } } or nil end }
+        ev.scripts.OnEvent(ev, "MAIL_SHOW")
+        mock.runTimers()
+        local f = ns.MailPanel.frame
+        H.truthy(f.shown, "panel shown")
+        local row = f.rows[1]
+        row.scripts.OnClick(row)
+        H.eq(page.shown, true, "switched to Daylight UI's Send page")
+        H.eq(page.to.text, "Tai-Lor")
+        H.eq(page.subject.text, "Materials")
+        H.eq(SendMailNameEditBox.text, "", "the game's parked form is left alone")
+        H.eq(#mock.used, 2)
+        -- A Daylight UI whose Send page can't be opened this way: nothing is attached, and it says so
+        page.shown = false
+        window.ShowTab = function() end
+        row.scripts.OnClick(row)
+        H.truthy(mock.chat[#mock.chat]:find("Open the Send Mail tab first", 1, true), mock.chat[#mock.chat])
+        DaylightUIMail, DaylightUI = nil, nil
+        mailCleanup()
+    end)
+
     H.test("mailbox with nothing for your alts keeps the panel hidden; /mob alts says why", function()
         local ns, ev = bootMail({ bag = { { itemID = 1, stackCount = 1 } } })
         ev.scripts.OnEvent(ev, "MAIL_SHOW")

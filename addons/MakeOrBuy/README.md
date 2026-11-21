@@ -55,7 +55,8 @@ costs 4s 59c, Make or Buy prices the bag with crafted bolts and shows the profit
    open Send Mail with that character's name, subject "Materials" and the stacks attached (whole stacks, as few extra as
    possible); you check it and press Send. Soulbound items, items you craft with yourself and characters of the
    other faction are left out. `/mob alts` prints the same list anywhere. Log in once with each alt (and open its
-   professions) so the others know about it.
+   professions) so the others know about it. With Daylight UI's mailbox, the list sits beside it and fills its
+   Send page.
 8. **With Daylight UI.** Daylight UI shows its own profession window and parks the game's out of sight, so Make or
    Buy moves into Daylight UI's window instead (through its plugin API):
    - A **Make or Buy pane** on the window's right edge: the picked recipe's cost (and what crafting your own
