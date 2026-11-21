@@ -460,6 +460,25 @@ local function creatureOfToken(unit)
     return kind == "creature" and npcID or nil
 end
 
+-- The creature a tooltip Daylight UI is filling shows. Its data names a unit token only when the tooltip has
+-- one (a world-cursor tooltip may not), so the tooltip's own data (its guid, what the plain lines read) and
+-- the mouseover come next.
+local function creatureOfDaylightTooltip(data)
+    local npcID = creatureOfToken(data and data.unit)
+    if npcID then
+        return npcID
+    end
+    local tip = GameTooltip
+    if tip and tip.GetTooltipData then
+        local ok, td = pcall(tip.GetTooltipData, tip)
+        local kind, id = Stats.ParseGUID(ok and type(td) == "table" and safe(td.guid) or nil)
+        if kind == "creature" then
+            return id
+        end
+    end
+    return creatureOfToken("mouseover")
+end
+
 function ns.OnUnitTooltip(tooltip, data)
     if not (ns.db and ns.db.tooltip) or tooltip ~= GameTooltip then
         return
@@ -507,7 +526,7 @@ function ns.HookDaylight()
         if not (ns.db and ns.db.tooltip) then
             return
         end
-        local npcID = creatureOfToken(data and data.unit)
+        local npcID = creatureOfDaylightTooltip(data)
         local f = npcID and ns.MobFacts(npcID, 3)
         if not f then
             return

@@ -156,6 +156,11 @@ return function(H)
         dl.style = nil
         W.tooltipCalls[2](GameTooltip, { guid = W.guid(1726, "Z") })
         H.eq(#W.tooltipLines, 1, "Daylight UI's tooltips off: the plain line")
+        -- A world-cursor tooltip names no unit token: the tooltip's own data says which mob it is
+        W.state.units.mouseover = nil
+        GameTooltip.GetTooltipData = function() return { guid = W.guid(1726, "W") } end
+        H.truthy(dl.draw(nil):find("tile 100c per kill", 1, true), "found through the tooltip's data")
+        GameTooltip.GetTooltipData = nil
         -- Unknown mob: nothing
         W.state.units.mouseover = { guid = W.guid(999, "M") }
         H.eq(dl.draw("mouseover"), "")
