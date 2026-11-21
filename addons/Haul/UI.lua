@@ -6,6 +6,15 @@ local UI = {}
 ns.UI = UI
 
 local WIDTH, HEIGHT = 200, 56 -- minimum width; it grows with the text
+UI.HEAD_COLOR = "ffe6b422" -- "Haul" in the first line (Daylight UI's accent while it is installed)
+UI.PAD = 8
+
+-- DaylightUI.API, when Daylight UI is installed: the window then wears its shell, font and accent
+local function Daylight()
+    local dui = _G.DaylightUI
+    local api = type(dui) == "table" and dui.API
+    return type(api) == "table" and api.major == 1 and api or nil
+end
 
 local function SavePosition(f)
     local point, _, relPoint, x, y = f:GetPoint()
@@ -22,7 +31,7 @@ local function Lines()
     local now = ns.Now()
     local elapsed = Session.Elapsed(s, now)
     local total = Session.Total(s)
-    local head = "|cffe6b422Haul|r " .. ns.Duration(elapsed) .. "  " .. ns.Rate(Session.PerHour(total, elapsed))
+    local head = "|c" .. UI.HEAD_COLOR .. "Haul|r " .. ns.Duration(elapsed) .. "  " .. ns.Rate(Session.PerHour(total, elapsed))
     if Session.IsPaused(s) then
         head = head .. (s.pauseReason == "afk" and "  |cff999999(AFK)|r" or "  |cff999999(paused)|r")
     end
@@ -102,7 +111,14 @@ function UI.Init()
     else
         f:SetPoint("TOP", UIParent, "TOP", 0, -120)
     end
-    if f.SetBackdrop then
+    local API = Daylight()
+    if API then
+        API.Skin(f, { window = true })
+        local r, g, b = API.Accent()
+        UI.HEAD_COLOR = string.format("ff%02x%02x%02x", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
+            math.floor(b * 255 + 0.5))
+        UI.PAD = 10
+    elseif f.SetBackdrop then
         f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
             insets = { left = 3, right = 3, top = 3, bottom = 3 } })
@@ -128,9 +144,16 @@ function UI.Init()
 
     f.lines = {}
     for i = 1, 3 do
-        local fs = f:CreateFontString(nil, "OVERLAY", i == 1 and "GameFontNormal" or "GameFontHighlightSmall")
+        local fs
+        if API then
+            fs = API.Text(f, i == 1 and "body" or "small", "LEFT")
+            local c = API.Colors()[i == 1 and "VALUE" or "TEXT"]
+            if c then fs:SetTextColor(c[1], c[2], c[3]) end
+        else
+            fs = f:CreateFontString(nil, "OVERLAY", i == 1 and "GameFontNormal" or "GameFontHighlightSmall")
+        end
         -- Left anchor only: the frame grows to fit the longest line (see UI.Update)
-        fs:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -7 - (i - 1) * 15)
+        fs:SetPoint("TOPLEFT", f, "TOPLEFT", UI.PAD, -(UI.PAD - 1) - (i - 1) * 15)
         fs:SetJustifyH("LEFT")
         if fs.SetWordWrap then fs:SetWordWrap(false) end
         f.lines[i] = fs
@@ -153,7 +176,7 @@ function UI.Update()
     f:SetWidth(UI.FitWidth(f.lines))
 end
 
--- Frame width that fits every line (8px padding each side), never below WIDTH.
+-- Frame width that fits every line (UI.PAD each side), never below WIDTH.
 function UI.FitWidth(lines)
     local widest = 0
     for _, fs in ipairs(lines) do
@@ -163,7 +186,7 @@ function UI.FitWidth(lines)
             widest = w
         end
     end
-    return math.max(WIDTH, math.ceil(widest) + 16)
+    return math.max(WIDTH, math.ceil(widest) + 2 * UI.PAD)
 end
 
 function UI.Toggle()

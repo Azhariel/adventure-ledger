@@ -102,6 +102,24 @@ return function(H)
         H.eq(ui.width, #ui.lines[2].text * 5 + 16, "grows to the income line plus padding")
     end)
 
+    H.test("with Daylight UI the window wears its shell, font and accent", function()
+        local skinned
+        DaylightUI = { API = { major = 1, minor = 13,
+            Skin = function(f) skinned = f end,
+            Accent = function() return 0.4, 0.5, 1 end,
+            Colors = function() return { VALUE = { 1, 1, 1 }, TEXT = { 0.9, 0.9, 0.9 } } end,
+            Text = function(parent) return parent:CreateFontString() end } }
+        local ns, f, ui = boot()
+        mock.ticker()
+        H.eq(skinned, ui, "Daylight UI's shell")
+        H.eq(ui.lines[1].text, "|cff6680ffHaul|r 0:00  --")
+        H.eq(ui.width, 200)
+        f:Fire("QUEST_TURNED_IN", 1, 0, 123456789012)
+        mock.ticker()
+        H.eq(ui.width, #ui.lines[2].text * 5 + 20, "its padding is a little wider")
+        DaylightUI = nil
+    end)
+
     H.test("toggle hides and shows, the choice and dragged position are saved", function()
         local ns, f, ui = boot()
         SlashCmdList.HAUL("")
