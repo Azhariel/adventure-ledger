@@ -10,12 +10,12 @@ Requires **Make or Buy** (for prices). Works with **WhereToFarm** if installed.
 Kill and loot as usual. DropLab counts in the background. Nothing to set up.
 
 - **Mob tooltip**: hover a mob you've killed for one line: `DropLab: 4s 12c per kill · ~3g 91s/h · 84 kills`. Hold
-  **Shift** for its most likely drops with your rate and range, e.g. `Linen Cloth  31% (23-41%)`. With Daylight UI's
+  **Shift** for its most likely drops with their icons and your rate, e.g. `Linen Cloth  31%`. With Daylight UI's
   tooltips the numbers are value tiles on its card. `/droplab tooltip` turns it off or on.
 - `/droplab` lists the mobs worth most per kill (5+ kills of a mob), with gold per hour at your pace.
 - `/droplab [item link or ID]` lists every mob you've seen drop it: your rate and range, items per kill, items per
   hour at your pace, the buy price, and Questie's rate next to yours (`matches`, `you get more` or `you get less`).
-- `/droplab target` prints your target's full record.
+- `/droplab target` prints your target's full record, with how sure each rate is (`31% (23-41%)`).
 - **WhereToFarm**: hovering a mob in its window adds `Your kills: 31% (23% to 41%) over 84 kills`.
 - **Dashboard**: the All characters view has a **Drop rates from your kills** table.
 

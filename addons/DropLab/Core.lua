@@ -311,7 +311,8 @@ function ns.MobFacts(npcID, maxDrops)
         if i > (maxDrops or 4) then
             break
         end
-        f.drops[i] = { name = ns.ItemName(r.itemID), rate = Stats.RateText(r) }
+        f.drops[i] = { itemID = r.itemID, name = ns.ItemName(r.itemID), rate = Stats.Percent(r.rate),
+            range = Stats.RateText(r) }
     end
     if mob.gather and mob.gather.opened > 0 then
         local best, bestQty
@@ -341,14 +342,28 @@ function ns.MobHeadline(f)
     return color(CYAN, "DropLab: ") .. table.concat(parts, color(GREY, " · "))
 end
 
--- The details under the headline: the drops with their rates, what gathering gave, unpriced drops
-function ns.MobDetailLines(f)
+-- An item's icon as an inline texture with a space after it, cropped like Daylight UI's ("" when unknown)
+function ns.ItemIcon(itemID)
+    local icon = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
+    if not icon then
+        return ""
+    end
+    return "|T" .. icon .. ":14:14:0:0:64:64:5:59:5:59|t "
+end
+
+-- The details under the headline: the drops with their rates, what gathering gave, unpriced drops. The
+-- tooltip shows each drop as icon, name and rate; withRange (chat) adds how sure the rate is.
+function ns.MobDetailLines(f, withRange)
     local lines = {}
     if f.rough then
         lines[#lines + 1] = color(GREY, "  few kills so far: rates are rough")
     end
     for _, d in ipairs(f.drops) do
-        lines[#lines + 1] = "  " .. d.name .. "  " .. color(WHITE, d.rate)
+        if withRange then
+            lines[#lines + 1] = "  " .. d.name .. "  " .. color(WHITE, d.range)
+        else
+            lines[#lines + 1] = "  " .. ns.ItemIcon(d.itemID) .. d.name .. "  " .. color(WHITE, d.rate)
+        end
     end
     if f.gather then
         lines[#lines + 1] = color(GREY, "  " .. f.gather)
@@ -359,14 +374,14 @@ function ns.MobDetailLines(f)
     return lines
 end
 
--- Lines describing one mob: the headline, then the details (/droplab target, and the tooltip with Shift held)
+-- Lines describing one mob in chat (/droplab target): the headline, then the details with each rate's range
 function ns.MobLines(npcID, maxDrops)
     local f = ns.MobFacts(npcID, maxDrops)
     if not f then
         return {}
     end
     local lines = { ns.MobHeadline(f) }
-    for _, line in ipairs(ns.MobDetailLines(f)) do
+    for _, line in ipairs(ns.MobDetailLines(f, true)) do
         lines[#lines + 1] = line
     end
     return lines
@@ -557,7 +572,7 @@ function ns.HookDaylight()
             lines.Text("Few kills so far: rates are rough.", off)
         end
         for _, d in ipairs(f.drops) do
-            lines.Line(d.name, d.rate)
+            lines.Line(ns.ItemIcon(d.itemID) .. d.name, d.rate)
         end
         if f.gather then
             lines.Text((f.gather:gsub("^%l", string.upper)), off)

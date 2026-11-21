@@ -97,7 +97,7 @@ return function(H)
         post(GameTooltip, { guid = W.guid(1726, "Z") })
         IsShiftKeyDown = nil
         H.truthy(W.tooltipLines[2]:find("Item2589", 1, true))
-        H.truthy(W.tooltipLines[2]:find("100% (57-100%)", 1, true), W.tooltipLines[2])
+        H.eq(W.tooltipLines[2], "  |Ticon2589:14:14:0:0:64:64:5:59:5:59|t Item2589  |cffffffff100%|r", "icon, name, rate")
         W.tooltipLines = {}
         post(GameTooltip, { guid = W.guid(999) })
         H.eq(#W.tooltipLines, 0, "unknown mob")
@@ -148,7 +148,8 @@ return function(H)
         IsShiftKeyDown = function() return true end
         card = dl.draw("mouseover")
         IsShiftKeyDown = nil
-        H.truthy(card:find("line Item2589 = 100% (57-100%)", 1, true), card)
+        H.truthy(card:find("line |Ticon2589:14:14:0:0:64:64:5:59:5:59|t Item2589 = 100%", 1, true), card)
+        H.eq(card:find("(57", 1, true), nil, "no range on the card")
         -- Its tooltips draw ours: the plain lines stay off, unless its tooltips are switched off
         W.tooltipLines = {}
         W.tooltipCalls[2](GameTooltip, { guid = W.guid(1726, "Z") })
@@ -256,6 +257,7 @@ return function(H)
         W.state.units.target = { guid = W.guid(1726), name = "Defias Pillager" }
         SlashCmdList.DROPLAB("target")
         H.truthy(chatHas("DropLab:"), W.chat[1])
+        H.truthy(chatHas("Item2589  |cffffffff100% (57-100%)"), "chat keeps how sure the rate is")
         W.state.units.target = nil
         W.chat = {}
         SlashCmdList.DROPLAB("target")
