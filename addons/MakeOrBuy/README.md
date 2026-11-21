@@ -56,7 +56,18 @@ costs 4s 59c, Make or Buy prices the bag with crafted bolts and shows the profit
    possible); you check it and press Send. Soulbound items, items you craft with yourself and characters of the
    other faction are left out. `/mob alts` prints the same list anywhere. Log in once with each alt (and open its
    professions) so the others know about it.
-8. `/mob auctionator` hides Auctionator's own "To Craft" / "Profit" lines, and the Make or Buy lines move up into their place. Run it again to bring them back. Auctionator's AH Search button stays. You can also do this in Auctionator's options under Crafting Info.
+8. **With Daylight UI.** Daylight UI shows its own profession window and parks the game's out of sight, so Make or
+   Buy moves into Daylight UI's window instead (through its plugin API):
+   - A **Make or Buy pane** on the window's right edge: the picked recipe's cost (and what crafting your own
+     reagents saves), profit and cash to spend, its reagents (click one: where to get it, needs WhereToFarm),
+     **Where to get**, **Search AH** (AH open) and **Add to restock** (right-click: one less). At the bottom, the
+     restock list (hover it for the full shopping list) with Search AH and Clear, and **Profit, Learn, Route
+     views**, which opens the Worth crafting views as their own window in Daylight UI's look (drag to move).
+   - Each recipe line shows **our profit** where Daylight UI shows its own, and a recipe on the restock list has
+     its count in the corner of its icon. Turn off Daylight UI's own **Profit** option (Professions settings):
+     it reads prices from Daylight UI's Auction House module, not Auctionator, so its numbers would differ.
+   - Switch to the game's window (Daylight UI's swap button) and the lines and side tab are back.
+9. `/mob auctionator` hides Auctionator's own "To Craft" / "Profit" lines, and the Make or Buy lines move up into their place. Run it again to bring them back. Auctionator's AH Search button stays. You can also do this in Auctionator's options under Crafting Info.
 
 ## Rules
 
@@ -93,11 +104,13 @@ costs 4s 59c, Make or Buy prices the bag with crafted bolts and shows the profit
 | `MailPanel.lua` | The "For your alts" list at the mailbox and attaching the items |
 | `Data/RecipeData.lua` | Generated from WhatsTraining (MIT) by `tools/gen_recipes.lua`: learn skill, trainer cost, source per recipe |
 | `UI.lua` | Lines, tooltip and click-to-search in the Professions window |
+| `Daylight.lua` | Daylight UI's profession window: the Make or Buy pane, profits on recipe lines, restock counts |
 
 Saved data: `MakeOrBuyCharDB` per character (recipes, restock list, skill estimates) and `MakeOrBuyDB` for the account
 (each character's crafting profile, for mailing alts).
 
-Optional addons: **Stockpile** (what you own), **WhereToFarm** (Shift-click). Make or Buy works without them.
+Optional addons: **Stockpile** (what you own), **WhereToFarm** (Shift-click), **Daylight UI** (its profession window).
+Make or Buy works without them.
 
 Public API (used by **DropLab**): `MakeOrBuy.API.GetBuyPrice(itemID)` (copper, `"vendor"` or `"ah"`) and
 `MakeOrBuy.API.GetSaleValue(itemID)` (AH after the 5% cut, or the vendor price if higher).
