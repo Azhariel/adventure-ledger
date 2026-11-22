@@ -28,6 +28,7 @@ class Fake:
         self.auth_fail = None     # (status, code, extra body text)
         self.page = 1000          # max files per list page
         self.list_503 = 0         # answer this many listings 503
+        self.list_expired = 0     # answer this many listings 401 expired_auth_token
         self.live_auth = False    # authorize as the live service answered a bucket-restricted key (2026-11-19)
 
 
@@ -100,6 +101,9 @@ def make_handler(fake):
                     return self._json(400, {"status": 400, "code": "bad_request", "message": "sha1 mismatch"})
                 fake.files[name] = (body, info, 1700000000000 + len(fake.files))
                 return self._json(200, {"fileName": name, "contentLength": len(body)})
+            if self.path == "/b2api/v3/b2_list_file_names" and fake.list_expired:
+                fake.list_expired -= 1
+                return self._json(401, {"status": 401, "code": "expired_auth_token", "message": "expired"})
             if self.path == "/b2api/v3/b2_list_file_names" and fake.list_503:
                 fake.list_503 -= 1
                 return self._json(503, {"status": 503, "code": "service_unavailable", "message": "busy"})
@@ -193,6 +197,12 @@ class B2Tests(unittest.TestCase):
         self.assertEqual(cm.exception.status, 503)
         self.fake.list_503 = 1
         self.assertEqual(self.client.list("wtf/"), [], "the default still retries")
+
+    def test_quick_list_reauthorizes_an_expired_token(self):
+        # B2 tokens last 24h; the page's quick status listing must still drop and renew one (2026-11-22)
+        self.client.list("wtf/", retry=False)
+        self.fake.list_expired = 1
+        self.assertEqual(self.client.list("wtf/", retry=False), [])
 
     def test_errors_never_contain_key(self):
         self.fake.auth_fail = (401, "bad_auth_token", KEY)

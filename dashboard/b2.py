@@ -94,8 +94,9 @@ class Client:
         except (urllib.error.URLError, OSError) as e:
             raise B2Error(0, "network", self._scrub(getattr(e, "reason", e))) from None
 
-    def _retrying(self, fn):
-        """Call fn(); retry on 503, network trouble and 401 (after dropping the token) as B2 asks."""
+    def _retrying(self, fn, retry=True):
+        """Call fn(); retry on 503, network trouble and 401 (after dropping the token) as B2 asks.
+        retry=False still renews an expired token once (it lasts 24h), but never waits on 503 or the network."""
         attempt, reauthed = 0, False
         while True:
             try:
@@ -105,7 +106,7 @@ class Client:
                         and self._acct is not None:
                     reauthed, self._acct = True, None
                     continue
-                if e.status in (0, 429, 503) and attempt < len(self.delays):
+                if retry and e.status in (0, 429, 503) and attempt < len(self.delays):
                     self.sleep(self.delays[attempt])
                     attempt += 1
                     continue
@@ -161,7 +162,7 @@ class Client:
                 start = got.get("nextFileName")
                 if not start:
                     return out
-        return self._retrying(run) if retry else run()
+        return self._retrying(run, retry)
 
     def upload(self, name, path, info, progress=None):
         sha1, size = _sha1(path), os.path.getsize(path)
