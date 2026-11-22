@@ -109,8 +109,19 @@ local function DaylightMail()
         return nil
     end
     local dui = _G.DaylightUI
-    local mod = type(dui) == "table" and dui.GetModule and dui:GetModule("Mail")
-    return f, type(mod) == "table" and mod.ns or nil
+    if type(dui) ~= "table" then
+        return f, nil
+    end
+    if type(dui.Mail) == "table" then   -- since Daylight UI folded Mail into its core (module "Mailbox")
+        return f, dui.Mail
+    end
+    for _, name in ipairs({ "Mailbox", "Mail" }) do   -- "Mail": the separate DaylightUI_Mail addon it had before
+        local mod = dui.GetModule and dui:GetModule(name)
+        if type(mod) == "table" and type(mod.ns) == "table" then
+            return f, mod.ns
+        end
+    end
+    return f, nil
 end
 MailPanel.DaylightMail = DaylightMail
 

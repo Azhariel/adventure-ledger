@@ -243,7 +243,9 @@ return function(H)
         page.subject.text = ""
         local send = { page = page }
         local window = { ShowTab = function(id) if id == "send" then page.shown = true end end }
-        DaylightUI = { GetModule = function(_, name) return name == "Mail" and { ns = { Window = window, Send = send } } or nil end }
+        -- Daylight UI as of 2026-11-22: the module is "Mailbox" and its parts live at DaylightUI.Mail
+        local mailNs = { Window = window, Send = send }
+        DaylightUI = { Mail = mailNs, GetModule = function(_, name) return name == "Mailbox" and { ns = mailNs } or nil end }
         ev.scripts.OnEvent(ev, "MAIL_SHOW")
         mock.runTimers()
         local f = ns.MailPanel.frame
