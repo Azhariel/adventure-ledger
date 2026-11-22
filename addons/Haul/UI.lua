@@ -176,12 +176,21 @@ function UI.Update()
     f:SetWidth(UI.FitWidth(f.lines))
 end
 
+-- The game's string width leaves out the 2px gap GetCoinTextureString puts before each coin icon
+-- (|T...:0:0:2:0|t), so a line of coins measures short and its last icon spills past the edge; 3 adds a pixel spare
+UI.ICON_SLACK = 3
+
 -- Frame width that fits every line (UI.PAD each side), never below WIDTH.
 function UI.FitWidth(lines)
     local widest = 0
     for _, fs in ipairs(lines) do
         local w = (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth())
             or (fs.GetStringWidth and fs:GetStringWidth())
+        local text = fs.GetText and fs:GetText()
+        if type(w) == "number" and type(text) == "string" then
+            local _, icons = text:gsub("|T", "")
+            w = w + icons * UI.ICON_SLACK
+        end
         if type(w) == "number" and w > widest then
             widest = w
         end

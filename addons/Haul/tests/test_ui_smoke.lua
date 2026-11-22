@@ -102,6 +102,15 @@ return function(H)
         H.eq(ui.width, #ui.lines[2].text * 5 + 16, "grows to the income line plus padding")
     end)
 
+    H.test("coin icons widen the frame: the game's width leaves out each icon's 2px gap (2026-11-22)", function()
+        local ns = boot()
+        local coin = "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t"
+        local fs = { text = ("x"):rep(60) .. coin .. coin .. coin }
+        function fs:GetText() return self.text end
+        function fs:GetStringWidth() return 300 end
+        H.eq(ns.UI.FitWidth({ fs }), 300 + 3 * ns.UI.ICON_SLACK + 2 * ns.UI.PAD)
+    end)
+
     H.test("with Daylight UI the window wears its shell, font and accent", function()
         local skinned
         DaylightUI = { API = { major = 1, minor = 13,
