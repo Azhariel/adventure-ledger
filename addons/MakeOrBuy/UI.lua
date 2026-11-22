@@ -55,8 +55,9 @@ local function Anchor()
     end
 end
 
--- "For 5 crafts: spend 7s 20c (using 12 you own)" when the batch or your items change the picture
-local function CashLine(plan, crafts)
+-- The cash entry ("For 5 crafts: spend 7s 20c (using 12 you own)") when the batch or your items change the
+-- picture, else nil
+local function CashEntry(plan, crafts)
     local have = ns.Owned()
     local lines, _, _, cash = ns.Planner.Expand(plan, crafts, have)
     local used = 0
@@ -66,11 +67,59 @@ local function CashLine(plan, crafts)
     if crafts == 1 and used == 0 then
         return nil
     end
-    local text = (crafts > 1 and ("For " .. crafts .. " crafts: ") or "") .. "spend " .. color("ffffffff", ns.Money(cash))
+    local entry = { key = "cash", label = (crafts > 1 and ("For " .. crafts .. " crafts: ") or "") .. "spend ",
+        short = crafts > 1 and ("Spend (" .. crafts .. "x)") or "Spend", value = ns.Money(cash), notes = {} }
     if used > 0 then
-        text = text .. color(GREEN, " (using " .. used .. " you own)")
+        entry.notes[1] = { text = "using " .. used .. " you own", kind = "good" }
     elseif crafts > 1 then
-        text = text .. color(GREY, " (" .. ns.Money(plan.total * crafts) .. " at market)")
+        entry.notes[1] = { text = ns.Money(plan.total * crafts) .. " at market", kind = "off" }
+    end
+    return entry
+end
+
+-- What the recipe block says, as data both views draw their own way (this window's text lines and Daylight
+-- UI's pane): a list of { key, label (the line's own prefix), short (a pane label), value, bad (value is a
+-- loss), notes = { { text, kind = "good" | "off" | "warn" } } }
+function UI.BlockEntries(recipe, plan, crafts)
+    local cost = { key = "cost", label = "Make or Buy cost: ", short = "Cost", value = ns.Money(plan.total), notes = {} }
+    local savings = plan.naiveTotal - plan.total
+    if savings >= 1 then
+        cost.notes[#cost.notes + 1] = { text = "saves " .. ns.Money(savings), kind = "good" }
+    elseif not ns.Planner.UsesSubCrafts(plan) then
+        cost.notes[#cost.notes + 1] = { text = "buying is cheapest", kind = "off" }
+    end
+    if not plan.complete then
+        cost.notes[#cost.notes + 1] = { text = "missing prices", kind = "warn" }
+    end
+
+    local entries = { cost }
+    local saleUnit, source = ns.SaleValue(recipe.outputItemID)
+    if saleUnit then
+        local profit = ns.Planner.ProfitFromValue(saleUnit, plan.outputQty, plan.total)
+        local e = { key = "profit", label = "Make or Buy profit: ", short = "Profit", value = ns.Money(profit),
+            bad = profit < 0, profit = profit, notes = {} }
+        if source == "vendor" then
+            e.notes[#e.notes + 1] = { text = "vendor", kind = "off" }
+        end
+        if source == "ah" and ns.Market.Risky(ns.MarketCheck(recipe.outputItemID)) then
+            e.notes[#e.notes + 1] = { text = "price unreliable", kind = "warn" }
+        end
+        entries[#entries + 1] = e
+    end
+    local cash = CashEntry(plan, crafts)
+    if cash then
+        entries[#entries + 1] = cash
+    end
+    return entries
+end
+
+local NOTE_COLORS = { good = GREEN, off = GREY, warn = ORANGE }
+
+-- One entry as this window's text line
+function UI.EntryText(e)
+    local text = e.label .. color(e.bad and RED or "ffffffff", e.value)
+    for _, n in ipairs(e.notes) do
+        text = text .. color(NOTE_COLORS[n.kind] or GREY, " (" .. n.text .. ")")
     end
     return text
 end
@@ -89,31 +138,9 @@ function UI.Refresh()
     local plan = ns.Planner.PlanRecipe(recipe, ns.recipesByOutput, ns.Price)
     lastPlan, lastCrafts = plan, UI.BatchSize()
 
-    local costText = "Make or Buy cost: " .. color("ffffffff", ns.Money(plan.total))
-    local savings = plan.naiveTotal - plan.total
-    if savings >= 1 then
-        costText = costText .. color(GREEN, " (saves " .. ns.Money(savings) .. ")")
-    elseif not ns.Planner.UsesSubCrafts(plan) then
-        costText = costText .. color(GREY, " (buying is cheapest)")
-    end
-    if not plan.complete then
-        costText = costText .. color(ORANGE, " (missing prices)")
-    end
-
-    local lines = { costText }
-    local saleUnit, source = ns.SaleValue(recipe.outputItemID)
-    if saleUnit then
-        local profit = ns.Planner.ProfitFromValue(saleUnit, plan.outputQty, plan.total)
-        local text = "Make or Buy profit: " .. color(profit >= 0 and "ffffffff" or RED, ns.Money(profit))
-            .. (source == "vendor" and color(GREY, " (vendor)") or "")
-        if source == "ah" and ns.Market.Risky(ns.MarketCheck(recipe.outputItemID)) then
-            text = text .. color(ORANGE, " (price unreliable)")
-        end
-        lines[#lines + 1] = text
-    end
-    local cash = CashLine(plan, lastCrafts)
-    if cash then
-        lines[#lines + 1] = cash
+    local lines = {}
+    for i, e in ipairs(UI.BlockEntries(recipe, plan, lastCrafts)) do
+        lines[i] = UI.EntryText(e)
     end
 
     frame.Text:SetText(table.concat(lines, "\n"))

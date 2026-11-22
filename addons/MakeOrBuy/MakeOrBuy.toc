@@ -2,10 +2,10 @@
 ## Title: Make or Buy
 ## Notes: Crafting cost and profit that also counts crafting your own reagents (e.g. Bolts from Wool Cloth). Skill-up routes, recipes worth learning, a restock shopping list, materials to mail your alts. With WhereToFarm: where to learn recipes and get reagents. Uses Auctionator prices.
 ## Author: Azhariel
-## Version: 0.8.2
+## Version: 0.9.0
 ## IconTexture: Interface\Icons\INV_Misc_Bag_09
 ## Dependencies: Auctionator
-## OptionalDeps: Stockpile, WhereToFarm
+## OptionalDeps: Stockpile, WhereToFarm, DaylightUI
 ## SavedVariables: MakeOrBuyDB
 ## SavedVariablesPerCharacter: MakeOrBuyCharDB
 ## Category: Professions
@@ -22,3 +22,4 @@ Core.lua
 UI.lua
 ProfitTab.lua
 MailPanel.lua
+Daylight.lua

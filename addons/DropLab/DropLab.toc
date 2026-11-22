@@ -2,9 +2,9 @@
 ## Title: DropLab
 ## Notes: Drop rates from your own kills, with how sure they are, and what each kill is worth.
 ## Author: Azhariel
-## Version: 0.1.0
+## Version: 0.2.0
 ## RequiredDeps: MakeOrBuy
-## OptionalDeps: WhereToFarm
+## OptionalDeps: WhereToFarm, DaylightUI
 ## SavedVariables: DropLabDB
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 

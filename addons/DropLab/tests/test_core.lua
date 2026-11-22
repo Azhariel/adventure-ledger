@@ -88,15 +88,104 @@ return function(H)
         local post = W.tooltipCalls[2]
         H.truthy(post, "hooked on PLAYER_LOGIN")
         post(GameTooltip, { guid = W.guid(1726, "Z") })
-        H.truthy(W.tooltipLines[1]:find("5 kills, 100c per kill", 1, true), W.tooltipLines[1])
+        H.eq(#W.tooltipLines, 1, "one line at a glance")
+        H.truthy(W.tooltipLines[1]:find("100c per kill", 1, true), W.tooltipLines[1])
+        H.truthy(W.tooltipLines[1]:find("5 kills", 1, true), W.tooltipLines[1])
+        -- Shift held: the drops follow
+        W.tooltipLines = {}
+        IsShiftKeyDown = function() return true end
+        post(GameTooltip, { guid = W.guid(1726, "Z") })
+        IsShiftKeyDown = nil
         H.truthy(W.tooltipLines[2]:find("Item2589", 1, true))
-        H.truthy(W.tooltipLines[2]:find("100% (57-100%)", 1, true), W.tooltipLines[2])
+        H.eq(W.tooltipLines[2], "  |Ticon2589:14:14:0:0:64:64:5:59:5:59|t Item2589  |cffffffff100%|r", "icon, name, rate")
         W.tooltipLines = {}
         post(GameTooltip, { guid = W.guid(999) })
         H.eq(#W.tooltipLines, 0, "unknown mob")
         SlashCmdList.DROPLAB("tooltip")
         post(GameTooltip, { guid = W.guid(1726) })
         H.eq(#W.tooltipLines, 0, "turned off")
+    end)
+
+    -- A fake DaylightUI.API that keeps the tooltip function DropLab hands it, and a fake `lines` builder that
+    -- records each piece as text
+    local function fakeDaylight(style)
+        local dl = { style = style }
+        DaylightUI = { API = { major = 1, minor = 13,
+            TooltipStyle = function() return dl.style end,
+            Colors = function() return { OFF = { 0.5, 0.5, 0.5 } } end,
+            For = function() return { AddTooltipLines = function(kind, fn) dl.kind, dl.fn = kind, fn end } end } }
+        function dl.draw(unit)
+            local out = {}
+            local lines = {
+                Section = function(t) out[#out + 1] = "section " .. t end,
+                Tiles = function(tiles)
+                    for _, t in ipairs(tiles) do out[#out + 1] = "tile " .. t[1] .. " " .. t[2] end
+                end,
+                Line = function(l, v) out[#out + 1] = "line " .. l .. " = " .. v end,
+                Text = function(t) out[#out + 1] = "text " .. t end,
+                Hint = function(t) out[#out + 1] = "hint " .. t end,
+            }
+            dl.fn(lines, { unit = unit, style = dl.style })
+            return table.concat(out, "\n")
+        end
+        return dl
+    end
+
+    H.test("Mob tooltip with Daylight UI: value tiles on its card, drops as rows with Shift, no plain lines", function()
+        local dl = fakeDaylight("rich")
+        local ns, frame = W.boot(H, { sale = { [LINEN] = 100 } })
+        for i = 1, 5 do
+            killAndLoot(frame, 1726, "T" .. i, "Defias Pillager", { { link = W.link(LINEN) } })
+        end
+        H.eq(dl.kind, "unit")
+        W.state.units.mouseover = { guid = W.guid(1726, "M") }
+        local card = dl.draw("mouseover")
+        H.truthy(card:find("section DropLab", 1, true), card)
+        H.truthy(card:find("tile 100c per kill", 1, true), card)
+        H.truthy(card:find("tile 5 kills", 1, true), card)
+        H.truthy(card:find("hint Shift: drops", 1, true), card)
+        H.eq(card:find("Item2589", 1, true), nil, "drops wait for Shift")
+        IsShiftKeyDown = function() return true end
+        card = dl.draw("mouseover")
+        IsShiftKeyDown = nil
+        H.truthy(card:find("line |Ticon2589:14:14:0:0:64:64:5:59:5:59|t Item2589 = 100%", 1, true), card)
+        H.eq(card:find("(57", 1, true), nil, "no range on the card")
+        -- Its tooltips draw ours: the plain lines stay off, unless its tooltips are switched off
+        W.tooltipLines = {}
+        W.tooltipCalls[2](GameTooltip, { guid = W.guid(1726, "Z") })
+        H.eq(#W.tooltipLines, 0, "not twice")
+        dl.style = nil
+        W.tooltipCalls[2](GameTooltip, { guid = W.guid(1726, "Z") })
+        H.eq(#W.tooltipLines, 1, "Daylight UI's tooltips off: the plain line")
+        -- A world-cursor tooltip names no unit token: the tooltip's own data says which mob it is
+        W.state.units.mouseover = nil
+        GameTooltip.GetTooltipData = function() return { guid = W.guid(1726, "W") } end
+        H.truthy(dl.draw(nil):find("tile 100c per kill", 1, true), "found through the tooltip's data")
+        GameTooltip.GetTooltipData = nil
+        -- Unknown mob: nothing
+        W.state.units.mouseover = { guid = W.guid(999, "M") }
+        H.eq(dl.draw("mouseover"), "")
+        DaylightUI = nil
+    end)
+
+    H.test("Shift over a known mob shows its tooltip again (details come and go); never in a fight", function()
+        local ns, frame = W.boot(H, { sale = { [LINEN] = 100 } })
+        killAndLoot(frame, 1726, "T1", "Defias Pillager", { { link = W.link(LINEN) } })
+        local refreshed = 0
+        GameTooltip.IsShown = function() return true end
+        GameTooltip.SetUnit = function(_, unit) if unit == "mouseover" then refreshed = refreshed + 1 end end
+        W.state.units.mouseover = { guid = W.guid(1726, "M") }
+        frame:Fire("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+        H.eq(refreshed, 1)
+        frame:Fire("MODIFIER_STATE_CHANGED", "LCTRL", 1)
+        H.eq(refreshed, 1, "other keys: nothing")
+        InCombatLockdown = function() return true end
+        frame:Fire("MODIFIER_STATE_CHANGED", "RSHIFT", 0)
+        InCombatLockdown = nil
+        H.eq(refreshed, 1, "in a fight: nothing")
+        W.state.units.mouseover = { guid = W.guid(999, "M") }
+        frame:Fire("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+        H.eq(refreshed, 1, "a mob we know nothing about: nothing")
     end)
 
     H.test("Mob tooltip: secret data guid or secret unit token is skipped without calling UnitGUID on it", function()
@@ -168,6 +257,7 @@ return function(H)
         W.state.units.target = { guid = W.guid(1726), name = "Defias Pillager" }
         SlashCmdList.DROPLAB("target")
         H.truthy(chatHas("DropLab:"), W.chat[1])
+        H.truthy(chatHas("Item2589  |cffffffff100% (57-100%)"), "chat keeps how sure the rate is")
         W.state.units.target = nil
         W.chat = {}
         SlashCmdList.DROPLAB("target")

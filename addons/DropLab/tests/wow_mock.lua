@@ -47,7 +47,8 @@ function M.install(opts)
     IsFishingLoot = function() return st.fishing end
     unpack = unpack or table.unpack
 
-    C_Item = { GetItemNameByID = function(id) return "Item" .. id end }
+    C_Item = { GetItemNameByID = function(id) return "Item" .. id end,
+        GetItemIconByID = function(id) return "icon" .. id end }
 
     local sale, buy = opts.sale or {}, opts.buy or {}
     MakeOrBuy = { API = {

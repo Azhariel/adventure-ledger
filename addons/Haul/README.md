@@ -12,7 +12,7 @@ Hover it for the top 8 items by value, gold per hour per zone and your last sess
 
 ## Use
 
-- `/haul` shows or hides the window. Drag it to move it.
+- `/haul` shows or hides the window. Drag it to move it. With Daylight UI installed it wears its look.
 - `/haul reset` archives the current session and starts a new one.
 - `/haul pause` / `/haul resume` stop and restart the clock. Nothing is counted while paused.
 - `/haul history` prints the last 5 sessions. The last 30 are kept per character.

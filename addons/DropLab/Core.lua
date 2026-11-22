@@ -290,31 +290,29 @@ function ns.MobName(npcID, mob)
     return (mob and mob.name) or ("npc " .. npcID)
 end
 
--- Lines describing one mob (tooltip and /droplab target)
-function ns.MobLines(npcID, maxDrops)
+-- What there is to say about one mob, as data (the tooltip in either look and /droplab target draw it):
+-- { n, basis, sample ("84 kills"), value (copper per kill, nil when unpriced or nothing), perHour, rough
+-- (fewer than MIN_KILLS), drops = { { name, rate } } (best first, up to maxDrops), gather (text), unpriced }
+function ns.MobFacts(npcID, maxDrops)
     local mob = ns.db and ns.db.mobs[npcID]
     if not mob then
-        return {}
+        return nil
     end
     local n, basis = Stats.Kills(mob)
     local value, unpriced = Stats.Value(mob, ns.SaleValue)
-    local head = Stats.SampleText(n, basis)
+    local f = { n = n, basis = basis, sample = Stats.SampleText(n, basis), rough = n < Stats.MIN_KILLS,
+        unpriced = unpriced, drops = {} }
     if value and value > 0 then
-        head = head .. ", " .. ns.Money(value) .. " per kill"
-    end
-    local kph = Stats.KillsPerHour(mob)
-    if kph and value and value > 0 then
-        head = head .. " (~" .. ns.Money(value * kph) .. "/h)"
-    end
-    local lines = { color(CYAN, "DropLab: ") .. head }
-    if n < Stats.MIN_KILLS then
-        lines[#lines + 1] = color(GREY, "  few kills so far: rates are rough")
+        f.value = value
+        local kph = Stats.KillsPerHour(mob)
+        f.perHour = kph and value * kph or nil
     end
     for i, r in ipairs(Stats.Drops(mob)) do
         if i > (maxDrops or 4) then
             break
         end
-        lines[#lines + 1] = "  " .. ns.ItemName(r.itemID) .. "  " .. color(WHITE, Stats.RateText(r))
+        f.drops[i] = { itemID = r.itemID, name = ns.ItemName(r.itemID), rate = Stats.Percent(r.rate),
+            range = Stats.RateText(r) }
     end
     if mob.gather and mob.gather.opened > 0 then
         local best, bestQty
@@ -324,12 +322,67 @@ function ns.MobLines(npcID, maxDrops)
             end
         end
         if best then
-            lines[#lines + 1] = color(GREY, string.format("  gathered %d times: %.1f %s each", mob.gather.opened,
-                bestQty / mob.gather.opened, ns.ItemName(best)))
+            f.gather = string.format("gathered %d times: %.1f %s each", mob.gather.opened, bestQty / mob.gather.opened,
+                ns.ItemName(best))
         end
     end
-    if unpriced > 0 then
-        lines[#lines + 1] = color(GREY, "  " .. unpriced .. " drop(s) have no price yet")
+    return f
+end
+
+-- One line at a glance: "DropLab: 4s 12c per kill · ~3g 91s/h · 84 kills"
+function ns.MobHeadline(f)
+    local parts = {}
+    if f.value then
+        parts[#parts + 1] = ns.Money(f.value) .. " per kill"
+        if f.perHour then
+            parts[#parts + 1] = "~" .. ns.Money(f.perHour) .. "/h"
+        end
+    end
+    parts[#parts + 1] = f.sample .. (f.rough and color(GREY, " (rough)") or "")
+    return color(CYAN, "DropLab: ") .. table.concat(parts, color(GREY, " · "))
+end
+
+-- An item's icon as an inline texture with a space after it, cropped like Daylight UI's ("" when unknown)
+function ns.ItemIcon(itemID)
+    local icon = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
+    if not icon then
+        return ""
+    end
+    return "|T" .. icon .. ":14:14:0:0:64:64:5:59:5:59|t "
+end
+
+-- The details under the headline: the drops with their rates, what gathering gave, unpriced drops. The
+-- tooltip shows each drop as icon, name and rate; withRange (chat) adds how sure the rate is.
+function ns.MobDetailLines(f, withRange)
+    local lines = {}
+    if f.rough then
+        lines[#lines + 1] = color(GREY, "  few kills so far: rates are rough")
+    end
+    for _, d in ipairs(f.drops) do
+        if withRange then
+            lines[#lines + 1] = "  " .. d.name .. "  " .. color(WHITE, d.range)
+        else
+            lines[#lines + 1] = "  " .. ns.ItemIcon(d.itemID) .. d.name .. "  " .. color(WHITE, d.rate)
+        end
+    end
+    if f.gather then
+        lines[#lines + 1] = color(GREY, "  " .. f.gather)
+    end
+    if f.unpriced > 0 then
+        lines[#lines + 1] = color(GREY, "  " .. f.unpriced .. " drop(s) have no price yet")
+    end
+    return lines
+end
+
+-- Lines describing one mob in chat (/droplab target): the headline, then the details with each rate's range
+function ns.MobLines(npcID, maxDrops)
+    local f = ns.MobFacts(npcID, maxDrops)
+    if not f then
+        return {}
+    end
+    local lines = { ns.MobHeadline(f) }
+    for _, line in ipairs(ns.MobDetailLines(f, true)) do
+        lines[#lines + 1] = line
     end
     return lines
 end
@@ -389,8 +442,64 @@ end
 ----------------------------------------------------------------------------------------------------
 -- Mob tooltip
 
+local daylightLines -- Daylight UI draws our lines in its own tooltips (see HookDaylight)
+
+local function ShiftDown()
+    return IsShiftKeyDown and IsShiftKeyDown() and true or false
+end
+
+-- The tooltip: the headline alone, everything with Shift held
+function ns.TooltipLines(npcID, shift)
+    local f = ns.MobFacts(npcID, 3)
+    if not f then
+        return {}
+    end
+    local lines = { ns.MobHeadline(f) }
+    if shift then
+        for _, line in ipairs(ns.MobDetailLines(f)) do
+            lines[#lines + 1] = line
+        end
+    end
+    return lines
+end
+
+-- The creature behind a unit token, or nil. The token can itself be a secret value (e.g. nameplates); UnitGUID
+-- then raises from tainted code, so secret tokens are skipped and errors contained.
+local function creatureOfToken(unit)
+    unit = safe(unit)
+    if not unit then
+        return nil
+    end
+    local ok, g = pcall(UnitGUID, unit)
+    local kind, npcID = Stats.ParseGUID(ok and safe(g) or nil)
+    return kind == "creature" and npcID or nil
+end
+
+-- The creature a tooltip Daylight UI is filling shows. Its data names a unit token only when the tooltip has
+-- one (a world-cursor tooltip may not), so the tooltip's own data (its guid, what the plain lines read) and
+-- the mouseover come next.
+local function creatureOfDaylightTooltip(data)
+    local npcID = creatureOfToken(data and data.unit)
+    if npcID then
+        return npcID
+    end
+    local tip = GameTooltip
+    if tip and tip.GetTooltipData then
+        local ok, td = pcall(tip.GetTooltipData, tip)
+        local kind, id = Stats.ParseGUID(ok and type(td) == "table" and safe(td.guid) or nil)
+        if kind == "creature" then
+            return id
+        end
+    end
+    return creatureOfToken("mouseover")
+end
+
 function ns.OnUnitTooltip(tooltip, data)
     if not (ns.db and ns.db.tooltip) or tooltip ~= GameTooltip then
+        return
+    end
+    -- Daylight UI's tooltips (either look) draw our lines themselves
+    if daylightLines and daylightLines.On() then
         return
     end
     local guid = data and safe(data.guid)
@@ -408,9 +517,91 @@ function ns.OnUnitTooltip(tooltip, data)
     if kind ~= "creature" or not ns.db.mobs[npcID] then
         return
     end
-    for _, line in ipairs(ns.MobLines(npcID, 3)) do
+    for _, line in ipairs(ns.TooltipLines(npcID, ShiftDown())) do
         tooltip:AddLine(line, 1, 0.82, 0)
     end
+end
+
+-- Daylight UI (DaylightUI.API 1.7+): our lines as pieces of its tooltips. On its Rich card the headline is
+-- value tiles (1.12+); with Shift the drops follow as rows.
+function ns.HookDaylight()
+    local dui = _G.DaylightUI
+    local API = type(dui) == "table" and dui.API
+    if type(API) ~= "table" or API.major ~= 1 or (API.minor or 0) < 7 or daylightLines then
+        return false
+    end
+    local me = API.For and API.For("DropLab")
+    if not (me and me.AddTooltipLines) then
+        return false
+    end
+    local rich = (API.minor or 0) >= 12
+    -- Daylight UI's tooltips are on (Rich or Simple); before 1.12 there's no asking, so assume they are
+    daylightLines = { On = function() return API.TooltipStyle == nil or API.TooltipStyle() ~= nil end }
+    me.AddTooltipLines("unit", function(lines, data)
+        if not (ns.db and ns.db.tooltip) then
+            return
+        end
+        local npcID = creatureOfDaylightTooltip(data)
+        local f = npcID and ns.MobFacts(npcID, 3)
+        if not f then
+            return
+        end
+        if rich then
+            lines.Section("DropLab")
+            local tiles = {}
+            if f.value then
+                tiles[#tiles + 1] = { ns.Money(f.value), "per kill" }
+                if f.perHour then
+                    tiles[#tiles + 1] = { ns.Money(f.perHour), "an hour" }
+                end
+            end
+            local word = f.basis == "looted" and (f.n == 1 and "corpse" or "corpses") or (f.n == 1 and "kill" or "kills")
+            tiles[#tiles + 1] = { tostring(f.n), word }
+            lines.Tiles(tiles)
+        else
+            lines.Line("DropLab", (f.value and (ns.Money(f.value) .. " per kill, ") or "") .. f.sample)
+        end
+        if not ShiftDown() then
+            if #f.drops > 0 then
+                lines.Hint("Shift: drops")
+            end
+            return
+        end
+        local off = API.Colors and API.Colors().OFF
+        if f.rough then
+            lines.Text("Few kills so far: rates are rough.", off)
+        end
+        for _, d in ipairs(f.drops) do
+            lines.Line(ns.ItemIcon(d.itemID) .. d.name, d.rate)
+        end
+        if f.gather then
+            lines.Text((f.gather:gsub("^%l", string.upper)), off)
+        end
+        if f.unpriced > 0 then
+            lines.Text(f.unpriced .. " drop(s) have no price yet.", off)
+        end
+    end)
+    return true
+end
+
+-- Shift pressed or let go over a mob: show its tooltip again, so the details come and go. Not in a fight:
+-- unit tokens can be secret then.
+function ns.OnModifierChanged(key)
+    if not (ns.db and ns.db.tooltip) or type(key) ~= "string" or not key:find("SHIFT") then
+        return
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
+    local tip = GameTooltip
+    if not (tip and tip.IsShown and tip:IsShown() and tip.SetUnit) then
+        return
+    end
+    local npcID = creatureOfToken("mouseover")
+    if not (npcID and ns.db.mobs[npcID]) then
+        return
+    end
+    pcall(tip.SetUnit, tip, "mouseover")
 end
 
 local function hookTooltip()
@@ -465,6 +656,7 @@ local handlers = {
     end,
     PLAYER_LOGIN = function()
         hookTooltip()
+        ns.HookDaylight()
         ns.NameMobs()
         -- Questie loads its data a few seconds after login
         if C_Timer and C_Timer.After then
@@ -478,6 +670,7 @@ local handlers = {
     CHAT_MSG_COMBAT_XP_GAIN = function(text) ns.OnXP(text) end,
     PLAYER_TARGET_CHANGED = function() ns.LearnUnit("target") end,
     UPDATE_MOUSEOVER_UNIT = function() ns.LearnUnit("mouseover") end,
+    MODIFIER_STATE_CHANGED = function(key) ns.OnModifierChanged(key) end,
 }
 
 local frame = CreateFrame("Frame")

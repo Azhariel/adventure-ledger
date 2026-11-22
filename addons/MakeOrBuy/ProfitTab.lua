@@ -158,6 +158,8 @@ local MODE_ORDER = { "learn", "route", "skill", "profit" } -- laid out right to 
 local tab, panel, scrollBox, slotHeaders, nameHeader, emptyText, title, summary, legend, showAll, showAllLabel,
     modeButtons, targetBox, targetLabel, shopButton, restockText, restockInfo, restockSearch, restockClear
 local lastRoute
+local host = "book" -- where the panel sits: "book" (the game's Professions window) or "window" (its own)
+local backing = {} -- the panel's own background textures (hidden in Daylight UI's shell)
 
 local function settings()
     local db = ns.db or {}
@@ -189,6 +191,10 @@ end
 -- Rows
 
 local function OpenRecipe(recipeID)
+    if ns.Daylight and ns.Daylight.InUse() then
+        ns.Daylight.SelectRecipe(recipeID)
+        return
+    end
     ProfitTab.Deactivate()
     local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
     local page = ProfessionsFrame.CraftingPage
@@ -560,6 +566,7 @@ local function CreatePanel()
     if not (art.SetAtlas and pcall(art.SetAtlas, art, "Profession-Background-Overview")) then
         art:Hide()
     end
+    backing = { bg, art }
 
     title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 12, -10)
@@ -931,6 +938,20 @@ end
 
 local function Sync()
     queued = false
+    -- Daylight UI's profession window in use: the game's window is parked out of sight, so no tab; the
+    -- panel opens as its own window from Make or Buy's pane instead (ProfitTab.ToggleWindow)
+    if ns.Daylight and ns.Daylight.InUse() then
+        tab:Hide()
+        returnTab:Hide()
+        if host == "book" then
+            active = false
+            panel:Hide()
+        end
+        return
+    end
+    if host == "window" then
+        ProfitTab.Dock()
+    end
     if not book:IsVisible() then
         active = false
         panel:Hide()
@@ -984,6 +1005,100 @@ end
 function ProfitTab.Toggle()
     active = not active
     Sync()
+end
+
+-- Daylight UI's window opened or closed: the tab and panel follow on the next frame
+function ProfitTab.HostChanged()
+    if book then
+        Request()
+    end
+end
+
+-- The panel as its own window (Daylight UI's profession window in use): movable, with a close button,
+-- in Daylight UI's look. Its place is saved.
+ProfitTab.WINDOW_W, ProfitTab.WINDOW_H = 760, 520
+
+local closeButton
+local function Undock()
+    host = "window"
+    panel:Hide()
+    panel:SetParent(UIParent)
+    panel:SetFrameStrata("HIGH")
+    panel:ClearAllPoints()
+    panel:SetSize(ProfitTab.WINDOW_W, ProfitTab.WINDOW_H)
+    local at = ns.db and ns.db.viewsAt
+    if type(at) == "table" and at[1] then
+        panel:SetPoint(at[1], UIParent, at[1], at[2] or 0, at[3] or 0)
+    else
+        panel:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+    end
+    panel:SetMovable(true)
+    panel:SetClampedToScreen(true)
+    panel:RegisterForDrag("LeftButton")
+    panel:SetScript("OnDragStart", panel.StartMoving)
+    panel:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local point, _, _, x, y = self:GetPoint(1)
+        if ns.db and point then
+            ns.db.viewsAt = { point, x, y }
+        end
+    end)
+    if not panel.daylightLook and ns.Daylight then
+        local sizes = { [title] = 18, [summary] = 12, [legend] = 10, [showAllLabel] = 10, [targetLabel] = 10,
+            [restockText] = 12, [emptyText] = 13 }
+        if ns.Daylight.SkinWindow(panel, sizes) then
+            panel.daylightLook = true
+            for _, t in ipairs(backing) do
+                t:Hide()
+            end
+            local API = ns.Daylight.API()
+            closeButton = API and API.Close(panel, ProfitTab.HideWindow)
+        end
+    end
+    if closeButton then
+        closeButton:SetPoint("TOPRIGHT", -8, -8)
+        closeButton:Show()
+        -- The mode buttons (laid out right to left from MODE_ORDER[1]) make room for it
+        modeButtons[MODE_ORDER[1]]:SetPoint("TOPRIGHT", -40, -8)
+    end
+end
+
+-- Back on the game's Professions window, as its side tab's page
+function ProfitTab.Dock()
+    if host ~= "window" then
+        return
+    end
+    host = "book"
+    panel:Hide()
+    panel:SetParent(book)
+    panel:SetFrameStrata(book:GetFrameStrata())
+    panel:SetMovable(false)
+    panel:SetScript("OnDragStart", nil)
+    panel:SetScript("OnDragStop", nil)
+    if closeButton then
+        closeButton:Hide()
+        modeButtons[MODE_ORDER[1]]:SetPoint("TOPRIGHT", -12, -8)
+    end
+end
+
+function ProfitTab.ToggleWindow()
+    if not panel then
+        return
+    end
+    if host == "window" and panel:IsShown() then
+        panel:Hide()
+        return
+    end
+    if host ~= "window" then
+        Undock()
+    end
+    panel:Show()
+end
+
+function ProfitTab.HideWindow()
+    if panel and host == "window" then
+        panel:Hide()
+    end
 end
 
 local function MakeSideTab(name)

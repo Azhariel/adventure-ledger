@@ -100,24 +100,52 @@ local function attachedCount()
     return n, max
 end
 
-local function openSendTab()
-    if SendMailFrame and SendMailFrame:IsShown() then
-        return true
+-- Daylight UI's mailbox window, when it shows in place of the game's (which it parks out of sight): its
+-- frame and its Mail module's parts. Its Send page and To/Subject boxes aren't part of Daylight UI's
+-- promised API, so every use is checked and falls back to asking you to type the name.
+local function DaylightMail()
+    local f = _G.DaylightUIMail
+    if not (type(f) == "table" and f.IsShown and f:IsShown()) then
+        return nil
     end
-    if MailFrameTab_OnClick then
+    local dui = _G.DaylightUI
+    local mod = type(dui) == "table" and dui.GetModule and dui:GetModule("Mail")
+    return f, type(mod) == "table" and mod.ns or nil
+end
+MailPanel.DaylightMail = DaylightMail
+
+-- The Send page's To and Subject boxes (the game's, or Daylight UI's), after switching to it; nil when the
+-- Send page can't be opened
+local function openSendTab()
+    local dl, M = DaylightMail()
+    if dl then
+        local send = M and M.Send
+        if M and M.Window and type(M.Window.ShowTab) == "function" then
+            pcall(M.Window.ShowTab, "send")
+        end
+        local page = send and send.page
+        if type(page) == "table" and page.IsShown and page:IsShown() then
+            return true, page.to, page.subject
+        end
+        return false
+    end
+    if not (SendMailFrame and SendMailFrame:IsShown()) and MailFrameTab_OnClick then
         pcall(MailFrameTab_OnClick, nil, 2)
     end
-    return SendMailFrame and SendMailFrame:IsShown()
+    if SendMailFrame and SendMailFrame:IsShown() then
+        return true, SendMailNameEditBox, SendMailSubjectEditBox
+    end
+    return false
 end
 
 -- Attaches what a suggestion gives to a mail for that character. Returns the number of items attached.
 function MailPanel.Attach(s)
-    if not openSendTab() then
+    local opened, box, subject = openSendTab()
+    if not opened then
         ns.Print("Open the Send Mail tab first.")
         return 0
     end
     local recipient = ns.Alts.Recipient(s.profile)
-    local box = SendMailNameEditBox
     local current = box and box:GetText() or ""
     local used, max = attachedCount()
     if used > 0 and current ~= "" and current ~= recipient then
@@ -129,8 +157,8 @@ function MailPanel.Attach(s)
         return 0
     end
     if box then box:SetText(recipient) end
-    if SendMailSubjectEditBox and (SendMailSubjectEditBox:GetText() or "") == "" then
-        SendMailSubjectEditBox:SetText("Materials")
+    if subject and (subject:GetText() or "") == "" then
+        subject:SetText("Materials")
     end
     local stacks = MailPanel.BagStacks()[s.itemID] or {}
     local picked, total = ns.Alts.PickStacks(stacks, s.give, max - used)
@@ -139,7 +167,7 @@ function MailPanel.Attach(s)
     end
     if total > 0 then
         ns.Print("Attached " .. total .. "x " .. ns.ItemName(s.itemID) .. " for " .. ns.Alts.DisplayName(s.profile)
-            .. ". Check the name and press Send.")
+            .. (box and ". Check the name and press Send." or (". Type " .. recipient .. " in To and press Send.")))
     end
     return total
 end
@@ -220,6 +248,27 @@ local function build()
     return f
 end
 
+-- Next to the mail window on screen: Daylight UI's when it is open (the game's is parked out of sight), in
+-- Daylight UI's look; else the game's
+local function Place(f)
+    local dl = DaylightMail()
+    f:ClearAllPoints()
+    if dl then
+        f:SetParent(UIParent)
+        f:SetFrameStrata(dl:GetFrameStrata())
+        f:SetPoint("TOPLEFT", dl, "TOPRIGHT", 6, 0)
+        if not f.daylightLook and ns.Daylight and ns.Daylight.SkinWindow(f, { [f.title] = 15, [f.hint] = 10 }) then
+            f.daylightLook = true
+            if f.SetBackdrop then f:SetBackdrop(nil) end
+        end
+    elseif MailFrame then
+        f:SetParent(MailFrame)
+        f:SetPoint("TOPLEFT", MailFrame, "TOPRIGHT", 4, -28)
+    else
+        f:SetPoint("CENTER")
+    end
+end
+
 -- Row text: "40x Linen Cloth > Bob Smith  restock 20"
 function MailPanel.RowText(s)
     local give, item, who = describe(s)
@@ -256,6 +305,7 @@ function MailPanel.Refresh()
     f.hint:SetText((#list > ROWS and ("+" .. (#list - ROWS) .. " more (/mob alts). ") or "")
         .. "Click to attach; you press Send.")
     f:SetHeight(48 + shown * ROW_HEIGHT)
+    Place(f)
     f:Show()
 end
 

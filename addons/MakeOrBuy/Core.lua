@@ -147,6 +147,9 @@ function ns.RestockAdd(recipeID, delta)
     if ns.ProfitTab then
         ns.ProfitTab.Refresh()
     end
+    if ns.Daylight then
+        ns.Daylight.Invalidate()
+    end
     return n
 end
 
@@ -238,6 +241,9 @@ local function RefreshAll()
     end
     if ns.ProfitTab then
         ns.ProfitTab.Refresh()
+    end
+    if ns.Daylight then
+        ns.Daylight.Invalidate()
     end
 end
 
@@ -350,6 +356,12 @@ events:SetScript("OnEvent", function(_, event, arg1)
         RefreshAll() -- the Search AH buttons and hints depend on it
     elseif event == "PLAYER_LOGIN" or event == "PLAYER_LOGOUT" then
         ns.PublishSelf() -- logout: the restock needs reflect what you hold as you leave
+        if event == "PLAYER_LOGIN" and ns.Daylight then
+            local ok, err = pcall(ns.Daylight.Init)
+            if not ok and geterrorhandler then
+                geterrorhandler()(err)
+            end
+        end
     end
 end)
 
