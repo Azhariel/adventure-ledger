@@ -147,7 +147,8 @@ return function(H)
             if k == "IsShown" then return function(s) return s.shown end end
             if k == "SetText" then return function(s, v) s.text = v end end
             if k == "GetText" then return function(s) return s.text end end
-            if k == "SetScript" then return function(s, n, fn) s.scripts[n] = fn end end
+            if k == "SetScript" or k == "HookScript" then return function(s, n, fn) s.scripts[n] = fn end end
+            if k == "SetParent" then return function(s, p) s.parent = p end end
             if k == "CreateFontString" or k == "CreateTexture" then return function() return widget() end end
             return function() end
         end })
@@ -259,6 +260,11 @@ return function(H)
         window.ShowTab = function() end
         row.scripts.OnClick(row)
         H.truthy(mock.chat[#mock.chat]:find("Open the Send Mail tab first", 1, true), mock.chat[#mock.chat])
+        -- It lives on Daylight UI's window and closes with it, even when MAIL_CLOSED doesn't come
+        H.eq(f.parent, DaylightUIMail, "on Daylight UI's window")
+        DaylightUIMail.shown = false
+        DaylightUIMail.scripts.OnHide(DaylightUIMail)
+        H.eq(f.shown, false, "closed with the mailbox")
         DaylightUIMail, DaylightUI = nil, nil
         mailCleanup()
     end)

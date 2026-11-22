@@ -248,14 +248,19 @@ local function build()
     return f
 end
 
--- Next to the mail window on screen: Daylight UI's when it is open (the game's is parked out of sight), in
+-- Next to the mail window: on Daylight UI's when it is open (the game's is parked out of sight), in
 -- Daylight UI's look; else the game's
+local followed -- the Daylight UI window whose OnHide closes the panel
 local function Place(f)
     local dl = DaylightMail()
     f:ClearAllPoints()
     if dl then
-        f:SetParent(UIParent)
-        f:SetFrameStrata(dl:GetFrameStrata())
+        -- On its window, so the panel closes with it: Daylight UI shuts its window apart from the game's
+        f:SetParent(dl)
+        if followed ~= dl and dl.HookScript then
+            dl:HookScript("OnHide", function() f:Hide() end)
+            followed = dl
+        end
         f:SetPoint("TOPLEFT", dl, "TOPRIGHT", 6, 0)
         if not f.daylightLook and ns.Daylight and ns.Daylight.SkinWindow(f, { [f.title] = 15, [f.hint] = 10 }) then
             f.daylightLook = true
