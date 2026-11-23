@@ -1,6 +1,6 @@
 -- House keys: which auction house ("PvP Horde", "PvP Neutral") each price book describes.
--- Auctionator's book is keyed by ruleset only and the faction comes from the account's characters; Ledger Link
--- records the side itself. Pure functions: build.lua passes in what it read.
+-- Auctionator's book is keyed by ruleset only and the faction comes from the account's characters, or (Auctionator
+-- 351 on Forever) by "<ruleset> <faction>"; Ledger Link records the side itself. Pure functions: build.lua passes in what it read.
 local M = require("model")
 
 local H = {}
@@ -40,6 +40,31 @@ local function sortedKeys(t)
     return keys
 end
 
+-- The house an Auctionator book describes, or nil (after a warning) when it can't be told. Auctionator 351 keys
+-- Forever books "<ruleset> <faction>"; older ones key by ruleset alone, so the account's characters tell the faction.
+local function auctionatorHouse(ruleset, chars, warn)
+    local keyRuleset, keyFaction = ruleset:match("^(.+) (%a+)$")
+    if keyFaction == "Horde" or keyFaction == "Alliance" then
+        return H.key(keyRuleset, keyFaction)
+    end
+    local seen, n, only = {}, 0, nil
+    for _, c in ipairs(chars) do
+        if c.ruleset == ruleset and not seen[c.faction] then
+            seen[c.faction] = true; n = n + 1; only = c.faction
+        end
+    end
+    local faction = only
+    if n == 0 then faction = mostCommon(chars, "faction") end
+    if n > 1 then
+        warn("both factions play " .. ruleset .. ": faction prices come from Ledger Link's books only")
+    elseif not faction then
+        warn("Auctionator's " .. ruleset .. " book: this account has no characters to tell which faction it belongs to")
+    else
+        return H.key(ruleset, faction)
+    end
+    return nil
+end
+
 -- accounts: { { auctionator = {books}|nil, ledger = S.ledger result|nil, chars = { { realm, faction } } } }
 -- Returns { [houseKey] = { priceBook, ... } }.
 function H.collect(accounts, warn)
@@ -53,27 +78,20 @@ function H.collect(accounts, warn)
         local chars = usable(acc.chars)
         if acc.auctionator and acc.auctionator.books then
             for _, ruleset in ipairs(sortedKeys(acc.auctionator.books)) do
-                local seen, n, only = {}, 0, nil
-                for _, c in ipairs(chars) do
-                    if c.ruleset == ruleset and not seen[c.faction] then
-                        seen[c.faction] = true; n = n + 1; only = c.faction
-                    end
-                end
-                local faction = only
-                if n == 0 then faction = mostCommon(chars, "faction") end
-                if n > 1 then
-                    warn("both factions play " .. ruleset .. ": faction prices come from Ledger Link's books only")
-                elseif not faction then
-                    warn("Auctionator's " .. ruleset .. " book: this account has no characters to tell which faction it belongs to")
-                else
-                    add(H.key(ruleset, faction), acc.auctionator.books[ruleset])
-                end
+                local key = auctionatorHouse(ruleset, chars, warn)
+                if key then add(key, acc.auctionator.books[ruleset]) end
             end
         end
         if acc.ledger then
             for _, realm in ipairs(sortedKeys(acc.ledger.books)) do
+                -- a blank realm (GetRealmName() on Forever since 2026-11-21): the account's ruleset
+                local ruleset = M.ruleset(realm) or mostCommon(chars, "ruleset")
                 for _, side in ipairs(sortedKeys(acc.ledger.books[realm])) do
-                    add(H.key(M.ruleset(realm), side), acc.ledger.books[realm][side])
+                    if ruleset then
+                        add(H.key(ruleset, side), acc.ledger.books[realm][side])
+                    else
+                        warn("Ledger Link's book without a realm: this account has no characters to tell which ruleset it belongs to")
+                    end
                 end
             end
             if acc.ledger.legacy then

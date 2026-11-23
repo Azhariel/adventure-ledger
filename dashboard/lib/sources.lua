@@ -103,7 +103,9 @@ function S.ledger(env)
     local visits = {}
     for _, v in ipairs(d.visits or {}) do
         if type(v) == "table" and v.t then
-            visits[#visits + 1] = { t = v.t, kind = v.kind, zone = v.zone, realm = v.realm, faction = v.faction }
+            -- a blank realm (GetRealmName() on Forever since 2026-11-21) is no realm, like visits saved before realms
+            local realm = v.realm ~= "" and v.realm or nil
+            visits[#visits + 1] = { t = v.t, kind = v.kind, zone = v.zone, realm = realm, faction = v.faction }
         end
     end
     if not any and not legacy and #visits == 0 then return nil end

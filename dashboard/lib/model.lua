@@ -1140,7 +1140,7 @@ end
 
 -- Ruleset from the internal server name ("CAMWOW US2 Realm 2 PvP" -> "PvP"); other names are returned as they are
 function M.ruleset(realm)
-    if type(realm) ~= "string" then return nil end
+    if type(realm) ~= "string" or realm == "" then return nil end
     return realm:match("[Rr]ealm %d+ (.+)$") or realm
 end
 

@@ -1568,6 +1568,26 @@ test("houses: books keyed by ruleset and side; legacy Neutral follows the accoun
     eq(select(2, H.forChar("CAMWOW US2 Realm 2 PvP", "Horde")), "PvP Neutral")
 end)
 
+test("houses: Auctionator's per-faction keys and Ledger Link's blank realm (Forever client, 2026-11-21)", function()
+    local H = require("houses")
+    local book = function(p) return { [2592] = { now = p, days = {} } } end
+    local warned = {}
+    local warn = function(w) warned[#warned + 1] = w end
+    -- Auctionator 351 keys Forever books "<ruleset> <faction>"; GetRealmName() now answers "" to Ledger Link
+    local got = H.collect({ {
+        auctionator = { books = { ["PvP Horde"] = book(100), ["PvP Alliance"] = book(200) } },
+        ledger = { books = { [""] = { Horde = book(101), Neutral = book(90) } } },
+        chars = { { realm = "CAMWOW US2 Realm 2 PvP", faction = "Horde" }, { realm = "CAMWOW US2 Realm 2 PvP", faction = "Alliance" } } } }, warn)
+    eq(#got["PvP Horde"], 2, "Auctionator's Horde book and Ledger Link's blank-realm Horde book")
+    eq(#got["PvP Alliance"], 1, "a faction key needs no character to tell the faction, even with both played")
+    eq(#got["PvP Neutral"], 1)
+    eq(got["PvP Horde Horde"], nil); eq(got[" Horde"], nil); eq(#warned, 0)
+    eq(M.ruleset(""), nil, "a blank realm has no ruleset")
+    -- a visit saved with a blank realm counts for any ruleset, like the ones from before realms were saved
+    local led = S.ledger({ LedgerLinkDB = { visits = { { t = 5, kind = "faction", realm = "" } } } })
+    eq(led.visits[1].realm, nil)
+end)
+
 test("houses: both factions on one ruleset skip Auctionator's book and warn", function()
     local H = require("houses")
     local warned = {}
