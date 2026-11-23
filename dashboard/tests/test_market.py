@@ -207,6 +207,32 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(got["listings"][0], 40)
         self.assertEqual(got["sold"][0], 4)
 
+    def test_house_week_gold(self):
+        snaps = [(START, 40), (START + 3600, 50)]
+        got = m.house_week(snaps, {START: 4}, {START: 12345})
+        self.assertEqual(len(got["gold"]), 168)
+        self.assertEqual(got["gold"][0], 12345)
+        self.assertIs(got["gold"][1], False)
+        self.assertNotIn(None, got["gold"])
+
+    def test_gold_by_hour_values_sales_at_the_items_market_value(self):
+        # 100k arrows at 1c weigh less than 3 bars at 5g; an item without a market value adds nothing
+        rows = [(START, 2512, 100000), (START, 12359, 3), (START + 3600, 999, 7), (START + 3600, 12359, 1)]
+        got = m.gold_by_hour(rows, {2512: 1, 12359: 50000})
+        self.assertEqual(got, {START: 100000 + 150000, START + 3600: 50000})
+
+    def test_trade_values_leave_out_joke_prices(self):
+        # 200 ordinary items at 1-200g; one listed at 220,000g that keeps "selling" (cancelled and relisted)
+        items = {i: {"market": (i + 1) * 10000, "soldPerDay": 3} for i in range(200)}
+        items[1414] = {"market": 220140 * 10000, "soldPerDay": 5.9}
+        items[7] = {"market": 5000, "soldPerDay": 0}       # never sells: not part of the house's prices
+        items[8] = {"soldPerDay": 4}                        # no market value: nothing to count it at
+        got = m.trade_values(items)
+        self.assertNotIn(1414, got)
+        self.assertNotIn(8, got)
+        self.assertEqual(got[199], 200 * 10000, "the dearest real item stays")
+        self.assertEqual(got[7], 5000, "an item that hasn't sold yet still has its value")
+
     def test_house_week_counts_snapshots_per_cell(self):
         week = 7 * 86400
         snaps = [(START, 40), (START + week, 60), (START + 3600, 50)]
@@ -270,12 +296,12 @@ class RunTests(unittest.TestCase):
         self.assertEqual(os.stat(self.out).st_mtime_ns, before)
 
     @unittest.skipIf(LUA is None, "no Lua interpreter")
-    def test_run_writes_cheap_and_format_3(self):
+    def test_run_writes_cheap_and_format_4(self):
         self.store.record(113, self.NOW + 60, {2589: {"min": 100, "market": 110, "units": 5, "listings": 3,
                                                     "cheap": 2}}, {}, {})
         self.assertEqual(self.run_(), "written")
         with open(self.out, encoding="utf-8") as fh:
-            self.assertTrue(fh.readline().startswith("-- sig: f=3|"))
+            self.assertTrue(fh.readline().startswith("-- sig: f=4|"))
         code = "dofile([[%s]]) print(LedgerMarket.houses[113].items[2589].cheap)" % self.out.replace("\\", "/")
         got = subprocess.run([LUA, "-e", code], capture_output=True, text=True)
         self.assertEqual(got.stdout.strip(), "2", got.stderr)
@@ -309,7 +335,7 @@ class RunTests(unittest.TestCase):
     def test_stamp_carries_format(self):
         db = m.open_ro(self.db)
         try:
-            self.assertTrue(m.stamp(db, {}, "").startswith("-- sig: f=3|"))
+            self.assertTrue(m.stamp(db, {}, "").startswith("-- sig: f=4|"))
         finally:
             db.close()
 
@@ -496,7 +522,7 @@ class SeriesTests(unittest.TestCase):
             self.assertEqual(head, m.stamp(db, {113: "PvP Horde"}, "PvP Horde\t777\n"))
         finally:
             db.close()
-        self.assertRegex(head, r"^-- sig: f=3\|113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
+        self.assertRegex(head, r"^-- sig: f=4\|113:\d+:\|113=PvP Horde\|w=[0-9a-f]{12}$")
 
     def test_missing_wanted_file_still_writes(self):
         self.assertEqual(self.run_(), "written")

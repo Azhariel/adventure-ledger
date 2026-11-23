@@ -20,7 +20,7 @@ import bnet
 import market_profile as mp
 import market_store
 
-FORMAT = 3   # bump when market.lua's shape changes: the stamp then differs and the file is rewritten
+FORMAT = 4   # bump when market.lua's shape changes: the stamp then differs and the file is rewritten
 
 # Every threshold in one place.
 C = {
@@ -39,7 +39,11 @@ C = {
     "WEEK_MIN_CELLS": 0.6,
     "SERIES_DAYS": 14,        # hourly series window per item
     "SPARK_DAYS": 14,
-    "SERIES_MAX_ITEMS": 400,  # per house: items with hourly/daily series (by soldPerDay, descending)
+    "SERIES_MAX_ITEMS": 400,
+    # gold traded: an item valued over this many times the house's 99th-percentile market value (of the items
+    # that sell) is a joke listing cancelled and relisted, left out (Nov 2026: 3 items at 71k-220k gold were 76%
+    # of the Horde's "gold traded"; the next dearest was under 1k gold)
+    "GOLD_OUTLIER_X": 10,  # per house: items with hourly/daily series (by soldPerDay, descending)
 }
 
 DAY = 86400
@@ -222,24 +226,50 @@ def item_week(stored, upto, rows, now):
     return {"p": p, "s": s, "n": n_out, "own": own}
 
 
-def house_week(snapshots, sold_by_t):
-    """Whole-house hour-of-week shape. snapshots = [(t, auctions)], sold_by_t = {t: units sold in that hour}.
-    listings = mean auctions per cell; sold = sold per cell per week seen; n = snapshots per cell.
+def trade_values(items):
+    """{item: market value} to count gold traded at, from the house's item summaries, without joke prices."""
+    selling = sorted(it["market"] for it in items.values() if it.get("market") and it.get("soldPerDay", 0) > 0)
+    cap = C["GOLD_OUTLIER_X"] * selling[int(0.99 * (len(selling) - 1))] if selling else None
+    return {item: it["market"] for item, it in items.items()
+            if it.get("market") and (cap is None or it["market"] <= cap)}
+
+
+def gold_by_hour(rows, values):
+    """{t: copper traded} from rows [(t, item, units sold)], each unit at its item's market value (`values`, copper).
+    The market value, not that hour's price: one absurd listing vanishing would otherwise outweigh a whole day.
+    Valued in gold, vendor ammo churned 100k at a time (40% of units, 0.03% of gold in Nov 2026) stops leading."""
+    out = {}
+    for t, item, sold in rows:
+        v = values.get(item)
+        if v and sold:
+            out[t] = out.get(t, 0) + sold * v
+    return out
+
+
+def house_week(snapshots, sold_by_t, gold_by_t=None):
+    """Whole-house hour-of-week shape. snapshots = [(t, auctions)], sold_by_t = {t: units sold in that hour},
+    gold_by_t = {t: copper traded in that hour} (gold_by_hour).
+    listings = mean auctions per cell; sold and gold = per cell per week seen; n = snapshots per cell.
     Cells without data are False."""
-    auc, sold, weeks = {}, {}, set()
+    auc, sold, gold, weeks = {}, {}, {}, set()
     for t, a in snapshots:
         auc.setdefault(mp.cell(t), []).append(a)
         weeks.add(mp.week_start(t))
     for t, s in sold_by_t.items():
         sold[mp.cell(t)] = sold.get(mp.cell(t), 0) + s
         weeks.add(mp.week_start(t))
-    listings, sold_out, n = [False] * CELLS, [False] * CELLS, [False] * CELLS
+    for t, g in (gold_by_t or {}).items():
+        gold[mp.cell(t)] = gold.get(mp.cell(t), 0) + g
+        weeks.add(mp.week_start(t))
+    listings, sold_out, gold_out, n = [False] * CELLS, [False] * CELLS, [False] * CELLS, [False] * CELLS
     for (d, h), v in auc.items():
         listings[d * 24 + h] = round(sum(v) / len(v), 1)
         n[d * 24 + h] = len(v)
     for (d, h), v in sold.items():
         sold_out[d * 24 + h] = round(v / len(weeks), 1)
-    return {"listings": listings, "sold": sold_out, "n": n}
+    for (d, h), v in gold.items():
+        gold_out[d * 24 + h] = round(v / len(weeks))
+    return {"listings": listings, "sold": sold_out, "gold": gold_out, "n": n}
 
 
 def read_wanted(text):
@@ -494,8 +524,11 @@ def _house(db, house, keys, now, wanted=()):
                            "min": on_days(series_days, day_min[item])}
 
     recent = [{"t": t, "min": recent_min[t]} for t in newest]
+    values = trade_values(items)
+    gold_by_t = gold_by_hour(db.execute(
+        "SELECT t, item, sold FROM hourly NOT INDEXED WHERE house=? AND t<=? AND sold>0", (house, latest)), values)
     out = {"id": house, "latest": latest, "first": first, "snapshots": count,
-           "week": house_week(snaps, sold_by_t), "recent": recent, "ts": ts, "seriesDays": series_days,
+           "week": house_week(snaps, sold_by_t, gold_by_t), "recent": recent, "ts": ts, "seriesDays": series_days,
            "sparkDays": sparks, "items": items}
     if house in keys:
         out["key"] = keys[house]

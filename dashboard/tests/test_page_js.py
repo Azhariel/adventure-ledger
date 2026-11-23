@@ -254,6 +254,20 @@ process.stdout.write(JSON.stringify({ a, b, t0: heatColour(0), t1: heatColour(1)
         self.assertEqual(got["over"], "var(--heat5)")
         self.assertEqual(got["under"], "var(--heat1)")
 
+    def test_heat_grid_gold_kind(self):
+        js = page_js(["WEEKDAYS", "cellNum", "hour2", "pctVsUsual", "perWeek", "short", "heatScale", "heatColour", "heatGrid"],
+                     "const NUM = new Intl.NumberFormat('en-US'); const DATA = null; const esc = s => String(s);"
+                     "const plural = (n, a) => n + ' ' + a; const stripRule = () => ({ MIN_N: 2 });") + """
+const gold = Array.from({ length: 168 }, (_, i) => 1e6 + i * 1e5); gold[3] = false;
+const html = heatGrid({ gold, listings: [], n: Array(168).fill(3) }, { kind: "gold", title: "Gold traded" });
+process.stdout.write(JSON.stringify({ html }));
+"""
+        html = json.loads(run_node(js))["html"]
+        self.assertIn("traded/wk", html)
+        self.assertIn("or more traded/wk", html)
+        self.assertIn("var(--heat", html)
+        self.assertNotIn("sold/wk", html, "the gold grid's tooltips don't fall back to units")
+
     def test_money_axis_flat_series(self):
         js = page_js(["moneyAxis"]) + """
 process.stdout.write(JSON.stringify([moneyAxis([1, 1, 1]), moneyAxis([1, 11]), moneyAxis([5, 400]), moneyAxis([7]), moneyAxis([])]));

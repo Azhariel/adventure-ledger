@@ -2461,13 +2461,15 @@ function heatColour(t) {
 
 // heatGrid(week, { kind, reset, title }): 7 rows Mon–Sun by 24 hours, with a legend under it.
 // kind "price": week.p (price vs usual, a fraction), with week.s and week.n for the tooltip; pink → neutral → green,
-// clamped at ±25%. "sold" (week.s or week.sold) and "listings" (week.listings): the --heat ramp over heatScale.
+// clamped at ±25%. "sold" (week.s or week.sold), "gold" (week.gold: copper traded, the house's sales at each
+// item's market value) and "listings" (week.listings): the --heat ramp over heatScale.
 // A cell is blank without a value, or when the week counts observations (n) and this cell has fewer than MIN_N.
 // House-wide weeks (opts.houseWide; by default, a week with listings) count snapshots in n: tooltip only, never blank.
 function heatGrid(week, opts = {}) {
   const kind = opts.kind || "price", reset = opts.reset || (DATA && DATA.reset), minN = stripRule().MIN_N;
   const w = week || {};
-  const vals = kind === "price" ? w.p : kind === "sold" ? (w.s || w.sold) : w.listings;
+  const vals = kind === "price" ? w.p : kind === "sold" ? (w.s || w.sold) : kind === "gold" ? w.gold : w.listings;
+  const goldShort = c => `${NUM.format(Math.round(c / 10000))}g`;   // "23,700g", never "23.7kg"
   const at = (a, i) => cellNum(a && a[i]);
   const houseWide = opts.houseWide ?? Array.isArray(w.listings);
   const blank = i => at(vals, i) == null || (!houseWide && Array.isArray(w.n) && !((at(w.n, i) || 0) >= minN));
@@ -2486,7 +2488,8 @@ function heatGrid(week, opts = {}) {
     if (blank(i)) parts.push("not enough data");
     else if (kind === "price") parts.push(`${pctVsUsual(at(vals, i))} vs usual`);
     else if (kind === "listings") parts.push(`${NUM.format(Math.round(at(vals, i)))} listed on average`);
-    const s = kind === "listings" ? null : kind === "sold" ? at(vals, i) : at(w.s, i);
+    else if (kind === "gold") parts.push(`${goldShort(at(vals, i))} traded/wk`);
+    const s = kind === "listings" || kind === "gold" ? null : kind === "sold" ? at(vals, i) : at(w.s, i);
     if (s != null && !(kind === "sold" && blank(i))) parts.push(`${perWeek(s)} sold/wk`);
     if (n != null) parts.push(plural(n, "obs", "obs"));
     if (i === resetAt) parts.push("weekly reset");
@@ -2500,8 +2503,11 @@ function heatGrid(week, opts = {}) {
   }).join("") + `</div>`).join("");
   const legend = kind === "price"
     ? `<span><i class="ramp" style="background:linear-gradient(90deg, var(--pink), var(--raise), var(--green))"></i>−25% cheaper (buy) · usual · +25% pricier (sell)</span>`
-    : `<span>${scale.hi > 0 ? `${short(scale.lo)} or fewer ` : ""}<i class="ramp" style="background:linear-gradient(90deg in oklab, var(--heat1), var(--heat2), var(--heat3), var(--heat4), var(--heat5))"></i>`
-      + `${scale.hi > 0 ? ` ${short(scale.hi)} or more ${kind === "sold" ? "sold/wk" : "listed"}` : kind === "sold" ? "fewer to more sold" : "fewer to more listed"}</span>`;
+    : kind === "gold"
+      ? `<span>${scale.hi > 0 ? `${goldShort(scale.lo)} or less ` : ""}<i class="ramp" style="background:linear-gradient(90deg in oklab, var(--heat1), var(--heat2), var(--heat3), var(--heat4), var(--heat5))"></i>`
+        + `${scale.hi > 0 ? ` ${goldShort(scale.hi)} or more traded/wk` : "less to more gold traded"}</span>`
+      : `<span>${scale.hi > 0 ? `${short(scale.lo)} or fewer ` : ""}<i class="ramp" style="background:linear-gradient(90deg in oklab, var(--heat1), var(--heat2), var(--heat3), var(--heat4), var(--heat5))"></i>`
+        + `${scale.hi > 0 ? ` ${short(scale.hi)} or more ${kind === "sold" ? "sold/wk" : "listed"}` : kind === "sold" ? "fewer to more sold" : "fewer to more listed"}</span>`;
   return (opts.title ? `<div class="wk-title">${esc(opts.title)}</div>` : "")
     + `<div class="wkbox"><div class="wk" role="table" aria-label="${esc(opts.title || "Hour of the week")}">${head}${rows}</div></div>`
     + `<div class="legend">${legend}<span><i class="sq" style="background:var(--bg);border:1px solid var(--line)"></i>not enough data</span>`
@@ -2902,8 +2908,12 @@ function modTrends() {
     el("trendsLeft").innerHTML = heatGrid(H.week, { kind: "listings", reset, title: "Auctions listed" });
   }
   el("trendsRightTitle").textContent = `Whole house · ${hl}`;
-  el("trendsRightHint").textContent = "Units sold at each hour of the week, per week seen.";
-  el("trendsRight").innerHTML = heatGrid(H.week, { kind: "sold", reset, title: "Units sold" });
+  // gold traded when the engine sends it (market.lua format 4+), else the older units-sold grid
+  const gold = H.week && Array.isArray(H.week.gold);
+  el("trendsRightHint").textContent = gold
+    ? "Gold traded at each hour of the week, per week seen: every unit sold at its item's market value, so a 1c arrow weighs what it's worth."
+    : "Units sold at each hour of the week, per week seen.";
+  el("trendsRight").innerHTML = heatGrid(H.week, gold ? { kind: "gold", reset, title: "Gold traded" } : { kind: "sold", reset, title: "Units sold" });
   // Right now: each item against its market value, and what this hour usually does to its price
   const ci = nowCell();
   const usualCell = u => {
