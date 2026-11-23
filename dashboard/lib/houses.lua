@@ -13,8 +13,9 @@ end
 local function usable(chars)
     local out = {}
     for _, c in ipairs(chars or {}) do
-        if c.realm and c.faction then
-            out[#out + 1] = { ruleset = M.ruleset(c.realm), faction = c.faction }
+        local ruleset = M.ruleset(c.realm)   -- nil for a blank realm (GetRealmName() on Forever since 2026-11-21)
+        if ruleset and c.faction then
+            out[#out + 1] = { ruleset = ruleset, faction = c.faction }
         end
     end
     table.sort(out, function(a, b) return (a.ruleset .. a.faction) < (b.ruleset .. b.faction) end)
@@ -107,18 +108,18 @@ function H.collect(accounts, warn)
     return out
 end
 
--- The character's own house and the Neutral one of its ruleset; nil when the realm or faction is missing.
+-- The character's own house and the Neutral one of its ruleset; nil when the realm (or a blank one) or faction is missing.
 function H.forChar(realm, faction)
-    if not realm then return nil, nil end
     local ruleset = M.ruleset(realm)
+    if not ruleset then return nil, nil end
     return faction and H.key(ruleset, faction) or nil, H.key(ruleset, "Neutral")
 end
 
--- Houses of the most recently seen character (first row wins a tie).
+-- Houses of the most recently seen character with a realm (first row wins a tie).
 function H.default(rows)
     local best
     for _, r in ipairs(rows or {}) do
-        if r.realm and r.faction and (not best or (r.lastSeen or 0) > (best.lastSeen or 0)) then best = r end
+        if M.ruleset(r.realm) and r.faction and (not best or (r.lastSeen or 0) > (best.lastSeen or 0)) then best = r end
     end
     if not best then return nil, nil end
     return H.forChar(best.realm, best.faction)

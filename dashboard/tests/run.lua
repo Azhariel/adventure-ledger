@@ -1630,6 +1630,18 @@ test("houses: fallbacks, nil inputs, ties and accounts without characters", func
     eq(f, "A Horde", "a tie goes to the first row")
 end)
 
+test("houses: a character with only a blank realm (new on the Forever client, 2026-11-23) has no house", function()
+    local H = require("houses")
+    local book = { [2592] = { now = 100, days = {} } }
+    local got = H.collect({ { auctionator = { books = { PvP = book } },
+        chars = { { realm = "", faction = "Horde" }, { realm = "CAMWOW US2 Realm 2 PvP", faction = "Horde" } } } })
+    eq(#got["PvP Horde"], 1, "the blank-realm character is skipped, the other one still tells the faction")
+    local f, n = H.forChar("", "Horde"); eq(f, nil); eq(n, nil)
+    f, n = H.default({ { realm = "CAMWOW US2 Realm 2 PvP", faction = "Horde", lastSeen = 3 },
+        { realm = "", faction = "Horde", lastSeen = 9 } })
+    eq(f, "PvP Horde", "the newest character with a realm wins"); eq(n, "PvP Neutral")
+end)
+
 ----------------------------------------------------------------------------------------------------
 -- Reconciliation of scans with API snapshots
 
