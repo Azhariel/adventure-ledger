@@ -308,6 +308,7 @@ end
 local function printUsage()
     ns.Print("/stockpile [item link or id] - who has it and where")
     ns.Print("/stockpile forget Name-Realm - stop tracking a character")
+    ns.Print("/stockpile - a window with what is counted; /stockpile print - the same in the chat")
     local me = ns.playerKey and ns.db.chars[ns.playerKey]
     if me then
         ns.Print("Bank: " .. (me.bankTime and ("saved " .. date("%Y-%m-%d %H:%M", me.bankTime))
@@ -328,6 +329,11 @@ SlashCmdList.STOCKPILE = function(msg)
         return
     end
     msg = (msg or ""):match("^%s*(.-)%s*$")
+    -- the window with what Stockpile has counted (Status.lua); "/stockpile print" sends it to the chat
+    if (msg == "" or msg:lower() == "print") and ns.ShowStatus then
+        ns.ShowStatus(msg)
+        return
+    end
     local forget = msg:match("^[Ff]orget%s+(.+)$")
     if forget then
         if Store.Forget(ns.db, forget) then

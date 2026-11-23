@@ -95,10 +95,42 @@ function M.tooltip(link)
     return t
 end
 
+-- Swaps CreateFrame for fake widgets: unknown Set*/Get*/... methods do nothing, Show/Hide/SetText are kept.
+-- Returns { [frame name] = frame, fonts = { every font string made } } for the test to look at.
+-- Call it after boot: the event frame made at load stays the plain fake from install.
+function M.useFakeWidgets()
+    local made = { fonts = {} }
+    local function noop() end
+    local Fake = {}
+    local function new()
+        return setmetatable({ scripts = {}, shown = true }, { __index = function(_, k)
+            if Fake[k] then return Fake[k] end
+            if type(k) == "string" and (k:match("^Set%u") or k:match("^Get%u") or k:match("^Enable") or k:match("^Clear")
+                or k:match("^Register") or k:match("^Start") or k:match("^Stop")) then return noop end
+        end })
+    end
+    function Fake:Show() if not self.shown then self.shown = true; if self.scripts.OnShow then self.scripts.OnShow(self) end end end
+    function Fake:Hide() self.shown = false end
+    function Fake:IsShown() return self.shown end
+    function Fake:SetScript(name, fn) self.scripts[name] = fn end
+    function Fake:SetText(t) self.text = t end
+    function Fake:GetText() return self.text end
+    function Fake:CreateTexture() return new() end
+    function Fake:CreateFontString() local fs = new(); made.fonts[#made.fonts + 1] = fs; return fs end
+    CreateFrame = function(_, name)
+        local f = new()
+        if name then made[name] = f end
+        return f
+    end
+    UIParent = UIParent or new()
+    UISpecialFrames = {}
+    return made
+end
+
 -- Loads the addon in TOC order and fires ADDON_LOADED + PLAYER_ENTERING_WORLD.
 function M.boot(H, opts)
     M.install(opts)
-    local ns = H.load({ "Store.lua", "Core.lua", "API.lua", "Tooltip.lua" })
+    local ns = H.load({ "Store.lua", "Core.lua", "StatusWindow.lua", "Status.lua", "API.lua", "Tooltip.lua" })
     M.frame:Fire("ADDON_LOADED", "Stockpile")
     if not (opts and opts.noLogin) then
         M.frame:Fire("PLAYER_ENTERING_WORLD")

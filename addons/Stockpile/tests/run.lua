@@ -5,7 +5,7 @@ package.path = root .. "tests/?.lua;" .. package.path
 local H = require("harness")
 H.root = root
 
-for _, suite in ipairs({ "test_store", "test_core", "test_tooltip", "test_slash" }) do
+for _, suite in ipairs({ "test_store", "test_core", "test_tooltip", "test_slash", "test_status" }) do
     print("[" .. suite .. "]")
     local before = #H.tests
     require(suite)(H)

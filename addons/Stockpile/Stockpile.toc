@@ -8,5 +8,7 @@
 
 Store.lua
 Core.lua
+StatusWindow.lua
+Status.lua
 API.lua
 Tooltip.lua

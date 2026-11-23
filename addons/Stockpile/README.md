@@ -5,7 +5,7 @@ Counts the items each of your characters has in their bags, bank and mailbox. It
 ## What it tracks
 
 - **Bags**: the backpack and equipped bags, including the reagent bag on clients that have one. They are rescanned whenever your bags change.
-- **Bank**: the bank slots and bank bags and the character bank tabs (whichever the client has), plus the reagent bank if there is one. The game only lets addons read the bank while it's open, so there's nothing to click: **talk to a banker once per character**. Chat confirms it the first time per session (`Stockpile: bank saved (120 items, 14 kinds).`), and Stockpile keeps that snapshot until your next visit. `/stockpile` shows when this character's bank was last saved.
+- **Bank**: the bank slots and bank bags and the character bank tabs (whichever the client has), plus the reagent bank if there is one. The game only lets addons read the bank while it's open, so there's nothing to click: **talk to a banker once per character**. Chat confirms it the first time per session (`Stockpile: bank saved (120 items, 14 kinds).`), and Stockpile keeps that snapshot until your next visit. The `/stockpile` window shows when this character's bank was last saved.
 - **Mail**: attachments in your inbox, read when you open a mailbox. Each character's saved counts update the next time you log in or open the bank or mailbox on that character.
 
 The data is account-wide (`StockpileDB`). Each character is keyed as `Name-Realm`.
@@ -26,7 +26,7 @@ Names use class colors. The character you're playing comes first, then the other
 
 - `/stockpile [item link or id]` (or `/stock`): who on this realm has the item, and where.
 - `/stockpile forget Name-Realm`: stop tracking a character, for example one you deleted.
-- `/stockpile`: usage and the list of tracked characters.
+- `/stockpile`: a window with this character's counts in bags, bank and mail, when its bank was saved, and every tracked character. `/stockpile print` sends the same to the chat; `/stockpile help` lists the commands.
 
 ## API
 
