@@ -268,6 +268,26 @@ process.stdout.write(JSON.stringify({ html }));
         self.assertIn("var(--heat", html)
         self.assertNotIn("sold/wk", html, "the gold grid's tooltips don't fall back to units")
 
+    def test_price_colour_follows_the_buy_sell_threshold(self):
+        # half the family cells sit within 5% of usual (Nov 2026): faint there, clear from the 5% buy/sell line,
+        # full pink or green from 15%
+        js = page_js(["PRICE_FULL", "priceColour"]) + """
+const mix = c => { const m = /(\\d+)%/.exec(c); return m ? Number(m[1]) : (c === "var(--raise)" ? 0 : 100); };
+const at = p => priceColour(p, 0.05);
+process.stdout.write(JSON.stringify({ zero: at(0), tiny: mix(at(0.025)), edge: mix(at(0.05)), mid: mix(at(0.10)),
+  full: at(0.15), over: at(0.4), cheap: at(-0.15), sideCheap: at(-0.03), sidePricey: at(0.03) }));
+"""
+        got = json.loads(run_node(js))
+        self.assertEqual(got["zero"], "var(--raise)")
+        self.assertLessEqual(got["tiny"], 20, "usual hours stay faint")
+        self.assertGreaterEqual(got["edge"], 40, "a buy/sell hour is clearly coloured")
+        self.assertGreater(got["mid"], got["edge"])
+        self.assertEqual(got["full"], "var(--green)")
+        self.assertEqual(got["over"], "var(--green)")
+        self.assertEqual(got["cheap"], "var(--pink)")
+        self.assertIn("--pink", got["sideCheap"])
+        self.assertIn("--green", got["sidePricey"])
+
     def test_money_axis_flat_series(self):
         js = page_js(["moneyAxis"]) + """
 process.stdout.write(JSON.stringify([moneyAxis([1, 1, 1]), moneyAxis([1, 11]), moneyAxis([5, 400]), moneyAxis([7]), moneyAxis([])]));
