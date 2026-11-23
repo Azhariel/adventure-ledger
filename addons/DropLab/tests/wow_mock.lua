@@ -10,7 +10,8 @@ function M.link(id, name)
     return "|cffffffff|Hitem:" .. id .. "::::::::|h[" .. (name or ("Item" .. id)) .. "]|h|r"
 end
 
--- opts: { sale = {[id]=copper}, buy = {[id]=copper}, questie = {[itemID] = { {npcID, rate} }}, noWhereToFarm }
+-- opts: { sale = {[id]=copper}, buy = {[id]=copper}, questie = {[itemID] = { {npcID, rate} }}, noWhereToFarm,
+--         noAuctionator }
 function M.install(opts)
     opts = opts or {}
     M.state = { clock = 0, units = {}, loot = {}, fishing = false, secrets = {} }
@@ -55,6 +56,8 @@ function M.install(opts)
         GetSaleValue = function(id) return sale[id] end,
         GetBuyPrice = function(id) return buy[id], buy[id] and "ah" or nil end,
     } }
+    -- Make or Buy prices from Auctionator; DropLab only checks it's there
+    Auctionator = not opts.noAuctionator and { API = { v1 = {} } } or nil
     if opts.noWhereToFarm then
         WhereToFarm = nil
     else
@@ -81,10 +84,41 @@ end
 function M.boot(H, opts, savedDB)
     local frame = M.install(opts)
     DropLabDB = savedDB
-    local ns = H.load({ "Stats.lua", "Core.lua" })
+    local ns = H.load({ "Stats.lua", "Core.lua", "StatusWindow.lua", "Status.lua" })
     frame:Fire("ADDON_LOADED", "DropLab")
     frame:Fire("PLAYER_LOGIN")
     return ns, frame
+end
+
+-- Frames that can make font strings, so the /droplab window can be built: made[name] = the named frame,
+-- made.fonts = every font string. Each fake records shown, text and scripts; other Set*/Get* calls do nothing.
+function M.useFakeWidgets()
+    local made = { fonts = {} }
+    local function noop() end
+    local Fake = {}
+    local function new()
+        return setmetatable({ scripts = {}, shown = true }, { __index = function(_, k)
+            if Fake[k] then return Fake[k] end
+            if type(k) == "string" and (k:match("^Set%u") or k:match("^Get%u") or k:match("^Enable") or k:match("^Clear")
+                or k:match("^Register") or k:match("^Start") or k:match("^Stop")) then return noop end
+        end })
+    end
+    function Fake:Show() if not self.shown then self.shown = true; if self.scripts.OnShow then self.scripts.OnShow(self) end end end
+    function Fake:Hide() self.shown = false end
+    function Fake:IsShown() return self.shown end
+    function Fake:SetScript(name, fn) self.scripts[name] = fn end
+    function Fake:SetText(t) self.text = t end
+    function Fake:GetText() return self.text end
+    function Fake:CreateTexture() return new() end
+    function Fake:CreateFontString() local fs = new(); made.fonts[#made.fonts + 1] = fs; return fs end
+    CreateFrame = function(_, name)
+        local f = new()
+        if name then made[name] = f end
+        return f
+    end
+    UIParent = UIParent or new()
+    UISpecialFrames = {}
+    return made
 end
 
 -- Opens a loot window with these slots, then closes it

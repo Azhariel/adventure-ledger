@@ -10,3 +10,5 @@
 
 Stats.lua
 Core.lua
+StatusWindow.lua
+Status.lua

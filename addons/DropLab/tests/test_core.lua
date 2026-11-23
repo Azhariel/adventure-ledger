@@ -241,17 +241,17 @@ return function(H)
         H.truthy(chatHas("none of your kills dropped it yet"))
     end)
 
-    H.test("/droplab: best mobs need 5 kills; /droplab target", function()
+    H.test("/droplab best: best mobs need 5 kills; /droplab target", function()
         local ns, frame = W.boot(H, { sale = { [LINEN] = 100 } })
         W.chat = {}
-        SlashCmdList.DROPLAB("")
+        SlashCmdList.DROPLAB("best")
         H.truthy(chatHas("Not enough kills yet"))
         for i = 1, 5 do
             W.state.clock = i * 40
             killAndLoot(frame, 1726, "B" .. i, "Defias Pillager", { { link = W.link(LINEN) } })
         end
         W.chat = {}
-        SlashCmdList.DROPLAB("")
+        SlashCmdList.DROPLAB("best")
         H.truthy(chatHas("Defias Pillager: 100c per kill over 5 kills"), W.chat[2])
         W.chat = {}
         W.state.units.target = { guid = W.guid(1726), name = "Defias Pillager" }

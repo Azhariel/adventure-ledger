@@ -11,6 +11,10 @@ local corpses = {}   -- this session's corpses (see Stats.RecordLoot)
 local openGuids = {} -- corpses in the loot window that's open now
 local xpPattern
 
+-- Counted since login or /reload, for the /droplab window. hidden: XP lines the game made secret (DropLab can't
+-- read them, so those kills go uncounted); lastMob: npcID of the newest corpse looted.
+ns.session = { kills = 0, loots = 0, hidden = 0 }
+
 local function color(hex, text)
     return "|c" .. hex .. text .. "|r"
 end
@@ -61,6 +65,14 @@ function ns.NpcName(npcID)
         end
     end
     return nil
+end
+
+-- Whether Questie's NPC data is there to name mobs from (the same globals NpcName reads)
+function ns.QuestieLoaded()
+    local lib = rawget(_G, "LibQuestieDB")
+    local loader = rawget(_G, "QuestieLoader")
+    local mods = type(loader) == "table" and rawget(loader, "_modules")
+    return (type(lib) == "table" and type(lib.Npc) == "table") or (type(mods) == "table" and mods.QuestieDB ~= nil)
 end
 
 -- Names mobs known only by the corpse's ID (dungeons hide unit names), which also moves the kills waiting under
@@ -133,6 +145,7 @@ local function creatureOf(unit)
     local name = safe(UnitName(unit))
     return id, type(name) == "string" and name or nil, guid
 end
+ns.CreatureOf = creatureOf
 
 function ns.LearnUnit(unit)
     if not ns.db then
@@ -157,7 +170,11 @@ local function deadNpc(name)
 end
 
 function ns.OnXP(text)
-    if not ns.db or secret(text) then
+    if not ns.db then
+        return
+    end
+    if secret(text) then
+        ns.session.hidden = ns.session.hidden + 1
         return
     end
     if xpPattern == nil then
@@ -167,6 +184,7 @@ function ns.OnXP(text)
     if not name then
         return
     end
+    ns.session.kills = ns.session.kills + 1
     Stats.RecordKill(ns.db, name, deadNpc(name), ns.Now())
 end
 
@@ -254,6 +272,16 @@ function ns.OnLootOpened()
             if tguid == e.guid and tname then
                 Stats.Learn(ns.db, tname, tid)
             end
+        end
+    end
+    -- corpses not seen before are this session's new loots (RecordLoot's count also has herbs and chests)
+    local fresh = {}
+    for _, e in ipairs(entries) do
+        local kind, id = Stats.ParseGUID(e.guid)
+        if kind == "creature" and not corpses[e.guid] and not fresh[e.guid] then
+            fresh[e.guid] = true
+            ns.session.loots = ns.session.loots + 1
+            ns.session.lastMob = id
         end
     end
     Stats.RecordLoot(ns.db, corpses, entries, now)
@@ -718,10 +746,13 @@ SlashCmdList.DROPLAB = function(msg)
     elseif lower == "tooltip" then
         ns.db.tooltip = not ns.db.tooltip
         ns.Print("Mob tooltip lines " .. (ns.db.tooltip and color(GREEN, "on") or "off") .. ".")
-    elseif lower == "" then
+    elseif lower == "" or lower == "print" then
+        ns.ShowStatus(lower)
+    elseif lower == "best" then
         ns.PrintBest()
     else
-        ns.Print("/droplab - mobs worth most per kill. /droplab [item] - who dropped it and how often.")
+        ns.Print("/droplab - what DropLab has recorded (a window). /droplab print - the same in the chat.")
+        ns.Print("/droplab best - mobs worth most per kill. /droplab [item] - who dropped it and how often.")
         ns.Print("/droplab target - your target's drops. /droplab tooltip - mob tooltip lines on/off.")
     end
 end
