@@ -15,7 +15,9 @@ copies, once:
 
 `/logbook` says when the copy is there; after that, MuddyBoots and its saved files can go. Nothing is counted twice.
 
-Nothing to set up. `/logbook` says how much it has recorded, and whether the damage meter is available.
+Nothing to set up. `/logbook` opens a window with what it has recorded for this character: the character as
+saved (with a warning when the dashboard couldn't place its auction house), this session's lines by kind with
+their gold and XP, the all-time counts and the newest lines. `/logbook print` sends the same to the chat.
 
 ## What it records, and how
 
@@ -91,6 +93,8 @@ fields the death recap returns; how talent queries address the three-tree layout
 | --- | --- |
 | `Journal.lua` | Pure: saved-data shape, log lines, counters, sessions, trail, XP and money attribution, damage meter readings, chat-line parsers |
 | `Core.lua` | Events, hooks, the damage meter and flight readers, the 5-second tick, `/logbook` |
+| `Status.lua` | What the `/logbook` window shows |
+| `StatusWindow.lua` | The window itself, shared by copy with the other addons (kept identical by `dashboard/tests/test_addons_shared.py`) |
 
 Saved data: `LogbookCharDB` (per character; `flying` holds a flight in progress across a `/reload`), `LogbookDB`
 (account: level, gold, played and last seen per character).
