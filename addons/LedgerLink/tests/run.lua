@@ -139,6 +139,18 @@ test("books: neutral and faction scans land under realm and side; visits carry b
     eq(LedgerLinkDB.books.PvP.Neutral["2447"].m, 400)
 end)
 
+test("blank realm (Forever client, 2026-11-21): books and visits go under the ruleset from the game rules", function()
+    _G.Enum = { GameRule = { PvPRuleset = 1, RPRuleset = 2, HardcoreRuleset = 3 } }
+    _G.C_GameRules = { IsGameRuleActive = function(rule) return rule == 1 end }
+    local L = load({ realm = function() return "" end }); stubAuctionator()
+    at(1446); L.OnAuctionShow(1794200000)
+    Auctionator.Database:SetPrice("2447", 400, 3)
+    eq(LedgerLinkDB.books.PvP.Neutral["2447"].m, 400)
+    eq(LedgerLinkDB.books[""], nil)
+    eq(LedgerLinkDB.visits[1].realm, "PvP")
+    _G.Enum, _G.C_GameRules = nil, nil
+end)
+
 test("migration: the old unkeyed Neutral book moves under this realm once", function()
     local L, st = load({ db = { neutral = { ["765"] = { l = {}, h = { ["2500"] = 9 }, a = {}, m = 9, t = 5 } } } })
     st.fire()

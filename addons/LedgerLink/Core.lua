@@ -6,7 +6,7 @@
 --    so a scan at the goblin AH (Gadgetzan, Booty Bay, Everlook, the Barrens) lands in the same book as your
 --    faction AH and drags its highs and "now" price up. Ledger Link catches Auctionator's price writes and keeps
 --    them in LedgerLinkDB.books[realm][side][item] (same shape as Auctionator's: l/h/a per scan day, m = last
---    seen, t = when), where realm = GetRealmName() ("PvP" on Forever) and side is "Neutral" while the AH you
+--    seen, t = when), where realm = GetRealmName(), or the ruleset ("PvP") when that is blank, and side is "Neutral" while the AH you
 --    opened is neutral, else your faction. Faction scans are always copied into the faction book and still reach
 --    Auctionator. By default Auctionator's own book is left untouched by Neutral scans ("/ledger neutral both"
 --    also lets them through). Visits are tagged with realm and faction. The old LedgerLinkDB.neutral book is
@@ -85,8 +85,25 @@ local function scanDay(now)
     return tostring(math.floor((now - scanDay0()) / 86400))
 end
 
+-- The ruleset the game rules say this realm plays (Auctionator's names), or nil without C_GameRules
+local function rulesetName()
+    local rules, E = _G.C_GameRules, _G.Enum and _G.Enum.GameRule
+    if not (rules and rules.IsGameRuleActive and E) then return nil end
+    local function on(rule) return rule ~= nil and rules.IsGameRuleActive(rule) end
+    local pvp, rp = on(E.PvPRuleset), on(E.RPRuleset)
+    if pvp and rp then return "RPPvP" end
+    if pvp then return "PvP" end
+    if rp then return "RP" end
+    if on(E.HardcoreRuleset) then return "HC" end
+    return "PvE"
+end
+
+-- GetRealmName() answers "" on Forever since the client update of 2026-11-21: then the ruleset (the dashboard
+-- keys houses by ruleset, so "PvP" files with the older "CAMWOW US2 Realm 2 PvP")
 local function realmName()
-    return GetRealmName and GetRealmName() or "?"
+    local realm = GetRealmName and GetRealmName()
+    if type(realm) == "string" and realm ~= "" then return realm end
+    return rulesetName() or "?"
 end
 
 -- books[realm][side], created on demand
