@@ -20,6 +20,21 @@ return function(H)
         H.eq(c.bags[4306], nil, "bag 5 is not a bag when NUM_TOTAL_EQUIPPED_BAG_SLOTS is missing")
     end)
 
+    H.test("blank realm (Forever client, 2026-11-21): the character's saved entry keeps counting", function()
+        local db = { version = 1, chars = { ["Azhariel-CAMWOW US2 Realm 2 PvP"] = { name = "Azhariel",
+            realm = "CAMWOW US2 Realm 2 PvP", class = "PRIEST", bags = {}, bank = {}, mail = {} } } }
+        local ns = mock.boot(H, { containers = bags(), realm = "", db = db })
+        H.eq(ns.playerKey, "Azhariel-CAMWOW US2 Realm 2 PvP")
+        H.eq(StockpileDB.chars["Azhariel-CAMWOW US2 Realm 2 PvP"].bags[2592], 20)
+        -- a character Stockpile has never seen: the ruleset from the game rules
+        ns = mock.boot(H, { containers = bags(), realm = "", name = "Newalt", db = db, noLogin = true })
+        Enum.GameRule = { PvPRuleset = 1 }
+        C_GameRules = { IsGameRuleActive = function(rule) return rule == 1 end }
+        mock.frame:Fire("PLAYER_ENTERING_WORLD")
+        H.eq(ns.playerKey, "Newalt-PvP")
+        C_GameRules = nil
+    end)
+
     H.test("reagent bag (bag 5) is counted when the client has NUM_TOTAL_EQUIPPED_BAG_SLOTS = 5", function()
         mock.boot(H, { containers = bags(), totalBags = 5 })
         H.eq(StockpileDB.chars["Azhariel-Deadheart"].bags[4306], 7)

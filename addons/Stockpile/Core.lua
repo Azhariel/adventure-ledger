@@ -23,6 +23,29 @@ function ns.InitDB()
     ns.db = StockpileDB
 end
 
+-- GetRealmName() answers "" on Forever since the client update of 2026-11-21. Then: the realm this character
+-- was saved under (so the dashboard still matches it with Logbook's row), else the ruleset from the game rules
+-- (Auctionator's names), else nil.
+function ns.BlankRealm(name)
+    local found
+    for _, c in pairs(ns.db and ns.db.chars or {}) do
+        if c.name == name and type(c.realm) == "string" and c.realm ~= "" then
+            if found and found ~= c.realm then return nil end -- the same name on two realms: can't tell
+            found = c.realm
+        end
+    end
+    if found then return found end
+    local rules, E = C_GameRules, Enum and Enum.GameRule
+    if not (rules and rules.IsGameRuleActive and E) then return nil end
+    local function on(rule) return rule ~= nil and rules.IsGameRuleActive(rule) end
+    local pvp, rp = on(E.PvPRuleset), on(E.RPRuleset)
+    if pvp and rp then return "RPPvP" end
+    if pvp then return "PvP" end
+    if rp then return "RP" end
+    if on(E.HardcoreRuleset) then return "HC" end
+    return "PvE"
+end
+
 -- Registers the current character (name, realm, class) and returns its key.
 function ns.EnsurePlayer()
     if not ns.db then
@@ -30,6 +53,9 @@ function ns.EnsurePlayer()
     end
     local name = safe(UnitName("player"))
     local realm = safe((GetRealmName and GetRealmName()) or nil)
+    if realm == "" and type(name) == "string" then
+        realm = ns.BlankRealm(name)
+    end
     if type(name) ~= "string" or type(realm) ~= "string" or name == "" or realm == "" then
         return nil
     end
