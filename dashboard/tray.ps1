@@ -5,7 +5,7 @@ Adventure Ledger tray icon: runs and watches the live server (server.py) and the
     tray.ps1 -Stop           ask a running tray, the server and the fetcher to stop (wowstats stop)
     tray.ps1 -NoGui          dot-source it to get the functions without the icon (tests)
 
-Green: server and fetcher running, last fetch under 1.5 x ah_every old. Amber: one stopped, fetch failed or overdue.
+Green: server and fetcher running, last fetch under 90 minutes old (it fetches hourly at :30). Amber: one stopped, fetch failed or overdue.
 Grey: both stopped. A fetcher without bnet_id in ledger.cfg is "not set up", which never makes the icon amber.
 Messages go to tray.log in the data folder. Windows PowerShell 5.1, nothing to install.
 #>
@@ -349,11 +349,8 @@ function Update-Tray {
     $fetcherUp = Test-FetcherUp
     $status = Read-FetcherStatus $StatusPath
     $cfg = Read-LedgerConfig (Join-Path $Root 'ledger.cfg')
-    $every = 10
-    [void][int]::TryParse([string]$cfg['ah_every'], [ref]$every)
-    if ($every -le 0) { $every = 10 }
     $state = Get-TrayState -ServerUp $serverUp -ServerProcAlive (Test-Alive $script:ServerProc) -FetcherUp $fetcherUp `
-        -NotSetUp (Test-NotSetUp $cfg $status $fetcherUp) -Status $status -EveryMin $every
+        -NotSetUp (Test-NotSetUp $cfg $status $fetcherUp) -Status $status -EveryMin 60
     if (-not $script:LastState -or $state.Colour -ne $script:LastState.Colour -or $state.Tip -ne $script:LastState.Tip) {
         Log "$($state.Colour): $($state.Tip)"
         $Notify.Icon = $Icons[$state.Colour]

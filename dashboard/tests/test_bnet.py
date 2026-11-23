@@ -67,15 +67,15 @@ class BnetTest(unittest.TestCase):
 
     def test_from_cfg_defaults(self):
         c = bnet.Config.from_cfg(CFG)
-        self.assertEqual((c.region, [h["id"] for h in c.houses], c.every), ("us", [113, 116], 10))
+        self.assertEqual((c.region, [h["id"] for h in c.houses]), ("us", [113, 116]))
         self.assertEqual([h["key"] for h in c.houses], ["PvP Horde", "PvP Neutral"])
         self.assertNotIn("s3cret", repr(c))
         self.assertIn("PvP Horde=113", repr(c))
         self.assertIsNone(bnet.Config.from_cfg({"bnet_secret": "x"}))
 
     def test_from_cfg_converts_ints(self):
-        c = bnet.Config.from_cfg(dict(CFG, ah_ruleset="2", ah_faction="114", ah_neutral="117", ah_every="30"))
-        self.assertEqual(([h["key"] for h in c.houses], c.every), (["Normal Horde", "Normal Neutral"], 30))
+        c = bnet.Config.from_cfg(dict(CFG, ah_ruleset="2", ah_faction="114", ah_neutral="117"))
+        self.assertEqual([h["key"] for h in c.houses], ["Normal Horde", "Normal Neutral"])
         self.assertEqual([h["id"] for h in c.houses], [114, 117])
 
     def test_from_cfg_houses_setting_wins(self):

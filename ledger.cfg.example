@@ -36,12 +36,6 @@ wow = C:\Program Files (x86)\World of Warcraft\_forever_
 #   3-letter abbreviations, any case; whole hours only). Default: Tuesday at the local hour of 15:00 UTC, the US
 #   reset. Set it if Forever resets at another time. The dashboard outlines this hour in every grid.
 # ah_reset = Tue 12
-#
-# ah_every: minutes between checks (default 10). Blizzard makes a new snapshot about hourly, at no fixed minute
-#   (not documented). Each check asks only for data newer than the last snapshot: when there is none, Blizzard
-#   answers "not modified" and nothing is downloaded. A new snapshot downloads both houses (about 15-20 MB) and is
-#   dated by when Blizzard made it. Checking often catches each snapshot soon after it appears. Don't set 0.
-# ah_every = 10
 
 # --- Sync between PCs through a Backblaze B2 bucket (optional; the Sync page) ---
 # Without these lines the Sync page says "not set up" and nothing else changes. See README, "Playing on more

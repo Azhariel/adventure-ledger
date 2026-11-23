@@ -1,4 +1,4 @@
-"""Hourly Battle.net auction-house fetcher: records per-item prices into data/market.db.
+"""Hourly Battle.net auction-house fetcher (at :30, again at :40 if a snapshot is late): records per-item prices into data/market.db.
 
     python dashboard/fetcher.py          loop forever (the tray starts this)
     python dashboard/fetcher.py --once   one fetch, then exit
@@ -23,11 +23,14 @@ import server  # noqa: E402  (read_config and the data folder rule)
 KIND_HOUSES = {"faction": [110, 111, 112, 113, 114, 115, 119, 120, 123, 124],
                "neutral": [116, 117, 118, 121, 125]}
 POLL = 5   # seconds between checks for fetch_now / fetcher_stop while waiting
-SNAPSHOT_EVERY = 60   # minutes: Blizzard makes a new snapshot about hourly (seen in Last-Modified; not documented)
+SNAPSHOT_EVERY = 60   # minutes: Blizzard makes a new snapshot hourly (seen in Last-Modified; not documented)
+# Each house's snapshot is dated :24 or :25 every hour (138 hours in a row, Nov 2026) and is there within ~3 minutes.
+FETCH_AT = 30   # minute of the hour to fetch
+RETRY_AT = 40   # ...and once more if a house didn't have this hour's snapshot yet
 SHRINK_FROM = 1000   # a house this big never really halves between two snapshots an hour apart
 SHRINK_SKIPS = 3     # ...but if it stays halved over this many snapshots in a row, it really did
 REPLACE_TRIES = 5   # 0.2 s apart
-BAD_NUMBER = "bad value in ledger.cfg (ah_houses, ah_ruleset, ah_faction, ah_neutral or ah_every)"
+BAD_NUMBER = "bad value in ledger.cfg (ah_houses, ah_ruleset, ah_faction or ah_neutral)"
 _lock_handle = None   # held for the process lifetime
 
 
@@ -46,9 +49,25 @@ def acquire_lock(path):
     return True
 
 
-def next_run(last_try, every_min, now):
-    """When to fetch next. Never in the past, so waking from a long sleep gives one run, not a burst."""
-    return max(last_try + every_min * 60, now)
+def hour_start(now):
+    """The start of this hour on the PC's clock."""
+    tm = time.localtime(now)
+    return int(now) - tm.tm_min * 60 - tm.tm_sec
+
+
+def next_run(now, retry):
+    """When to fetch next: the next :30, or :40 this hour when retry. Never in the past, so waking from a long
+    sleep gives one run, not a burst."""
+    h = hour_start(now)
+    slots = [h + FETCH_AT * 60] + ([h + RETRY_AT * 60] if retry else []) + [h + (60 + FETCH_AT) * 60]
+    return next(t for t in slots if t > now)
+
+
+def has_new(status, now):
+    """True when every house has a snapshot from this hour, so there is nothing to retry for."""
+    houses = status["houses"].values()
+    h = hour_start(now)
+    return bool(houses) and all(e["ok"] and e["t"] is not None and e["t"] >= h for e in houses)
 
 
 def write_status(path, status, log=None):
@@ -76,9 +95,9 @@ def read_status(path):
         return {}
 
 
-def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None, keys=None):
+def run_once(client, store, houses, now, log, last_ok=None, skips=None, keys=None):
     """Fetch and record every house. One house failing never stops the others.
-    every: minutes between fetches. skips: {house: (partial snapshots skipped in a row, the last one's time)},
+    skips: {house: (partial snapshots skipped in a row, the last one's time)},
     kept by the caller. keys: {house: its name, e.g. "PvP Horde"}, shown in the status."""
     skips = {} if skips is None else skips
     keys = keys or {}
@@ -105,7 +124,7 @@ def run_once(client, store, houses, now, log, last_ok=None, every=60, skips=None
             skipped, skipped_t = skips.get(house, (0, None))
             before = skipped - 1 if t == skipped_t else skipped   # the same snapshot downloaded again counts once
             # recent: the last recorded snapshot is at most two snapshots old, plus one per snapshot skipped since
-            recent = prev_t is not None and now - prev_t <= (2 + before) * max(every, SNAPSHOT_EVERY) * 60
+            recent = prev_t is not None and now - prev_t <= (2 + before) * SNAPSHOT_EVERY * 60
             if (recent and before < SHRINK_SKIPS
                     and len(prev_ids) >= SHRINK_FROM and len(ids) < len(prev_ids) / 2):
                 # Most likely a missing or cut-short list: recording it would count every LONG auction
@@ -238,7 +257,7 @@ def match_houses(kind, cfg, config):
         # the client picks the API path from the config's houses, so describe the candidates in this ruleset
         candidates = [{"key": "%s %d" % (ruleset, i), "ruleset": ruleset, "side": bnet.SIDE_OF.get(i, "?"), "id": i}
                       for i in KIND_HOUSES[kind]]
-        client = bnet.Client(bnet.Config(config.client_id, config.secret, config.region, candidates, config.every))
+        client = bnet.Client(bnet.Config(config.client_id, config.secret, config.region, candidates))
         scores = []
         for house in KIND_HOUSES[kind]:
             if (ruleset, house) not in fetched:
@@ -328,12 +347,13 @@ def loop(args, cfg, data, log):
     try:
         while True:
             now = int(time.time())
-            status = run_once(client, store, houses, now, log, last_ok, config.every, skips, keys)
+            status = run_once(client, store, houses, now, log, last_ok, skips, keys)
             last_ok = status["last_ok"]
             if now - last_rollup >= 86400:
                 rollup(store, now, log)
                 last_rollup = now
-            status["next"] = None if args.once else next_run(now, config.every, int(time.time()))
+            done = int(time.time())
+            status["next"] = None if args.once else next_run(done, not has_new(status, done))
             write_status(status_path, status, log)
             if args.once:
                 return 0

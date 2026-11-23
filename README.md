@@ -170,8 +170,8 @@ and the build moves them to the Neutral side. A Neutral-only day stands out by i
 ### Auction house data from the Battle.net API
 
 Optional. Auctionator only knows the prices you scanned. The AH fetcher asks Blizzard's API for every listing at
-your faction's house and the Neutral one each time Blizzard makes a new snapshot (about hourly; it checks every
-10 minutes and downloads only when there's something new), and keeps per-item prices in `data/market.db`. Nothing in
+your faction's house and the Neutral one each time Blizzard makes a new snapshot (hourly, dated about :25; it checks
+at :30, and again at :40 only if a house had nothing new), and keeps per-item prices in `data/market.db`. Nothing in
 the game is automated: it only reads the API.
 
 1. Create your own API client at [develop.battle.net](https://develop.battle.net): log in with your Battle.net
@@ -183,7 +183,6 @@ the game is automated: it only reads the API.
    | `bnet_id`, `bnet_secret` | Your client's ID and secret |
    | `bnet_region` | `us` (default) |
    | `ah_houses` | The houses to fetch, e.g. `PvP 113, PvP 116`: ruleset name, then house id, comma-separated. The side follows from the id. `113` (Horde) and `116` (Neutral) matched on PvP; `--match` finds yours. The old `ah_ruleset`, `ah_faction` and `ah_neutral` still work when this is unset |
-   | `ah_every` | Minutes between checks for a new snapshot, `10` by default |
    | `ah_reset` | The weekly reset, day and hour on your clock: `Tue 12`, `tuesday 12:00` (whole hours only; other minutes get a warning and the default). Default: Tuesday at the local hour of 15:00 UTC, the US reset. Set it if Forever resets at another time |
 
 3. Run `wowstats live`. The tray starts the fetcher with the server.
@@ -197,7 +196,7 @@ does the same for your faction's house against Auctionator's latest scan day.
 **The tray icon.** `wowstats live` puts a dot in the notification area. It runs the live server and the fetcher and
 watches both every 5 seconds:
 
-- **green**: both running, and the last fetch is less than 1.5 times `ah_every` old
+- **green**: both running, and the last fetch is less than 90 minutes old
 - **amber**: one of them stopped, the last fetch failed, or a fetch is overdue
 - **grey**: both stopped
 

@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 
@@ -132,9 +133,9 @@ class FetcherTests(unittest.TestCase):
         # The PC was off for a day: the house may really have halved since, so the check doesn't apply.
         full = [auction(i, 10) for i in range(1000)]
         c = FakeClient({113: (full, [])})
-        fetcher.run_once(c, self.store, [113], 1000, LOG, every=60)
+        fetcher.run_once(c, self.store, [113], 1000, LOG)
         c.data[113] = (full[:400], [])
-        st = fetcher.run_once(c, self.store, [113], 1000 + 86400, LOG, every=60)
+        st = fetcher.run_once(c, self.store, [113], 1000 + 86400, LOG)
         self.assertTrue(st["houses"]["113"]["ok"])
         self.assertEqual(self.snapshots(), 2)
 
@@ -142,17 +143,17 @@ class FetcherTests(unittest.TestCase):
         full = [auction(i, 10) for i in range(1000)]
         c = FakeClient({113: (full, [])})
         skips = {}
-        fetcher.run_once(c, self.store, [113], 1000, LOG, every=60, skips=skips)
+        fetcher.run_once(c, self.store, [113], 1000, LOG, skips=skips)
         c.data[113] = (full[:400], [])
         t = 1000
         with self.assertLogs(LOG, "WARNING"):
             for _ in range(fetcher.SHRINK_SKIPS):
                 t += 3600
-                self.assertFalse(fetcher.run_once(c, self.store, [113], t, LOG, every=60, skips=skips)
+                self.assertFalse(fetcher.run_once(c, self.store, [113], t, LOG, skips=skips)
                                  ["houses"]["113"]["ok"])
         self.assertEqual(self.snapshots(), 1)
         t += 3600
-        self.assertTrue(fetcher.run_once(c, self.store, [113], t, LOG, every=60, skips=skips)["houses"]["113"]["ok"])
+        self.assertTrue(fetcher.run_once(c, self.store, [113], t, LOG, skips=skips)["houses"]["113"]["ok"])
         self.assertEqual(self.snapshots(), 2)
         self.assertEqual(skips.get(113, 0), 0, "a recorded snapshot resets the count")
 
@@ -194,20 +195,20 @@ class FetcherTests(unittest.TestCase):
         self.assertEqual(fetcher.run_once(c, self.store, [113], 3000, LOG)["houses"]["113"]["t"], 3000)
 
     def test_partial_check_works_with_frequent_fetches(self):
-        # Fetching every 10 minutes, the last snapshot is still about an hour old: still "recent"
+        # Fetching again a few minutes later, the last snapshot is still about an hour old: still "recent"
         full = [auction(i, 10) for i in range(1000)]
         c = FakeClient({113: (full, [], 1000)})
-        fetcher.run_once(c, self.store, [113], 1000, LOG, every=10)
+        fetcher.run_once(c, self.store, [113], 1000, LOG)
         c.data[113] = (full[:400], [], 4600)
         with self.assertLogs(LOG, "WARNING"):
-            self.assertFalse(fetcher.run_once(c, self.store, [113], 4700, LOG, every=10)["houses"]["113"]["ok"])
+            self.assertFalse(fetcher.run_once(c, self.store, [113], 4700, LOG)["houses"]["113"]["ok"])
 
     def test_same_partial_snapshot_counts_as_one_skip(self):
-        # Re-downloading the same cut-short snapshot every 10 minutes is no new evidence that the house shrank
+        # Re-downloading the same cut-short snapshot (the :40 retry) is no new evidence that the house shrank
         full = [auction(i, 10) for i in range(1000)]
         c = FakeClient({113: (full, [], 1000)})
         skips = {}
-        fetcher.run_once(c, self.store, [113], 1000, LOG, every=10, skips=skips)
+        fetcher.run_once(c, self.store, [113], 1000, LOG, skips=skips)
         t = 1000
         with self.assertLogs(LOG, "WARNING"):
             for snap in range(fetcher.SHRINK_SKIPS):
@@ -215,11 +216,11 @@ class FetcherTests(unittest.TestCase):
                 for _ in range(4):
                     t += 600
                     t = max(t, c.data[113][2] + 60)
-                    self.assertFalse(fetcher.run_once(c, self.store, [113], t, LOG, every=10, skips=skips)
+                    self.assertFalse(fetcher.run_once(c, self.store, [113], t, LOG, skips=skips)
                                      ["houses"]["113"]["ok"])
         c.data[113] = (full[:400], [], 1000 + 3600 * (fetcher.SHRINK_SKIPS + 1))
         t = c.data[113][2] + 60
-        self.assertTrue(fetcher.run_once(c, self.store, [113], t, LOG, every=10, skips=skips)["houses"]["113"]["ok"])
+        self.assertTrue(fetcher.run_once(c, self.store, [113], t, LOG, skips=skips)["houses"]["113"]["ok"])
         self.assertEqual(self.snapshots(), 2)
 
     def test_house_failure_logs_traceback(self):
@@ -228,9 +229,26 @@ class FetcherTests(unittest.TestCase):
             fetcher.run_once(c, self.store, [113], 1000, LOG)
         self.assertIsNotNone(logs.records[0].exc_info)
 
-    def test_next_run_after_sleep(self):
-        self.assertEqual(fetcher.next_run(1000, 60, 1000 + 5 * 3600), 1000 + 5 * 3600)
-        self.assertEqual(fetcher.next_run(1000, 60, 1500), 4600)
+    def test_next_run_is_half_past_the_hour(self):
+        h = int(time.mktime((2026, 11, 23, 14, 0, 0, 0, 0, -1)))   # 14:00 on this PC's clock
+        self.assertEqual(fetcher.next_run(h + 5 * 60, False), h + 30 * 60)    # started at 14:05
+        self.assertEqual(fetcher.next_run(h + 32 * 60, False), h + 90 * 60)   # got this hour's snapshot
+        self.assertEqual(fetcher.next_run(h + 45 * 60, True), h + 90 * 60)    # too late to retry this hour
+
+    def test_next_run_retries_at_twenty_to(self):
+        h = int(time.mktime((2026, 11, 23, 14, 0, 0, 0, 0, -1)))
+        self.assertEqual(fetcher.next_run(h + 31 * 60, True), h + 40 * 60)
+        self.assertEqual(fetcher.next_run(h + 40 * 60 + 2, True), h + 90 * 60)   # the retry missed too: next hour
+        self.assertEqual(fetcher.next_run(h + 5 * 60, True), h + 30 * 60)        # before :30, :30 comes first
+
+    def test_has_new_snapshot(self):
+        h = int(time.mktime((2026, 11, 23, 14, 0, 0, 0, 0, -1)))
+        now = h + 30 * 60
+        fresh = {"ok": True, "t": h + 25 * 60}
+        self.assertTrue(fetcher.has_new({"houses": {"113": fresh, "116": dict(fresh, t=h + 24 * 60)}}, now))
+        self.assertFalse(fetcher.has_new({"houses": {"113": fresh, "116": dict(fresh, t=h - 35 * 60)}}, now))
+        self.assertFalse(fetcher.has_new({"houses": {"113": fresh, "116": {"ok": False, "t": None}}}, now))
+        self.assertFalse(fetcher.has_new({"houses": {}}, now))
 
     def test_write_status_atomic(self):
         p = os.path.join(self.dir.name, "s.json")
@@ -298,13 +316,13 @@ class RobustnessTests(unittest.TestCase):
     def test_inline_comment_in_config(self):
         cfg = os.path.join(self.dir, "ledger.cfg")
         with open(cfg, "w", encoding="utf-8") as fh:
-            fh.write("bnet_id = abcd\nbnet_secret = s3#cret\nah_every = 60  # minutes\nah_faction =\t# unset\n")
+            fh.write("bnet_id = abcd\nbnet_secret = s3#cret\nah_faction = 114  # Normal\nah_neutral =\t# unset\n")
         got = server.read_config(cfg)
-        self.assertEqual(got, {"bnet_id": "abcd", "bnet_secret": "s3#cret", "ah_every": "60"})
-        self.assertEqual(bnet.Config.from_cfg(got).every, 60)
+        self.assertEqual(got, {"bnet_id": "abcd", "bnet_secret": "s3#cret", "ah_faction": "114"})
+        self.assertEqual(bnet.Config.from_cfg(got).houses[0]["id"], 114)
 
     def test_bad_number_in_config_is_logged(self):
-        cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret", "ah_every": "sixty"}
+        cfg = {"bnet_id": "abcd", "bnet_secret": "s3cret", "ah_faction": "sixty"}
         self.assertNotEqual(fetcher.main(["--once"], cfg=cfg, data=self.dir), 0)
         with open(os.path.join(self.dir, "fetcher.log"), encoding="utf-8") as fh:
             text = fh.read()

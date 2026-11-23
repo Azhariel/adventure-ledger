@@ -71,19 +71,18 @@ def unknown_rulesets(houses):
 
 
 class Config:
-    def __init__(self, client_id, secret, region="us", houses=None, every=10):
+    def __init__(self, client_id, secret, region="us", houses=None):
         self.client_id = client_id
         self.secret = secret
         self.region = region
         self.houses = houses if houses is not None else parse_houses({})
-        self.every = int(every)   # minutes between fetches
 
     @classmethod
     def from_cfg(cls, cfg):
         if not cfg.get("bnet_id") or not cfg.get("bnet_secret"):
             return None
         return cls(cfg["bnet_id"], cfg["bnet_secret"], cfg.get("bnet_region", "us"),
-                   parse_houses(cfg), cfg.get("ah_every", 10))
+                   parse_houses(cfg))
 
     def ruleset_id(self, house):
         """The API path's ruleset number for a configured house (1 when the name isn't one we know)."""
@@ -91,9 +90,9 @@ class Config:
         return next((i for i, n in RULESETS.items() if n == name), 1)
 
     def __repr__(self):   # never show the secret
-        return "Config(client_id=...%s, region=%r, houses=[%s], every=%d)" % (
+        return "Config(client_id=...%s, region=%r, houses=[%s])" % (
             self.client_id[-4:], self.region,
-            ", ".join("%s=%d" % (h["key"], h["id"]) for h in self.houses), self.every)
+            ", ".join("%s=%d" % (h["key"], h["id"]) for h in self.houses))
 
 
 class Client:
