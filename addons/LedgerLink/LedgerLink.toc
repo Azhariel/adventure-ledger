@@ -8,3 +8,5 @@
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 
 Core.lua
+StatusWindow.lua
+Status.lua

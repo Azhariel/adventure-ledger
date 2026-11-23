@@ -12,7 +12,8 @@
 --    also lets them through). Visits are tagged with realm and faction. The old LedgerLinkDB.neutral book is
 --    moved under the current realm at login.
 -- Public (ns.LedgerLink, for tests): Ensure(), Command(msg), IsNeutralHere(), OnAuctionShow(), HookAuctionator(),
---   Record(side, dbKey, price, available, now), Migrate().
+--   Record(side, dbKey, price, available, now), Migrate(). For the /ledger window (Status.lua): DB(), LoggingOn(),
+--   RealmKey(), BookInfo(side, realm).
 local ADDON, ns = ...
 local L = {}
 ns.LedgerLink = L
@@ -211,12 +212,27 @@ function L.OnAuctionShow(now)
     end
 end
 
-local function neutralCount()
-    local n = 0
+-- Items in one book and the newest price it holds (nil when empty); realm defaults to the one in use.
+-- Reads only: an empty book isn't created.
+function L.BookInfo(side, realm)
     local books = db().books
-    for _ in pairs(books and books[realmName()] and books[realmName()].Neutral or {}) do n = n + 1 end
-    return n
+    local book = books and books[realm or realmName()] and books[realm or realmName()][side]
+    local n, last = 0, nil
+    for _, e in pairs(book or {}) do
+        n = n + 1
+        if type(e) == "table" and e.t and (not last or e.t > last) then last = e.t end
+    end
+    return n, last
 end
+
+local function neutralCount()
+    return (L.BookInfo("Neutral"))
+end
+
+-- What the window reads, so it shows what Core does rather than its own guess
+L.DB = db
+L.RealmKey = realmName
+function L.LoggingOn() return (logging()) end
 
 ----------------------------------------------------------------------------------------------------
 -- /ledger
@@ -241,8 +257,11 @@ function L.Command(msg)
         }
         say(("%s %d items in the Neutral book.  /ledger neutral split | both | off"):format(
             text[d.neutralMode] or "?", neutralCount()))
+    elseif (cmd == "" or cmd == "print") and ns.ShowStatus then
+        ns.ShowStatus(cmd) -- no args: the window (Status.lua); print: the same to the chat
     else
-        say(("combat log %s; switched on at login: %s; neutral AH: %s.  /ledger on | off | neutral"):format(
+        -- a typo, or Status.lua didn't load: the one-line status
+        say(("combat log %s; switched on at login: %s; neutral AH: %s.  /ledger | print | on | off | neutral"):format(
             logging() and "ON" or "off", d.enable and "yes" or "no", d.neutralMode))
     end
 end

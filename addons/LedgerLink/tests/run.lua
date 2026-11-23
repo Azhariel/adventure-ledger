@@ -23,6 +23,8 @@ local function load(opts)
     _G.time = os.time
     _G.GetRealmName = opts.realm or function() return "PvP" end
     _G.UnitFactionGroup = opts.faction or function() return "Horde" end
+    _G.Auctionator = opts.auctionator -- tests that need it stub it after load
+    _G.DEFAULT_CHAT_FRAME = nil
     _G.C_Timer = {
         After = function(_, fn) fn() end,
         NewTicker = function(sec, fn)
@@ -36,8 +38,11 @@ local function load(opts)
         return { RegisterEvent = function() end, SetScript = function(_, _, fn) handlers.event = fn end }
     end
     local ns = {}
-    assert(loadfile(root .. "Core.lua"))("LedgerLink", ns)
+    for _, f in ipairs({ "Core.lua", "StatusWindow.lua", "Status.lua" }) do
+        assert(loadfile(root .. f))("LedgerLink", ns)
+    end
     st.fire = function() handlers.event() end
+    st.ns = ns
     return ns.LedgerLink, st
 end
 
@@ -61,13 +66,16 @@ test("a protected LoggingCombat never breaks the addon", function()
     eq(L.Ensure(), false)
 end)
 
-test("status line and on/off commands", function()
+test("on/off commands still switch and say so", function()
     local L, st = load()
     st.fire()
-    L.Command("")
-    eq(st.printed[#st.printed]:find("combat log ON", 1, true) ~= nil, true)
+    local n = #st.printed
     L.Command("off"); eq(LedgerLinkDB.enable, false)
+    eq(#st.printed, n + 1); eq(st.printed[#st.printed]:find("won't switch", 1, true) ~= nil, true)
     L.Command("on"); eq(LedgerLinkDB.enable, true)
+    eq(st.printed[#st.printed]:find("at every login", 1, true) ~= nil, true)
+    L.Command("neutral both"); eq(LedgerLinkDB.neutralMode, "both")
+    eq(st.printed[#st.printed]:find("0 items in the Neutral book", 1, true) ~= nil, true)
 end)
 
 -- A stub Auctionator whose Database records what reaches it
@@ -177,6 +185,9 @@ test("a faction scan leaves the Neutral last-scan time alone", function()
     Auctionator.Database:SetPrice("2447", 300, 40)
     eq(LedgerLinkDB.neutralLast, last)
 end)
+
+assert(loadfile(root .. "tests/test_status.lua"))()({ test = test, eq = eq, load = load,
+    stubAuctionator = stubAuctionator, at = at })
 
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
