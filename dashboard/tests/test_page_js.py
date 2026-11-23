@@ -233,6 +233,27 @@ process.stdout.write(JSON.stringify([0.004, -0.004, 0, 0.06, -0.06].map(pctVsUsu
         self.assertEqual(got, ["±0%", "±0%", "±0%", "+6%", "−6%"])
         self.assertFalse([g for g in got[:3] if g.startswith("+") or g.startswith("−")])
 
+    def test_heat_scale_spreads_a_tight_range_and_clamps_spikes(self):
+        # listings sit at 218k-286k: from zero they'd all land in the top quarter; ammo churn spikes units sold
+        js = page_js(["cellNum", "heatScale", "heatColour"]) + """
+const listings = Array.from({ length: 168 }, (_, i) => 218000 + (i % 24) * 3000);
+listings[5] = 0; listings[6] = null;
+const sold = Array.from({ length: 168 }, () => 100000); sold[10] = 50000; sold[11] = 334000;
+const a = heatScale(listings), b = heatScale(sold.map((v, i) => i < 150 ? v + i * 100 : v));
+process.stdout.write(JSON.stringify({ a, b, t0: heatColour(0), t1: heatColour(1), mid: heatColour(0.5), q: heatColour(0.125),
+  over: heatColour(1.7), under: heatColour(-1) }));
+"""
+        got = json.loads(run_node(js))
+        self.assertGreater(got["a"]["lo"], 200000, "zeros and gaps don't pull the low end to 0")
+        self.assertLess(got["a"]["hi"], 287000)
+        self.assertLess(got["b"]["hi"], 334000, "a spike is clamped, not the top of the scale")
+        self.assertEqual(got["t0"], "var(--heat1)")
+        self.assertEqual(got["t1"], "var(--heat5)")
+        self.assertEqual(got["mid"], "var(--heat3)")
+        self.assertEqual(got["q"], "color-mix(in oklab, var(--heat1) 50%, var(--heat2))")
+        self.assertEqual(got["over"], "var(--heat5)")
+        self.assertEqual(got["under"], "var(--heat1)")
+
     def test_money_axis_flat_series(self):
         js = page_js(["moneyAxis"]) + """
 process.stdout.write(JSON.stringify([moneyAxis([1, 1, 1]), moneyAxis([1, 11]), moneyAxis([5, 400]), moneyAxis([7]), moneyAxis([])]));
