@@ -188,10 +188,15 @@ svg.spark { display: block; margin-left: auto; }
 .wk .hr { white-space: nowrap; overflow: visible; }
 .wk .dl { color: var(--muted); align-self: center; }
 .wk .cell { height: 18px; border-radius: 2px; background: var(--bg); }
-.wk .cell.reset { box-shadow: inset 0 0 0 1.5px var(--yellow); }
+.wk .cell { position: relative; }
+/* two rings so it reads on every colour: white outside (on the dark gap), dark inside (on a bright yellow cell) */
+.wk .cell.now { z-index: 1; outline: 2px solid var(--fg); outline-offset: 0; box-shadow: inset 0 0 0 1.5px var(--void); }
+/* the reset is a moment, so a line where its hour starts (in the 2px gap), dashed yellow like the time charts' */
+.wk .cell.reset::before { content: ""; position: absolute; left: -2px; top: -2px; bottom: -2px; border-left: 2px dashed var(--yellow); pointer-events: none; }
 .wk-title { font-size: 12.5px; color: var(--muted); margin: 0 0 6px; }
 .legend i.ramp { width: 44px; height: 10px; vertical-align: -1px; }
-.legend i.reset { width: 10px; height: 10px; vertical-align: -1px; box-shadow: inset 0 0 0 1.5px var(--yellow); }
+.legend i.now { width: 10px; height: 10px; vertical-align: -1px; background: var(--yellow); outline: 2px solid var(--fg); box-shadow: inset 0 0 0 1.5px var(--void); }
+.legend i.nowl { background: var(--fg); opacity: .7; }
 .strip { font-size: 12.5px; color: var(--dim); margin: 8px 0 0; }
 .strip .sell { color: var(--green); } .strip .buy, .cheap { color: var(--pink); }
 .trends-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -2487,7 +2492,7 @@ function heatGrid(week, opts = {}) {
   const houseWide = opts.houseWide ?? Array.isArray(w.listings);
   const blank = i => at(vals, i) == null || (!houseWide && Array.isArray(w.n) && !((at(w.n, i) || 0) >= minN));
   const scale = heatScale(Array.from({ length: 168 }, (_, i) => blank(i) ? null : at(vals, i)));
-  const resetAt = reset && reset.dow != null ? reset.dow * 24 + reset.hour : -1;
+  const resetAt = reset && reset.dow != null ? reset.dow * 24 + reset.hour : -1, nowAt = nowCell();
   const colour = v => {
     if (kind === "price") {
       return priceColour(v, stripRule().STRIP_PCT);
@@ -2504,14 +2509,15 @@ function heatGrid(week, opts = {}) {
     const s = kind === "listings" || kind === "gold" ? null : kind === "sold" ? at(vals, i) : at(w.s, i);
     if (s != null && !(kind === "sold" && blank(i))) parts.push(`${perWeek(s)} sold/wk`);
     if (n != null) parts.push(plural(n, "obs", "obs"));
-    if (i === resetAt) parts.push("weekly reset");
+    if (i === resetAt) parts.push(`weekly reset at ${hour2(h)}`);
+    if (i === nowAt) parts.push("now");
     return parts.join(" · ");
   };
   const head = `<div class="rw" role="row"><span role="columnheader" aria-label="Weekday"></span>${Array.from({ length: 24 }, (_, h) => `<span class="hr" role="columnheader" aria-label="${hour2(h)}">${h % 3 ? "" : String(h).padStart(2, "0")}</span>`).join("")}</div>`;
   const rows = WEEKDAYS.map((name, d) => `<div class="rw" role="row"><span class="dl" role="rowheader">${name}</span>` + Array.from({ length: 24 }, (_, h) => {
     const i = d * 24 + h;
     const bg = blank(i) ? "" : ` style="background:${colour(at(vals, i))}"`;
-    return `<span class="cell${i === resetAt ? " reset" : ""}" role="cell"${bg} title="${esc(tip(d, h, i))}"></span>`;
+    return `<span class="cell${i === nowAt ? " now" : ""}${i === resetAt ? " reset" : ""}" role="cell"${bg} data-i="${i}" title="${esc(tip(d, h, i))}"></span>`;
   }).join("") + `</div>`).join("");
   const legend = kind === "price"
     ? `<span><i class="ramp" style="background:linear-gradient(90deg, var(--pink), color-mix(in srgb, var(--pink) 45%, var(--raise)) 33%, var(--raise) 50%, color-mix(in srgb, var(--green) 45%, var(--raise)) 67%, var(--green))"></i>−${Math.round(PRICE_FULL * 100)}% cheaper (buy) · within ${Math.round(stripRule().STRIP_PCT * 100)}%: usual · +${Math.round(PRICE_FULL * 100)}% pricier (sell)</span>`
@@ -2523,7 +2529,15 @@ function heatGrid(week, opts = {}) {
   return (opts.title ? `<div class="wk-title">${esc(opts.title)}</div>` : "")
     + `<div class="wkbox"><div class="wk" role="table" aria-label="${esc(opts.title || "Hour of the week")}">${head}${rows}</div></div>`
     + `<div class="legend">${legend}<span><i class="sq" style="background:var(--bg);border:1px solid var(--line)"></i>not enough data</span>`
-    + `<span><i class="reset"></i>weekly reset${resetAt >= 0 ? ` (${WEEKDAYS[reset.dow]} ${hour2(reset.hour)})` : ""}</span></div>`;
+    + `<span><i class="now"></i>now</span>`
+    + `<span><i class="rl"></i>weekly reset${resetAt >= 0 ? ` (${WEEKDAYS[reset.dow]} ${hour2(reset.hour)})` : ""}</span></div>`;
+}
+
+// Moves every heat grid's "now" box to the current hour (the page can stay open across hours)
+function refreshNowCells() {
+  const i = String(nowCell());
+  document.querySelectorAll(".wk .cell.now").forEach(c => { if (c.dataset.i !== i) c.classList.remove("now"); });
+  document.querySelectorAll(`.wk .cell[data-i="${i}"]`).forEach(c => c.classList.add("now"));
 }
 
 // The best runs of pricey (sell) and cheap (buy) hours: the same rule as trends.lua's T.strip, with its constants
@@ -2669,6 +2683,21 @@ const resetLines = {
       g.beginPath(); g.moveTo(px, a.top); g.lineTo(px, a.bottom); g.stroke();
       if (px + 34 < a.right) g.fillText("reset", px + 3, a.bottom - 4);
     }
+    g.restore();
+  },
+};
+// A solid line at now, when now falls inside a time chart's x range (a forecast runs past it)
+const nowLine = {
+  id: "nowLine",
+  afterDraw(chart) {
+    const x = chart.scales.x, a = chart.chartArea, t = Date.now();
+    if (!x || !a || !(t > x.min && t < x.max)) return;
+    const g = chart.ctx, col = css("--fg"), px = Math.round(x.getPixelForValue(t)) + .5;
+    g.save();
+    g.strokeStyle = alpha(col, .55); g.fillStyle = alpha(col, .8); g.lineWidth = 1;
+    g.font = `10px ${css("--mono") || "monospace"}`;
+    g.beginPath(); g.moveTo(px, a.top); g.lineTo(px, a.bottom); g.stroke();
+    if (px + 26 < a.right) g.fillText("now", px + 3, a.top + 10);
     g.restore();
   },
 };
@@ -3597,7 +3626,7 @@ function inspect(id, side = house) {
   }
   el("itemLegend").innerHTML = [F && `<span><i style="background:var(--faction)"></i>Faction</span>`, N && `<span><i style="background:var(--neutral)"></i>Neutral</span>`,
     `<span><i style="background:var(--dim)"></i>solid: daily low · dotted: daily high · rings: your saves</span>`,
-    fcOk ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span>` : "", resetLegend()].filter(Boolean).join("");
+    fcOk ? `<span><i class="dash"></i>forecast</span><span><i class="band sq" style="background:var(--pink)"></i>80% band</span><span><i class="nowl"></i>now</span>` : "", resetLegend()].filter(Boolean).join("");
   const xs = ds.flatMap(d => d.data.map(p => p.x)).concat(lds0(F, N, mid));
   const xr = xs.length ? { min: Math.min(...xs) - DAY * 500, max: Math.max(...xs) + DAY * 500 } : {};
   const fixY = { afterFit: ax => { ax.width = 68; } };
@@ -3606,7 +3635,7 @@ function inspect(id, side = house) {
   Object.assign(o.scales.y, moneyAxis(ds.filter(d => d.type !== "scatter" && !/^Band/.test(d.label)).flatMap(d => d.data.map(pt => pt.y))));
   o.scales.y.ticks.precision = 0;
   o.plugins.legend = { display: false };
-  chart("itemChart", { type: "line", data: { datasets: ds }, options: o, plugins: [resetLines] }, inspCharts);
+  chart("itemChart", { type: "line", data: { datasets: ds }, options: o, plugins: [resetLines, nowLine] }, inspCharts);
   // Listings: a second chart rather than a second axis
   const lds = [];
   if (F) lds.push({ label: "Faction listed", data: (F.days || []).filter(d => d[3] != null).map(d => ({ x: mid(d[0]) - (N ? 3600000 * 3 : 0), y: d[3] })), backgroundColor: css("--faction"), barThickness: N ? 8 : 14, borderRadius: 2 });
@@ -4188,6 +4217,7 @@ function setupLive() {
   loadSync();
   connectLive();
   setInterval(() => { if (tab === "live" && LIVE) renderLive(LIVE); }, 1000); // keep the clocks moving
+  setInterval(refreshNowCells, 60000); // the heat grids' "now" box follows the clock
 }
 
 function start() {

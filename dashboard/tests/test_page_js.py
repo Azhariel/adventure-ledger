@@ -257,7 +257,7 @@ process.stdout.write(JSON.stringify({ a, b, t0: heatColour(0), t1: heatColour(1)
     def test_heat_grid_gold_kind(self):
         js = page_js(["WEEKDAYS", "cellNum", "hour2", "pctVsUsual", "perWeek", "short", "heatScale", "heatColour", "heatGrid"],
                      "const NUM = new Intl.NumberFormat('en-US'); const DATA = null; const esc = s => String(s);"
-                     "const plural = (n, a) => n + ' ' + a; const stripRule = () => ({ MIN_N: 2 });") + """
+                     "const plural = (n, a) => n + ' ' + a; const stripRule = () => ({ MIN_N: 2 }); const nowCell = () => 0;") + """
 const gold = Array.from({ length: 168 }, (_, i) => 1e6 + i * 1e5); gold[3] = false;
 const html = heatGrid({ gold, listings: [], n: Array(168).fill(3) }, { kind: "gold", title: "Gold traded" });
 process.stdout.write(JSON.stringify({ html }));
@@ -267,6 +267,25 @@ process.stdout.write(JSON.stringify({ html }));
         self.assertIn("or more traded/wk", html)
         self.assertIn("var(--heat", html)
         self.assertNotIn("sold/wk", html, "the gold grid's tooltips don't fall back to units")
+
+    def test_heat_grid_marks_now_and_the_reset_apart(self):
+        # the reset's box read as "now": now gets the box, the reset a dashed line where its hour starts
+        js = page_js(["WEEKDAYS", "cellNum", "hour2", "pctVsUsual", "perWeek", "short", "heatScale", "heatColour",
+                      "PRICE_FULL", "priceColour", "heatGrid"],
+                     "const NUM = new Intl.NumberFormat('en-US'); const DATA = null; const esc = s => String(s);"
+                     "const plural = (n, a) => n + ' ' + a; const stripRule = () => ({ MIN_N: 2, STRIP_PCT: 0.05 });"
+                     "const nowCell = () => 50;") + """
+const gold = Array.from({ length: 168 }, (_, i) => 1e6 + i * 1e5);
+const html = heatGrid({ gold, listings: [], n: Array(168).fill(3) }, { kind: "gold", reset: { dow: 1, hour: 12 } });
+const cell = i => (html.match(new RegExp('<span class="([^"]*)" role="cell"[^>]*data-i="' + i + '"')) || [])[1];
+process.stdout.write(JSON.stringify({ now: cell(50), reset: cell(36), plain: cell(37), html }));
+"""
+        got = json.loads(run_node(js))
+        self.assertEqual(got["now"], "cell now")
+        self.assertEqual(got["reset"], "cell reset")
+        self.assertEqual(got["plain"], "cell")
+        self.assertIn('<i class="now"></i>now', got["html"])
+        self.assertIn('<i class="rl"></i>weekly reset (Tue 12:00)', got["html"])
 
     def test_price_colour_follows_the_buy_sell_threshold(self):
         # half the family cells sit within 5% of usual (Nov 2026): faint there, clear from the 5% buy/sell line,
