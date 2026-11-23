@@ -1457,17 +1457,7 @@ L.frame = frame
 -- /logbook
 
 SLASH_LOGBOOK1 = "/logbook"
-SlashCmdList.LOGBOOK = function()
-    local db = ns.db
-    if not db then return end
-    local base = db.baseline and (" Carried on from " .. db.baseline.from .. "'s counters.") or ""
-    ns.Print(("%d lines since %s, %d sessions, %d trail chunks.%s"):format(#db.log,
-        date and date("%d %b %Y", db.since) or tostring(db.since), #db.sessions, #db.trail.chunks, base))
-    if db.history then
-        ns.Print(("Kept %d of %s's older lines and %d sessions: its files are safe to delete."):format(
-            #db.history.log, db.history.from, #db.history.sessions))
-    end
-    local m, d = db.meter or {}, db.counts.damage or {}
-    ns.Print(m.available and ("Damage meter: %d fights read."):format(d.fights or 0)
-        or ("Damage meter unavailable (%s)."):format(m.reason or "unknown"))
+-- the window with what Logbook has recorded (Status.lua); "/logbook print" sends it to the chat
+SlashCmdList.LOGBOOK = function(msg)
+    if ns.ShowStatus then ns.ShowStatus(msg) end
 end

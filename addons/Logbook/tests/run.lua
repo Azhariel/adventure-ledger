@@ -12,7 +12,7 @@ end
 function H.truthy(v, msg) if not v then error((msg or "expected truthy") .. ", got " .. tostring(v), 2) end end
 
 local failed, total = 0, 0
-for _, suite in ipairs({ "test_journal", "test_core" }) do
+for _, suite in ipairs({ "test_journal", "test_core", "test_status" }) do
     print("[" .. suite .. "]")
     H.tests = {}
     require(suite)(H)

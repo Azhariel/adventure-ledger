@@ -510,12 +510,12 @@ return function(H)
         local st = W.install()
         C_DamageMeter = nil
         local ns = {}
-        for _, f in ipairs({ "Journal.lua", "Core.lua" }) do assert(loadfile(H.root .. f))("Logbook", ns) end
+        for _, f in ipairs({ "Journal.lua", "Core.lua", "StatusWindow.lua", "Status.lua" }) do assert(loadfile(H.root .. f))("Logbook", ns) end
         W.fire("PLAYER_LOGIN"); W.fire("PLAYER_ENTERING_WORLD", true, false)
         eq(LogbookCharDB.meter.available, false)
         W.fire("PLAYER_REGEN_DISABLED"); W.fire("PLAYER_REGEN_ENABLED")
         eq(LogbookCharDB.counts.fights.n, 1)
-        SlashCmdList.LOGBOOK()
-        truthy(st.printed[#st.printed]:find("unavailable"))
+        SlashCmdList.LOGBOOK("print")
+        truthy(table.concat(st.printed, " "):find("damage meter unavailable", 1, true), "the status warns")
     end)
 end
