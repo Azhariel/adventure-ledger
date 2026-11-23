@@ -21,6 +21,20 @@ return function(H)
         eq(LogbookDB.chars["Player-6800-00A90C3E"].played, 50010)
     end)
 
+    test("blank realm (Forever client, 2026-11-21): keep the saved realm, else the ruleset from the game rules", function()
+        boot({ realm = "", rules = { PvPRuleset = true } })
+        eq(LogbookCharDB.char.realm, "PvP", "a new character gets its ruleset, like Stockpile's")
+        eq(LogbookDB.chars["Player-6800-00A90C3E"].realm, "PvP")
+        local saved = LogbookCharDB
+        saved.char.realm = "CAMWOW US2 Realm 2 PvP"
+        boot({ charDB = saved, realm = "", rules = { PvPRuleset = true } })
+        eq(LogbookCharDB.char.realm, "CAMWOW US2 Realm 2 PvP", "a character saved with its realm keeps it")
+        boot({ realm = "", rules = { PvPRuleset = true, RPRuleset = true } })
+        eq(LogbookCharDB.char.realm, "RPPvP")
+        boot({ realm = "" })
+        eq(LogbookCharDB.char.realm, nil, "no realm and no game rules: none")
+    end)
+
     test("a /reload starts a session marked reload", function()
         boot({ reload = true })
         eq(LogbookCharDB.sessions[1].how, "reload")

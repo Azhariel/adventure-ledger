@@ -12,6 +12,7 @@ function M.install(opts)
         resting = false, taxi = opts.taxi or false, instance = false, instanceType = "none", instanceName = nil,
         target = nil, units = {}, skills = opts.skills or {}, inbox = {}, sendItems = {}, secrets = {},
         quests = {}, spells = {}, timers = {}, printed = {}, played = opts.played or 50000,
+        realm = opts.realm == nil and "CAMWOW US2 Realm 2 PvP" or opts.realm, rules = opts.rules,
     }
     M.state = st
     local frame = { events = {} }
@@ -52,7 +53,9 @@ function M.install(opts)
         local d = st.units[u]
         return d and d.guid
     end
-    GetRealmName = function() return "CAMWOW US2 Realm 2 PvP" end
+    GetRealmName = function() return st.realm end
+    -- opts.rules: the active game rules by Enum.GameRule name ({ PvPRuleset = true }); without it, no C_GameRules
+    C_GameRules = st.rules and { IsGameRuleActive = function(rule) return st.rules[rule] == true end } or nil
     UnitClass = function(u)
         local d = u ~= "player" and st.units[u]
         if d then return d.classToken, d.classToken end
@@ -187,7 +190,8 @@ function M.install(opts)
     LOOT_ITEM_CREATED_SELF_MULTIPLE = "You create: %sx%d."
     -- damage meter: st.meter.sessions = { { id, seconds, [type] = { sources = {...}, spells = {...} } } }
     st.meter = { sessions = opts.meterSessions or {}, available = true }
-    Enum = { DamageMeterType = { DamageDone = 0, HealingDone = 2, DamageTaken = 7, EnemyDamageTaken = 10 } }
+    Enum = { DamageMeterType = { DamageDone = 0, HealingDone = 2, DamageTaken = 7, EnemyDamageTaken = 10 },
+             GameRule = { PvPRuleset = "PvPRuleset", RPRuleset = "RPRuleset", HardcoreRuleset = "HardcoreRuleset" } }
     local function meterSession(id)
         for _, s in ipairs(st.meter.sessions) do if s.id == id then return s end end
     end

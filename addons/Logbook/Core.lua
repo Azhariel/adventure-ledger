@@ -166,11 +166,27 @@ local function zoneName()
     return str(call(GetRealZoneText)) or str(call(GetZoneText))
 end
 
--- Name, realm, class, race... of the player, into db.char
+-- The ruleset the game rules say this realm plays (Auctionator's names, as Stockpile and Ledger Link), or nil
+-- without C_GameRules
+local function rulesetName()
+    local rules, E = _G.C_GameRules, _G.Enum and _G.Enum.GameRule
+    if not (rules and rules.IsGameRuleActive and E) then return nil end
+    local function on(rule) return rule ~= nil and call(rules.IsGameRuleActive, rule) == true end
+    local pvp, rp = on(E.PvPRuleset), on(E.RPRuleset)
+    if pvp and rp then return "RPPvP" end
+    if pvp then return "PvP" end
+    if rp then return "RP" end
+    if on(E.HardcoreRuleset) then return "HC" end
+    return "PvE"
+end
+
+-- Name, realm, class, race... of the player, into db.char. GetRealmName() answers "" on Forever since the client
+-- update of 2026-11-21: then the realm saved before, else the ruleset ("PvP"), as Stockpile saves it, so the
+-- dashboard can tell the character's auction house.
 function L.Identity()
     local c = ns.db.char
     c.name = str(call(UnitName, "player")) or c.name
-    c.realm = str(call(GetRealmName)) or c.realm
+    c.realm = str(call(GetRealmName)) or str(c.realm) or rulesetName()
     c.guid = str(call(UnitGUID, "player")) or c.guid
     local _, classToken = call(UnitClass, "player")
     c.class = str(classToken) or c.class
